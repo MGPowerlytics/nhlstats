@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Airflow
+airflow.db
+airflow.cfg
+logs/
+*.pid
+
+# Data files
+data/games/*.json
+data/shifts/*.json
+data/shifts/*.csv
+*.duckdb
+*.duckdb.wal
+
+# Keep directory structure
+!data/games/.gitkeep
+!data/shifts/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
