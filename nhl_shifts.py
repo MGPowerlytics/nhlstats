@@ -6,6 +6,7 @@ Download NHL shift data showing time on ice for each player shift.
 import requests
 import json
 import csv
+import time
 from pathlib import Path
 
 
@@ -14,9 +15,35 @@ class NHLShifts:
     
     BASE_URL = "https://api.nhle.com/stats/rest/en/shiftcharts"
     
-    def __init__(self, output_dir="data/shifts"):
+    def __init__(self, output_dir="data/shifts", date_folder=None):
         self.output_dir = Path(output_dir)
+        if date_folder:
+            self.output_dir = self.output_dir / date_folder
         self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _make_request(self, url, max_retries=5):
+        """Make HTTP request with exponential backoff for rate limits."""
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url)
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    wait_time = (2 ** attempt) * 2  # 2, 4, 8, 16, 32 seconds
+                    print(f"Rate limited. Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait_time = (2 ** attempt) * 2
+                print(f"Request failed: {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+        
+        raise Exception(f"Failed to fetch {url} after {max_retries} attempts")
     
     def get_game_shifts(self, game_id):
         """
@@ -24,9 +51,7 @@ class NHLShifts:
         Returns detailed shift information for all players.
         """
         url = f"{self.BASE_URL}?cayenneExp=gameId={game_id}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(url)
     
     def download_game_shifts(self, game_id, format='json'):
         """

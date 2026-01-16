@@ -4,7 +4,7 @@ Downloads race results from previous day for both Happy Valley and Sha Tin.
 """
 
 from airflow import DAG
-from airflow.operators.python import PythonOperator
+from airflow.providers.standard.operators.python import PythonOperator
 from datetime import datetime, timedelta
 from pathlib import Path
 import sys
@@ -27,8 +27,8 @@ default_args = {
 
 def scrape_previous_day_races(**context):
     """Scrape race results from previous day."""
-    execution_date = context['execution_date']
-    previous_day = (execution_date - timedelta(days=1)).date()
+    logical_date = context['logical_date']
+    previous_day = (logical_date - timedelta(days=1)).date()
     
     print(f"Scraping HK racing results for {previous_day}")
     
@@ -54,7 +54,7 @@ with DAG(
     'hk_racing_daily_download',
     default_args=default_args,
     description='Download HK horse racing results daily at 7am',
-    schedule_interval='0 7 * * *',  # Run at 7am daily
+    schedule='0 7 * * *',  # Run at 7am daily
     start_date=datetime(2024, 10, 1),
     catchup=False,
     tags=['hk_racing', 'sports', 'data'],

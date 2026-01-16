@@ -5,6 +5,7 @@ Download NHL game event data including shots, goals, hits, and other events with
 
 import requests
 import json
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -15,9 +16,43 @@ class NHLGameEvents:
     BASE_URL = "https://api-web.nhle.com/v1"
     LEGACY_URL = "https://statsapi.web.nhl.com/api/v1"
     
-    def __init__(self, output_dir="data/games"):
+    def __init__(self, output_dir="data/games", date_folder=None):
         self.output_dir = Path(output_dir)
+        if date_folder:
+            self.output_dir = self.output_dir / date_folder
         self.output_dir.mkdir(parents=True, exist_ok=True)
+    
+    def _make_request(self, url, max_retries=5):
+        """Make HTTP request with exponential backoff for rate limits."""
+        for attempt in range(max_retries):
+            try:
+                response = requests.get(url)
+                
+                # Handle rate limiting
+                if response.status_code == 429:
+                    wait_time = (2 ** attempt) * 2  # 2, 4, 8, 16, 32 seconds
+                    print(f"Rate limited. Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
+                    time.sleep(wait_time)
+                    continue
+                
+                response.raise_for_status()
+                return response.json()
+            except requests.exceptions.RequestException as e:
+                if attempt == max_retries - 1:
+                    raise
+                wait_time = (2 ** attempt) * 2
+                print(f"Request failed: {e}. Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+        
+        raise Exception(f"Failed to fetch {url} after {max_retries} attempts")
+    
+    def get_schedule_by_date(self, date_str):
+        """
+        Get schedule for a specific date.
+        Date format: YYYY-MM-DD
+        """
+        url = f"{self.BASE_URL}/schedule/{date_str}"
+        return self._make_request(url)
     
     def get_season_schedule(self, season="20232024"):
         """
@@ -25,9 +60,7 @@ class NHLGameEvents:
         Season format: YYYYYYYY (e.g., 20232024 for 2023-24 season)
         """
         url = f"{self.BASE_URL}/schedule/{season}"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(url)
     
     def get_game_data(self, game_id):
         """
@@ -38,16 +71,12 @@ class NHLGameEvents:
         - GGGGG: Game number (00001)
         """
         url = f"{self.BASE_URL}/gamecenter/{game_id}/play-by-play"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(url)
     
     def get_game_boxscore(self, game_id):
         """Get boxscore data including player stats."""
         url = f"{self.BASE_URL}/gamecenter/{game_id}/boxscore"
-        response = requests.get(url)
-        response.raise_for_status()
-        return response.json()
+        return self._make_request(url)
     
     def download_game(self, game_id, include_boxscore=True):
         """Download and save all data for a game."""

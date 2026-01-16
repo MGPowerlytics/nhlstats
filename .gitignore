@@ -15,19 +15,12 @@ airflow.db
 airflow.cfg
 logs/
 *.pid
+postgres-data/
 
-# Data files
-data/games/*.json
-data/shifts/*.json
-data/shifts/*.csv
-data/hk_racing/*.json
+# Data files - ignore entire data directory
+data/
 *.duckdb
 *.duckdb.wal
-
-# Keep directory structure
-!data/games/.gitkeep
-!data/shifts/.gitkeep
-!data/hk_racing/.gitkeep
 
 # IDE
 .vscode/
