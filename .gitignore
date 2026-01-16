@@ -20,12 +20,14 @@ logs/
 data/games/*.json
 data/shifts/*.json
 data/shifts/*.csv
+data/hk_racing/*.json
 *.duckdb
 *.duckdb.wal
 
 # Keep directory structure
 !data/games/.gitkeep
 !data/shifts/.gitkeep
+!data/hk_racing/.gitkeep
 
 # IDE
 .vscode/
