@@ -57,7 +57,7 @@ def calculate_ratings(season: int = None, all_seasons: bool = False):
                 
                 if playoff_count > 0:
                     print(f"\nProcessing {playoff_count} playoff games...")
-                    playoff_stats = ratings.process_season(season=season_year, game_type=3)
+                    ratings.process_season(season=season_year, game_type=3)
                     
         elif season:
             print(f"Processing Season {season}")
@@ -73,7 +73,7 @@ def calculate_ratings(season: int = None, all_seasons: bool = False):
             
             if playoff_count > 0:
                 print(f"\nProcessing {playoff_count} playoff games...")
-                playoff_stats = ratings.process_season(season=season, game_type=3)
+                ratings.process_season(season=season, game_type=3)
         else:
             print("Error: Must specify --season or --all-seasons")
             return False

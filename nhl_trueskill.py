@@ -6,7 +6,6 @@ Implements a TrueSkill-based rating system for NHL players that:
 - Updates ratings based on game outcomes
 - Weights player contributions by time on ice
 - Handles team ratings as aggregation of player ratings
-- Accounts for home ice advantage
 
 TrueSkill represents each player's skill as a Gaussian distribution:
 - μ (mu): Mean skill level
@@ -19,7 +18,6 @@ import trueskill
 import duckdb
 import json
 from pathlib import Path
-from datetime import datetime
 from typing import Dict, List, Tuple, Optional
 from collections import defaultdict
 

@@ -26,7 +26,6 @@ Examples:
 
 import argparse
 import sys
-from pathlib import Path
 from nhl_trueskill import NHLTrueSkillRatings
 
 

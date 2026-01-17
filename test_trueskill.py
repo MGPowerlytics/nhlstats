@@ -6,7 +6,6 @@ Simple tests to validate the TrueSkill implementation works correctly.
 """
 
 import sys
-from pathlib import Path
 import trueskill
 
 

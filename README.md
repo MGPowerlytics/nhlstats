@@ -8,6 +8,7 @@ This repository contains Airflow DAGs that automatically download sports data da
 - Game events (shots, goals, hits, penalties)
 - Shift data (time on ice)
 - Player and team statistics
+- **TrueSkill player ratings** ⭐ NEW!
 - **Schedule:** Daily at 7:00 AM
 
 ### 🏇 Hong Kong Horse Racing
@@ -26,6 +27,9 @@ nhlstats/
 │   └── hk_racing_daily_download.py    # HK racing data collection
 ├── nhl_game_events.py                 # NHL API client
 ├── nhl_shifts.py                      # NHL shifts data
+├── nhl_trueskill.py                   # TrueSkill rating system ⭐
+├── calculate_trueskill_ratings.py     # Calculate player ratings ⭐
+├── query_trueskill_ratings.py         # Query player ratings ⭐
 ├── hk_racing_scraper.py               # HKJC web scraper
 ├── data/
 │   ├── games/                         # NHL game data
@@ -34,6 +38,7 @@ nhlstats/
 │   └── nhlstats.duckdb                # DuckDB database (future)
 ├── NORMALIZATION_PLAN.md              # NHL schema design
 ├── HK_RACING_SCHEMA.md                # Racing schema design
+├── README_TRUESKILL.md                # TrueSkill rating system guide ⭐
 └── README_AIRFLOW.md                  # Airflow setup guide
 ```
 
@@ -44,20 +49,43 @@ nhlstats/
 pip install -r requirements.txt
 ```
 
-### 2. Initialize Airflow
+### 2. TrueSkill Player Ratings (NEW!)
+
+Calculate skill ratings for all NHL players:
+
+```bash
+# Calculate ratings for 2023-24 season
+python calculate_trueskill_ratings.py --season 2023
+
+# Or process all available seasons
+python calculate_trueskill_ratings.py --all-seasons
+
+# Query top players
+python query_trueskill_ratings.py --top 50
+
+# Search for specific player
+python query_trueskill_ratings.py --player "McDavid"
+
+# View ratings by position
+python query_trueskill_ratings.py --by-position
+```
+
+**See [README_TRUESKILL.md](README_TRUESKILL.md) for detailed documentation.**
+
+### 3. Initialize Airflow
 ```bash
 export AIRFLOW_HOME=~/airflow
 airflow db init
 airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com
 ```
 
-### 3. Configure DAGs
+### 4. Configure DAGs
 Copy DAGs to Airflow folder or configure `dags_folder` in `airflow.cfg`:
 ```bash
 cp dags/*.py ~/airflow/dags/
 ```
 
-### 4. Start Airflow
+### 5. Start Airflow
 ```bash
 # Terminal 1: Web server
 airflow webserver --port 8080
@@ -66,7 +94,7 @@ airflow webserver --port 8080
 airflow scheduler
 ```
 
-### 5. Enable DAGs
+### 6. Enable DAGs
 Go to http://localhost:8080 and toggle on:
 - `nhl_daily_download`
 - `hk_racing_daily_download`
@@ -139,6 +167,7 @@ Both sports will be normalized into DuckDB for efficient querying:
 - `games`, `teams`, `players`
 - `game_events`, `shots`, `shifts`
 - `player_game_stats`, `goalie_game_stats`
+- `player_trueskill_ratings`, `player_trueskill_history` ⭐ NEW!
 
 ### Racing Tables
 - `race_meetings`, `races`
@@ -147,6 +176,7 @@ Both sports will be normalized into DuckDB for efficient querying:
 
 See detailed schemas in:
 - [NORMALIZATION_PLAN.md](NORMALIZATION_PLAN.md) - NHL schema
+- [README_TRUESKILL.md](README_TRUESKILL.md) - TrueSkill rating system ⭐
 - [HK_RACING_SCHEMA.md](HK_RACING_SCHEMA.md) - Racing schema
 
 ## Configuration
