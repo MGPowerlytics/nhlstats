@@ -18,8 +18,9 @@ from mlb_games import MLBGames
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'email_on_failure': False,
+    'email_on_failure': True,
     'email_on_retry': False,
+    'email': ['7244959219@vtext.com'],  # Verizon SMS gateway
     'retries': 3,
     'retry_delay': timedelta(minutes=10),
 }

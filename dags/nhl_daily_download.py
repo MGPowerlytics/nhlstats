@@ -19,9 +19,10 @@ from nhl_db_loader import load_nhl_data_for_date
 
 default_args = {
     'owner': 'airflow',
-    'depends_on_past': False,
-    'email_on_failure': False,
+    'depends_on_past': False,  # Pool serializes writes, no need for sequential execution
+    'email_on_failure': True,
     'email_on_retry': False,
+    'email': ['7244959219@vtext.com'],  # Verizon SMS gateway
     'retries': 2,
     'retry_delay': timedelta(minutes=5),
 }
@@ -135,7 +136,7 @@ with DAG(
     schedule='@daily',  # Run daily at midnight
     start_date=datetime(2021, 10, 1),  # Start of 2021-2022 season
     catchup=True,  # Enable backfill to get historical data
-    max_active_runs=2,  # Reduced to avoid API rate limits
+    max_active_runs=1,  # Single run at a time - pool controls task concurrency
     tags=['nhl', 'sports', 'data'],
 ) as dag:
     
@@ -146,18 +147,21 @@ with DAG(
         op_kwargs={
             'date_str': '{{ logical_date.strftime("%Y-%m-%d") }}'
         },
+        pool='nhl_api',  # Limit concurrent API calls
     )
     
     # Task 2: Download game events (play-by-play and boxscore)
     download_events = PythonOperator(
         task_id='download_game_events',
         python_callable=download_game_events,
+        pool='nhl_api',  # Limit concurrent API calls
     )
     
     # Task 3: Download shift data
     download_shifts = PythonOperator(
         task_id='download_game_shifts',
         python_callable=download_game_shifts,
+        pool='nhl_api',  # Limit concurrent API calls
     )
     
     # Task 4: Load data into DuckDB

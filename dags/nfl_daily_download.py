@@ -18,8 +18,9 @@ from nfl_games import NFLGames
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'email_on_failure': False,
+    'email_on_failure': True,
     'email_on_retry': False,
+    'email': ['7244959219@vtext.com'],  # Verizon SMS gateway
     'retries': 2,
     'retry_delay': timedelta(minutes=10),
 }

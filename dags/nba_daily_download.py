@@ -13,13 +13,15 @@ import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from nba_games import NBAGames
+from nba_db_loader import load_nba_data_for_date
 
 
 default_args = {
     'owner': 'airflow',
     'depends_on_past': False,
-    'email_on_failure': False,
+    'email_on_failure': True,
     'email_on_retry': False,
+    'email': ['7244959219@vtext.com'],  # Verizon SMS gateway
     'retries': 3,
     'retry_delay': timedelta(minutes=10),
 }
@@ -37,21 +39,37 @@ def download_nba_games(**context):
     try:
         game_count = fetcher.download_games_for_date(date_str)
         print(f"Successfully downloaded {game_count} games for {date_str}")
+        return game_count
     except Exception as e:
-        print(f"Error downloading NBA data: {e}")
-        # Don't raise - may not be games every day
-        if "404" not in str(e):
-            raise
+        error_msg = str(e)
+        print(f"Error downloading NBA data: {error_msg}")
+        # Don't raise for expected errors (no games, rate limits temporarily)
+        if "404" in error_msg or "No games" in error_msg:
+            print(f"  Data not available for {date_str} - likely no games scheduled")
+            return 0
+        raise
+
+
+def load_into_duckdb(date_str, **context):
+    """Load downloaded NBA data into DuckDB"""
+    print(f"Loading NBA data for {date_str} into DuckDB...")
+    
+    try:
+        games_count = load_nba_data_for_date(date_str)
+        print(f"Successfully loaded {games_count} games into DuckDB")
+    except Exception as e:
+        print(f"Error loading data into DuckDB: {e}")
+        raise
 
 
 with DAG(
     'nba_daily_download',
     default_args=default_args,
-    description='Download NBA game data daily',
+    description='Download NBA game data daily and load into DuckDB',
     schedule='@daily',
     start_date=datetime(2021, 10, 1),  # Start of 2021-22 NBA season
     catchup=True,
-    max_active_runs=2,  # Limit concurrent runs
+    max_active_runs=10,  # Increased for faster backfill
     tags=['nba', 'sports', 'data'],
 ) as dag:
     
@@ -59,3 +77,15 @@ with DAG(
         task_id='download_nba_games',
         python_callable=download_nba_games,
     )
+    
+    load_db = PythonOperator(
+        task_id='load_into_duckdb',
+        python_callable=load_into_duckdb,
+        op_kwargs={
+            'date_str': '{{ logical_date.strftime("%Y-%m-%d") }}'
+        },
+        pool='duckdb_nba_writer',  # Serialize database writes
+    )
+    
+    # Define dependencies
+    download_games >> load_db

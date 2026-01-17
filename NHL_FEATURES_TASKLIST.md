@@ -7,21 +7,21 @@ Comprehensive task list of 100+ features that can be added to improve NHL game o
 
 ## 🗓️ Schedule & Fatigue Features (15 features)
 
-- [ ] 1. Calculate days of rest since last game (per team)
-- [ ] 2. Detect back-to-back games (2nd night flag)
-- [ ] 3. Detect 3-in-4 nights schedule compression
-- [ ] 4. Detect 4-in-6 nights schedule compression
-- [ ] 5. Count consecutive home games (home stand length)
-- [ ] 6. Count consecutive away games (road trip length)
-- [ ] 7. Calculate days since last home game
-- [ ] 8. Calculate days since last away game
-- [ ] 9. Detect if returning home after long road trip (5+ games)
-- [ ] 10. Count back-to-backs in last 10 games
+- [x] 1. Calculate days of rest since last game (per team) ✅ Implemented
+- [x] 2. Detect back-to-back games (2nd night flag) ✅ Implemented
+- [x] 3. Detect 3-in-4 nights schedule compression ✅ Implemented
+- [x] 4. Detect 4-in-6 nights schedule compression ✅ Implemented
+- [x] 5. Count consecutive home games (home stand length) ✅ Implemented
+- [x] 6. Count consecutive away games (road trip length) ✅ Implemented
+- [x] 7. Calculate days since last home game ✅ Implemented
+- [x] 8. Calculate days since last away game ✅ Implemented
+- [x] 9. Detect if returning home after long road trip (5+ games) ✅ Implemented
+- [x] 10. Count back-to-backs in last 10 games ✅ Implemented
 - [ ] 11. Calculate average rest days over last 10 games
-- [ ] 12. Flag if team has 3+ days rest (well-rested)
+- [ ] 12. Flag if team has 3+ days rest (well-rested) ✅ Implemented as bonus
 - [ ] 13. Flag if team has 1 day rest after travel
 - [ ] 14. Calculate cumulative fatigue index (weighted recent games)
-- [ ] 15. Detect schedule advantage (rest days difference between teams)
+- [ ] 15. Detect schedule advantage (rest days difference between teams) ✅ Implemented as bonus
 
 ---
 
@@ -277,10 +277,15 @@ Comprehensive task list of 100+ features that can be added to improve NHL game o
 ## Completion Tracking
 
 - **Total Features**: 150
-- **Completed**: 0
+- **Completed**: 20 (+ 2 bonus)
 - **In Progress**: 0
-- **Not Started**: 150
-- **Completion %**: 0%
+- **Not Started**: 128
+- **Completion %**: 13%
+
+**Last Completed**: 
+- Tasks 1-10 (Schedule & Fatigue core features) - 2026-01-17
+- Tasks 76-80 (Situational & Context features) - 2026-01-17
+- Tasks 96-100 (Head-to-Head history features) - 2026-01-17
 
 ---
 
