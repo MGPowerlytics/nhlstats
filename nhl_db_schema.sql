@@ -241,6 +241,44 @@ CREATE INDEX IF NOT EXISTS idx_shifts_player ON player_shifts(player_id);
 
 
 -- ============================================================================
+-- TRUESKILL RATING TABLES
+-- ============================================================================
+
+-- Player TrueSkill Ratings: Current skill ratings
+CREATE TABLE IF NOT EXISTS player_trueskill_ratings (
+    player_id INTEGER PRIMARY KEY,
+    mu DOUBLE NOT NULL,
+    sigma DOUBLE NOT NULL,
+    skill_estimate DOUBLE NOT NULL,  -- mu - 3*sigma (conservative estimate)
+    games_played INTEGER DEFAULT 0,
+    last_updated TIMESTAMP,
+    FOREIGN KEY (player_id) REFERENCES players(player_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trueskill_skill ON player_trueskill_ratings(skill_estimate DESC);
+
+
+-- Player TrueSkill History: Track rating changes over time
+CREATE TABLE IF NOT EXISTS player_trueskill_history (
+    player_id INTEGER NOT NULL,
+    game_id VARCHAR NOT NULL,
+    game_date DATE NOT NULL,
+    mu_before DOUBLE NOT NULL,
+    sigma_before DOUBLE NOT NULL,
+    mu_after DOUBLE NOT NULL,
+    sigma_after DOUBLE NOT NULL,
+    toi_seconds INTEGER,
+    team_won BOOLEAN NOT NULL,
+    PRIMARY KEY (player_id, game_id),
+    FOREIGN KEY (player_id) REFERENCES players(player_id),
+    FOREIGN KEY (game_id) REFERENCES games(game_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_trueskill_history_player ON player_trueskill_history(player_id, game_date);
+CREATE INDEX IF NOT EXISTS idx_trueskill_history_game ON player_trueskill_history(game_id);
+
+
+-- ============================================================================
 -- ML FEATURE VIEWS (to be created later for analysis)
 -- ============================================================================
 
