@@ -80,6 +80,22 @@ SPORTS_CONFIG = {
             'NFO': 'Nott\'m Forest', 'CRY': 'Crystal Palace', 'TOT': 'Tottenham',
             'SOU': 'Southampton', 'LEI': 'Leicester', 'LEE': 'Leeds'
         }
+    },
+    'tennis': {
+        'elo_module': 'tennis_elo_rating',
+        'games_module': 'tennis_games',
+        'kalshi_function': 'fetch_tennis_markets',
+        'elo_threshold': 0.60,
+        'series_ticker': 'TENNIS', # Placeholder
+        'team_mapping': {}
+    },
+    'ncaab': {
+        'elo_module': 'ncaab_elo_rating',
+        'games_module': 'ncaab_games',
+        'kalshi_function': 'fetch_ncaab_markets',
+        'elo_threshold': 0.65,
+        'series_ticker': 'KXNCAAMBGAME',
+        'team_mapping': {}
     }
 }
 
@@ -111,6 +127,14 @@ def download_games(sport, **context):
     elif sport == 'epl':
         from epl_games import EPLGames
         games = EPLGames()
+        games.download_games()
+    elif sport == 'tennis':
+        from tennis_games import TennisGames
+        games = TennisGames()
+        games.download_games()
+    elif sport == 'ncaab':
+        from ncaab_games import NCAABGames
+        games = NCAABGames()
         games.download_games()
     
     print(f"✓ {sport.upper()} games downloaded")
@@ -175,9 +199,42 @@ def update_elo_ratings(sport, **context):
         if not elo:
             print(f"⚠️  No EPL games available yet")
             return
-    
+    elif sport == 'ncaab':
+        from ncaab_elo_rating import NCAABEloRating
+        from ncaab_games import NCAABGames
+        
+        elo = NCAABEloRating(k_factor=20, home_advantage=100)
+        games_obj = NCAABGames()
+        # Ensure data exists essentially
+        df = games_obj.load_games()
+        
+        if df.empty:
+            print("⚠️ No NCAAB games loaded")
+            return
+            
+        df = df.sort_values('date')
+        for _, game in df.iterrows():
+            home_won = 1.0 if game['home_score'] > game['away_score'] else 0.0
+            # load_games returns neutral flag
+            elo.update(game['home_team'], game['away_team'], home_won, is_neutral=game['neutral'])
+            
+    elif sport == 'tennis':
+        # Tennis is unique, we compute globally usually
+        # But for DAG, let's just create a dummy object or compute current
+        # For now, let's calculate from scratch from DB
+        import duckdb
+        from tennis_elo_rating import TennisEloRating
+        
+        conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+        games = conn.execute("SELECT winner, loser FROM tennis_games ORDER BY game_date").fetchall()
+        conn.close()
+        
+        elo = TennisEloRating()
+        for w, l in games:
+            elo.update(w, l)
+            
     # Save ratings to CSV
-    if sport in ['nba', 'nhl', 'epl']:
+    if sport in ['nba', 'nhl', 'epl', 'tennis']:
         Path(f'data/{sport}_current_elo_ratings.csv').parent.mkdir(parents=True, exist_ok=True)
         with open(f'data/{sport}_current_elo_ratings.csv', 'w') as f:
             f.write('team,rating\n')
@@ -194,7 +251,7 @@ def fetch_prediction_markets(sport, **context):
     """Fetch prediction markets for a sport."""
     print(f"💰 Fetching {sport.upper()} prediction markets...")
     
-    from kalshi_markets import fetch_nba_markets, fetch_nhl_markets, fetch_mlb_markets, fetch_nfl_markets, fetch_epl_markets
+    from kalshi_markets import fetch_nba_markets, fetch_nhl_markets, fetch_mlb_markets, fetch_nfl_markets, fetch_epl_markets, fetch_tennis_markets, fetch_ncaab_markets
     
     config = SPORTS_CONFIG[sport]
     fetch_function = {
@@ -202,7 +259,9 @@ def fetch_prediction_markets(sport, **context):
         'nhl': fetch_nhl_markets,
         'mlb': fetch_mlb_markets,
         'nfl': fetch_nfl_markets,
-        'epl': fetch_epl_markets
+        'epl': fetch_epl_markets,
+        'tennis': fetch_tennis_markets,
+        'ncaab': fetch_ncaab_markets
     }[sport]
     
     date_str = context['ds']
@@ -261,6 +320,123 @@ def identify_good_bets(sport, **context):
             continue
             
         parts = ticker.split('-')
+        
+        # NCAAB LOGIC
+        if sport == 'ncaab':
+            title = market.get('title', '')
+            if ' at ' not in title:
+                continue
+                
+            # Parse "TeamA at TeamB Winner?" or just "TeamA at TeamB"
+            teams_part = title.split(' Winner?')[0] if ' Winner?' in title else title
+            try:
+                away_raw, home_raw = teams_part.split(' at ')
+            except ValueError:
+                continue
+            
+            # Find closest match in Elo ratings
+            # Simple normalization helper
+            def normalize(s):
+                return s.replace('St', 'State').replace('Univ', '').replace('.', '').strip()
+
+            params = [away_raw, home_raw]
+            matched_teams = []
+            
+            for p in params:
+                 # 1. Exact match
+                 if p in elo_ratings:
+                     matched_teams.append(p)
+                     continue
+                 
+                 # 2. Normalized match
+                 norm_p = normalize(p)
+                 found = None
+                 for k in elo_ratings.keys():
+                     if normalize(k) == norm_p:
+                         found = k
+                         break
+                 if found:
+                     matched_teams.append(found)
+                     continue
+                 
+                 # 3. Substring match (dangerous but useful for UMass -> Massachusetts?)
+                 # Massachusetts contains Mass? No.
+                 # UMass -> Massachusetts.
+                 # Let's skip obscure ones and focus on clean matches
+                 matched_teams.append(None)
+            
+            if None in matched_teams:
+                continue
+                
+            away_team, home_team = matched_teams
+            
+            # Predict
+            try:
+                prob = elo_system.predict(home_team, away_team)
+            except:
+                continue
+                
+            # Market Prob
+            yes_ask = market.get('yes_ask', 0) / 100.0
+            
+            # Identify which side is Yes
+            # Ticker: KXNCAAMBGAME-DATE-AWAY-HOME-WINNER
+            # If ticker ends with HOME, Yes = Home Win.
+            # But ticker uses abbreviations!
+            # We can't easily rely on ticker to know who is who if mappings are unknown.
+            # But the Title says "Toledo at UMass Winner?" (Yes/No).
+            # Usually "Yes" means the named event happens?
+            # Wait, Kalshi structure for "Winner?" markets:
+            # Title: "Toledo at UMass Winner?"
+            # Subtitle: "Toledo" (Option Yes?) No, unrelated.
+            
+            # Actually, "Winner?" markets are often:
+            # Title: "Toledo at UMass Winner?"
+            # This is ambiguous. Does Yes mean Home wins? Or simple match winner?
+            
+            # Let's check verify_ncaab_series.py output again
+            # Ticker: KXNCAAMBGAME-26JAN20TOLMASS-TOL
+            # Title: Toledo at UMass Winner?
+            # The last part of ticker is TOL.
+            # This implies the market is "Will TOL win?"
+            
+            # So if ticker ends with TOL, and Away is Toledo, then YES = Away Win.
+            # We need to extract the target from ticker.
+            
+            target_abbr = parts[-1]
+            
+            # Need to match target_abbr to away_team or home_team.
+            # We don't have abbreviations in elo_ratings keys (full names).
+            # But we have `away_raw` ("Toledo") and `home_raw` ("UMass").
+            # TOL matches Toledo? Yes (Startswith).
+            # MASS matches UMass? Yes (Contains/Ending).
+            
+            target_side = 'Unknown'
+            if away_raw.upper().startswith(target_abbr) or target_abbr in away_raw.upper():
+                target_side = 'away'
+            elif home_raw.upper().startswith(target_abbr) or target_abbr in home_raw.upper():
+                target_side = 'home'
+            else:
+                 continue
+                 
+            market_prob = yes_ask
+            elo_prob = prob if target_side == 'home' else (1.0 - prob)
+            
+            edge = elo_prob - market_prob
+            if elo_prob > elo_threshold and edge > 0.05:
+                confidence = "HIGH" if elo_prob > (elo_threshold + 0.1) else "MEDIUM"
+                good_bets.append({
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'elo_prob': elo_prob,
+                    'market_prob': market_prob,
+                    'edge': edge,
+                    'bet_on': target_side,
+                    'confidence': confidence,
+                    'ticker': ticker
+                })
+            
+            continue # Skip standard logic
         
         # EPL LOGIC
         if sport == 'epl':
@@ -332,6 +508,10 @@ def identify_good_bets(sport, **context):
                 print(f"  ✓ {away_name} @ {home_name}: Bet {bet_on} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
             
             continue
+            
+        # TENNIS LOGIC (Placeholder)
+        if sport == 'tennis':
+             continue
 
         # STANDARD LOGIC (NBA, NHL, MLB, NFL)
         if len(parts) < 3:
@@ -431,7 +611,7 @@ dag = DAG(
 )
 
 # Create tasks for each sport
-for sport in ['nba', 'nhl', 'mlb', 'nfl']:
+for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl']:
     download_task = PythonOperator(
         task_id=f'{sport}_download_games',
         python_callable=download_games,

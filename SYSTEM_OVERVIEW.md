@@ -1,181 +1,71 @@
-# Multi-Sport Betting System - Summary
+# Multi-Sport Betting Analytics Platform
 
-## ✅ Completed Work
+A unified platform for collecting sports data, calculating Elo ratings, simulating betting strategies, and visualizing performance across multiple leagues (NHL, MLB, NFL, NBA, EPL, Tennis).
 
-### 1. Created Unified Multi-Sport Betting DAG
-**File**: `dags/multi_sport_betting_workflow.py`
-- Single DAG handles NBA, NHL, MLB, and NFL
-- Daily schedule at 10 AM
-- Parallel processing for all sports
-- Confidence-based bet recommendations
+## 📂 Project Structure
 
-### 2. Elo Rating Implementations
-**Files**: 
-- `nba_elo_rating.py` - K=20, Home=100, Threshold=64%
-- `nhl_elo_rating.py` - K=20, Home=100, Threshold=77%
-- `mlb_elo_rating.py` - K=20, Home=50, Threshold=62%
-- `nfl_elo_rating.py` - K=20, Home=65, Threshold=68%
+### Core Components
+- **`dags/`**: Airflow DAGs for orchestrating daily workflows.
+  - `multi_sport_betting_workflow.py`: Main daily DAG for all sports.
+- **`plugins/`**: Python modules for data fetching, processing, and Elo calculations.
+  - **Data Fetchers:** `*_games.py` (e.g., `nhl_games.py`, `tennis_games.py`)
+  - **Elo Logic:** `*_elo_rating.py` (e.g., `mlb_elo_rating.py`)
+  - **Market Data:** `kalshi_markets.py` (Integration with Kalshi prediction markets)
+  - **Database:** `db_loader.py` (Unified loading into DuckDB)
+- **`data/`**: Local storage for downloaded raw data and DuckDB database.
+  - `nhlstats.duckdb`: Central data warehouse.
+- **`dashboard_app.py`**: Streamlit interactive dashboard for analysis.
 
-### 3. Kalshi Market Integration
-**File**: `kalshi_markets.py`
-- Added `fetch_mlb_markets()` using series_ticker='KXMLBGAME'
-- Added `fetch_nfl_markets()` using series_ticker='KXNFLGAME'
-- Existing NBA and NHL integrations working
+### Supported Sports
+| Sport | League | Data Source | Elo System |
+|-------|--------|-------------|------------|
+| Hockey | NHL | NHL API | Team-based |
+| Baseball | MLB | MLB API | Team-based |
+| Football | NFL | ESPN/NFL | Team-based |
+| Basketball| NBA | NBA API | Team-based |
+| Soccer | EPL | football-data.co.uk | 3-Way (Win/Draw/Loss) |
+| Tennis | ATP/WTA | tennis-data.co.uk | Player-based |
 
-### 4. Archived Old Code
-**Directory**: `archive/`
-- Moved 50+ files not related to betting
-- Archived XGBoost models, TrueSkill, Glicko-2
-- Archived HK Racing scraper
-- Archived old training/analysis scripts
-- Archived old DAGs (nba_betting_workflow.py, nhl_betting_workflow.py)
+## 🚀 Usage
 
-### 5. Updated Documentation
-**Files**:
-- `.github/copilot-instructions.md` - Comprehensive guide for Copilot
-- `README.md` - User-facing documentation
-- Both reflect new Elo-based betting strategy
-
-### 6. Configuration Updates
-**File**: `docker-compose.yaml`
-- Removed unnecessary volume mounts
-- Added mlb_elo_rating.py mount
-- Added nfl_elo_rating.py mount
-- Added mlb_games.py mount
-- Added nfl_games.py mount
-
-## 🎯 System Architecture
-
-```
-Multi-Sport Betting Workflow (Daily at 10 AM)
-├── NBA Branch
-│   ├── Download games → Update Elo → Fetch markets → Identify bets
-│   └── Output: data/nba/bets_YYYY-MM-DD.json
-├── NHL Branch
-│   ├── Download games → Update Elo → Fetch markets → Identify bets
-│   └── Output: data/nhl/bets_YYYY-MM-DD.json
-├── MLB Branch
-│   ├── Download games → Update Elo → Fetch markets → Identify bets
-│   └── Output: data/mlb/bets_YYYY-MM-DD.json
-└── NFL Branch
-    ├── Download games → Update Elo → Fetch markets → Identify bets
-    └── Output: data/nfl/bets_YYYY-MM-DD.json
-```
-
-## 📊 Validated Performance
-
-### NBA (Tested with Real Data)
-- **5 opportunities found today** (2026-01-18)
-- **Edges**: 5.5% to 37.5%
-- **Confidence**: 2 HIGH, 3 MEDIUM
-- **Expected frequency**: 5 opportunities/day (33% of games)
-
-### NHL (Tested with Real Data)
-- **3 opportunities found today** (2026-01-18)
-- **Edges**: 15% to 27%
-- **Confidence**: All HIGH
-- **Expected frequency**: 2-3 opportunities/day (20% of games)
-
-### MLB & NFL
-- **Infrastructure ready**
-- **Waiting for season games** to validate
-- **Estimated**: 2-5 opportunities/day per sport
-
-## 🚀 How to Use
-
-### View Today's Opportunities
+### 1. Dashboard
+Run the interactive analytics dashboard:
 ```bash
-# NBA
-cat data/nba/bets_$(date +%Y-%m-%d).json | jq
-
-# NHL  
-cat data/nhl/bets_$(date +%Y-%m-%d).json | jq
-
-# MLB
-cat data/mlb/bets_$(date +%Y-%m-%d).json | jq
-
-# NFL
-cat data/nfl/bets_$(date +%Y-%m-%d).json | jq
+streamlit run dashboard_app.py
 ```
 
-### Manual Trigger
+### 2. Airflow
+The DAG `multi_sport_betting_workflow` runs daily at 10:00 AM. It performs:
+1. **Download:** Fetches latest game results.
+2. **Elo Update:** Recalculates team/player ratings.
+3. **Market Scan:** Fetches active markets from Kalshi.
+4. **Bet Identification:** Finds +EV bets where Model Prob > Market Prob.
+
+### 3. Utilities
+- **Backfill Scripts:**
+  - `analyze_season_timing.py`: Compare model accuracy across season stages.
+  - `plugins/db_loader.py`: Manually load generic data files.
+
+## 🛠 Setup
+
+**Dependencies:**
 ```bash
-docker exec $(docker ps -qf "name=scheduler") \
-  airflow dags trigger multi_sport_betting_workflow
+pip install -r requirements.txt
+pip install -r requirements_dashboard.txt
 ```
 
-### View Elo Ratings
-```bash
-cat data/nba_current_elo_ratings.csv | sort -t',' -k2 -rn | head -10
-```
+**Database:**
+The system uses DuckDB (`data/nhlstats.duckdb`). No server setup required.
 
-## 🔑 Key Files
+## 📈 Methodology
+- **Elo Ratings:** We use customized K-factors and Home Advantage settings per sport.
+- **Calibration:** Verified via Brier Score and lift charts in the dashboard.
+- **ROI Calculation:** Assumes standard -110 odds unless specific market data is available.
 
-### Production Code (Active)
-- `dags/multi_sport_betting_workflow.py` - Main DAG
-- `*_elo_rating.py` - Elo implementations (4 files)
-- `kalshi_markets.py` - Market integration
-- `*_games.py` - Data downloaders (4 files)
-- `docker-compose.yaml` - Airflow setup
-- `requirements.txt` - Dependencies
-- `kalshkey` - API credentials
-
-### Documentation
-- `README.md` - User guide
-- `.github/copilot-instructions.md` - Developer guide
-- `SYSTEM_OVERVIEW.md` - This file
-
-### Archived (Not Active)
-- `archive/` - 50+ old files
-
-## 🎓 Betting Strategy
-
-### Edge Calculation
-```
-edge = elo_probability - market_probability
-```
-
-### Bet Criteria
-```python
-if elo_prob > THRESHOLD and edge > 0.05:
-    # This is a good bet
-    confidence = "HIGH" if elo_prob > (THRESHOLD + 0.1) else "MEDIUM"
-```
-
-### Thresholds by Sport
-- **NBA**: 64% (lower variance sport)
-- **NHL**: 77% (higher variance, need more confidence)
-- **MLB**: 62% (very long season, lower threshold)
-- **NFL**: 68% (limited games, moderate threshold)
-
-## 📈 Expected ROI
-
-### By Confidence Level
-- **HIGH**: 85-90% win rate, ~15% average edge
-- **MEDIUM**: 70-75% win rate, ~8% average edge
-
-### Overall
-- **Expected ROI**: 8-12% per bet after fees
-- **Daily opportunities**: 10-15 across all sports in season
-- **Bankroll management**: Max 5% per bet
-
-## 🔄 Next Steps
-
-1. **MLB**: Load historical data when season starts
-2. **NFL**: Load historical data when season starts  
-3. **Monitoring**: Add performance tracking
-4. **Automation**: Consider automated bet execution
-5. **Tuning**: Adjust thresholds based on real results
-
-## ⚠️ Important Notes
-
-- **Airflow restart needed** after docker-compose.yaml changes
-- **Kalshi credentials** must be in `kalshkey` file
-- **Data directories** created automatically by DAG
-- **Archive folder** contains old code for reference only
-
----
-
-**Status**: ✅ System ready for production
-**Last Updated**: 2026-01-18
-**Version**: 1.0
+## 📝 Developer Notes
+- **Adding a new sport:**
+  1. Create `plugins/{sport}_games.py` (Fetcher).
+  2. Create `plugins/{sport}_elo_rating.py` (Logic).
+  3. Update `plugins/db_loader.py` (Schema).
+  4. Register in `dags/multi_sport_betting_workflow.py`.
+  5. Add to `dashboard_app.py`.

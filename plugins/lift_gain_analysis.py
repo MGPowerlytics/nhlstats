@@ -61,6 +61,14 @@ SPORT_CONFIG = {
         'data_source': 'csv',
         'season_start_month': 8,  # August
     },
+    'ncaab': {
+        'elo_module': 'ncaab_elo_rating',
+        'elo_class': 'NCAABEloRating',
+        'k_factor': 20,
+        'home_advantage': 100,
+        'data_source': 'csv_ncaab',
+        'season_start_month': 11,  # November
+    },
 }
 
 
@@ -302,6 +310,34 @@ def load_games_from_csv(sport: str, season_only: bool = False) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+def load_games_from_ncaab(sport: str, season_only: bool = False) -> pd.DataFrame:
+    """Load NCAAB games using NCAABGames class."""
+    if sport != 'ncaab': return pd.DataFrame()
+    try:
+        from ncaab_games import NCAABGames
+        ng = NCAABGames()
+        df = ng.load_games()
+        
+        if df.empty: return df
+        
+        # Standardize columns
+        if 'date' in df.columns:
+            df['game_date'] = df['date']
+            
+        df['home_win'] = (df['home_score'] > df['away_score']).astype(int)
+        
+        if season_only:
+            start = get_current_season_start(sport)
+            # Ensure datetime type
+            df['game_date'] = pd.to_datetime(df['game_date'])
+            df = df[df['game_date'] >= pd.to_datetime(start)]
+            
+        return df
+    except Exception as e:
+        print(f"Error loading NCAAB games: {e}")
+        return pd.DataFrame()
+
+
 def load_games(sport: str, season_only: bool = False) -> pd.DataFrame:
     """Load games for a sport from the appropriate data source."""
     config = SPORT_CONFIG[sport]
@@ -310,6 +346,8 @@ def load_games(sport: str, season_only: bool = False) -> pd.DataFrame:
         return load_games_from_json(sport, season_only)
     elif config['data_source'] == 'csv':
         return load_games_from_csv(sport, season_only)
+    elif config['data_source'] == 'csv_ncaab':
+        return load_games_from_ncaab(sport, season_only)
     else:
         return load_games_from_duckdb(sport, season_only)
 
@@ -341,6 +379,9 @@ def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFram
     elif sport == 'epl':
         from epl_elo_rating import EPLEloRating
         elo = EPLEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'ncaab':
+        from ncaab_elo_rating import NCAABEloRating
+        elo = NCAABEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
     else:
         raise ValueError(f"Unknown sport: {sport}")
     
@@ -385,7 +426,11 @@ def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFram
                 pass
 
         # Predict BEFORE updating
-        prob = elo.predict(game['home_team'], game['away_team'])
+        if sport == 'ncaab':
+             prob = elo.predict(game['home_team'], game['away_team'], is_neutral=game.get('neutral', False))
+        else:
+             prob = elo.predict(game['home_team'], game['away_team'])
+
         predictions.append(prob)
         
         # Update ratings
@@ -400,6 +445,8 @@ def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFram
                  elif game['home_score'] == game['away_score']: result = 'D'
                  else: result = 'A'
              elo.update(game['home_team'], game['away_team'], result)
+        elif sport == 'ncaab':
+             elo.update(game['home_team'], game['away_team'], game['home_win'], is_neutral=game.get('neutral', False))
         else:
             elo.update(game['home_team'], game['away_team'], game['home_win'])
     

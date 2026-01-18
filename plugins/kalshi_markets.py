@@ -307,6 +307,37 @@ def fetch_nfl_markets(date_str=None):
         print(f"⚠️ Error fetching NFL markets: {e}")
         return []
 
+def fetch_ncaab_markets(date_str=None):
+    """Fetch Kalshi markets for NCAAB games."""
+    try:
+        # Load credentials
+        api_key_id, private_key = load_kalshi_credentials()
+        
+        # Make authenticated request
+        api = KalshiAPI(api_key_id, private_key)
+        
+        # Call via SDK
+        try:
+            print("  Searching for KXNCAAMBGAME...")
+            result = api.get_markets(series_ticker='KXNCAAMBGAME', limit=200)
+            if result and 'markets' in result:
+                markets = result['markets']
+                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
+                print(f"✓ Found {len(active_markets)} NCAAB markets")
+                return active_markets
+        except Exception as e:
+            print(f"  SDK fetch failed: {e}")
+            
+        print("⚠️ No NCAAB markets found")
+        return []
+        
+    except Exception as e:
+        print(f"⚠️ Error fetching NCAAB markets: {e}")
+        return []
+
+def fetch_tennis_markets(date_str=None):
+    """Fetch Tennis markets (Placeholder)"""
+    return []
 
 def main():
     print("🎲 Kalshi Markets Fetcher (SDK version)")

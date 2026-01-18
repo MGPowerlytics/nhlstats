@@ -20,29 +20,22 @@ def main():
     markets_api = MarketsApi(client)
 
     try:
-        # Search for markets containing 'NCAA' or 'COLLEGE'
-        print("Searching for NCAAB markets...")
-        response = markets_api.get_markets(limit=1000, status='open')
+        guesses = ['KXNCAAB', 'KXNCAABGAME', 'KXCOLLEGE', 'KXNCAA', 'NCAAB', 'KXCBKGAME']
         
-        found = False
-        prefixes = set()
-        
-        for m in response.markets:
-            if 'NCAA' in m.title.upper() or 'COLLEGE' in m.title.upper() or 'NCAA' in m.ticker or 'BASKETBALL' in m.ticker:
-                 if 'NBA' not in m.ticker:
-                    print(f"Found: {m.ticker} - {m.title} (Series: {m.series_ticker})")
-                    prefixes.add(m.series_ticker)
-                    found = True
-        
-        if found:
-            print("\nPotential Series Tickers:")
-            for p in prefixes:
-                print(p)
-        else:
-            print("No NCAAB markets found.")
+        for g in guesses:
+            try:
+                print(f"Testing series_ticker={g}...")
+                res = markets_api.get_markets(series_ticker=g, limit=5)
+                if res.markets:
+                    print(f"✓ SUCCESS! Found {len(res.markets)} markets for {g}")
+                    print(f"Sample: {res.markets[0].ticker} - {res.markets[0].title}")
+                else:
+                    print(f"No markets for {g}")
+            except Exception as e:
+                print(f"Error checking {g}: {e}")
 
     except Exception as e:
-        print(e)
+        print(f"Fatal Error: {e}")
 
 if __name__ == "__main__":
     main()

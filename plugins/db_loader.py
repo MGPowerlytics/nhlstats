@@ -88,6 +88,40 @@ class NHLDatabaseLoader:
                 away_score INTEGER,
                 status VARCHAR
             );
+
+            CREATE TABLE IF NOT EXISTS epl_games (
+                game_id VARCHAR PRIMARY KEY,
+                game_date DATE,
+                season VARCHAR,
+                home_team VARCHAR,
+                away_team VARCHAR,
+                home_score INTEGER,
+                away_score INTEGER,
+                result VARCHAR
+            );
+
+            CREATE TABLE IF NOT EXISTS tennis_games (
+                game_id VARCHAR PRIMARY KEY,
+                game_date DATE,
+                season VARCHAR,
+                tour VARCHAR,
+                tournament VARCHAR,
+                surface VARCHAR,
+                winner VARCHAR,
+                loser VARCHAR,
+                score VARCHAR
+            );
+
+            CREATE TABLE IF NOT EXISTS ncaab_games (
+                game_id VARCHAR PRIMARY KEY,
+                game_date DATE,
+                season INTEGER,
+                home_team VARCHAR,
+                away_team VARCHAR,
+                home_score INTEGER,
+                away_score INTEGER,
+                is_neutral BOOLEAN
+            );
         """)
         
         print(f"Connected to DuckDB: {self.db_path}")
@@ -220,6 +254,159 @@ class NHLDatabaseLoader:
             except Exception as e:
                 print(f"    Error loading NFL game {game.get('game_id')}: {e}")
 
+    def load_epl_history(self, data_dir: Path = Path("data/epl")):
+        """Load all available EPL CSV data into DuckDB"""
+        if not data_dir.exists():
+            return
+            
+        csv_files = list(data_dir.glob("E0_*.csv"))
+        for csv_file in csv_files:
+            try:
+                self._load_epl_csv(csv_file)
+                print(f"  Loaded EPL data from {csv_file.name}")
+            except Exception as e:
+                print(f"  Error loading EPL file {csv_file.name}: {e}")
+
+    def load_tennis_history(self, data_dir: Path = Path("data/tennis")):
+        """Load all available Tennis CSV data into DuckDB"""
+        if not data_dir.exists():
+            return
+            
+        csv_files = list(data_dir.glob("*_*.csv")) # matches atp_21.csv, wta_24.csv
+        for csv_file in csv_files:
+            try:
+                self._load_tennis_csv(csv_file)
+                print(f"  Loaded Tennis data from {csv_file.name}")
+            except Exception as e:
+                print(f"  Error loading Tennis file {csv_file.name}: {e}")
+
+    def load_ncaab_history(self):
+        """Load all available NCAAB data into DuckDB using plugin"""
+        from ncaab_games import NCAABGames
+        
+        try:
+            ncaab = NCAABGames()
+            # This handles downloading and parsing internally
+            df = ncaab.load_games()
+            
+            if df.empty:
+                print("  No NCAAB games found to load.")
+                return
+
+            print(f"  Parsed {len(df)} NCAAB games. Loading into DB...")
+            
+            # Batch insert for speed
+            for _, row in df.iterrows():
+                try:
+                    game_date = row['date'].strftime('%Y-%m-%d')
+                    
+                    # Create unique ID: NCAAB_{DATE}_{HOME}_{AWAY}
+                    h_slug = "".join(x for x in str(row['home_team']) if x.isalnum())
+                    a_slug = "".join(x for x in str(row['away_team']) if x.isalnum())
+                    game_id = f"NCAAB_{game_date}_{h_slug}_{a_slug}"
+                    
+                    self.conn.execute("""
+                        INSERT OR REPLACE INTO ncaab_games (
+                            game_id, game_date, season,
+                            home_team, away_team, home_score, away_score, is_neutral
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        game_id, game_date, int(row['season']),
+                        row['home_team'], row['away_team'],
+                        int(row['home_score']), int(row['away_score']),
+                        bool(row['neutral'])
+                    ))
+                except Exception as e:
+                    # Ignore occasional duplicates or data errors
+                    pass
+                    
+            print(f"  Successfully loaded NCAAB history.")
+            
+        except Exception as e:
+            print(f"  Error loading NCAAB history: {e}")
+
+    def _load_tennis_csv(self, file_path: Path):
+        """Load Tennis CSV into DuckDB"""
+        import pandas as pd
+        
+        # Extract metadata (atp_21.csv -> tour=atp, season=21)
+        parts = file_path.stem.split('_')
+        if len(parts) < 2: return
+        tour = parts[0].upper()
+        season = parts[1]
+        
+        try:
+            df = pd.read_csv(file_path, encoding='latin1')
+        except:
+            df = pd.read_csv(file_path)
+            
+        # Parse dates (DD/MM/YYYY usually)
+        if 'Date' not in df.columns: return
+        
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+        
+        for _, row in df.iterrows():
+            if pd.isna(row['Date']) or pd.isna(row['Winner']) or pd.isna(row['Loser']):
+                continue
+                
+            game_date = row['Date'].strftime('%Y-%m-%d')
+            winner = str(row['Winner']).strip()
+            loser = str(row['Loser']).strip()
+            tournament = str(row.get('Tournament', '')).strip()
+            surface = str(row.get('Surface', 'Unknown')).strip()
+            score = str(row.get('Score', '')).strip()
+            
+            # Create unique ID: TENNIS_{TOUR}_{DATE}_{WINNER}_{LOSER}
+            # Remove spaces/special chars from names for ID
+            w_slug = "".join(x for x in winner if x.isalnum())
+            l_slug = "".join(x for x in loser if x.isalnum())
+            game_id = f"TENNIS_{tour}_{game_date}_{w_slug}_{l_slug}"
+            
+            try:
+                self.conn.execute("""
+                    INSERT OR REPLACE INTO tennis_games (
+                        game_id, game_date, season, tour,
+                        tournament, surface, winner, loser, score
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    game_id, game_date, season, tour,
+                    tournament, surface, winner, loser, score
+                ))
+            except Exception as e:
+                # ignore duplicate key errors if simple retry
+                pass
+
+    def _load_epl_csv(self, file_path: Path):
+        """Load EPL CSV into DuckDB"""
+        import pandas as pd
+        
+        # Extract season from filename (E0_2122.csv -> 2122)
+        season_code = file_path.stem.replace("E0_", "")
+        
+        df = pd.read_csv(file_path)
+        # Parse dates (DD/MM/YYYY)
+        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
+        
+        for _, row in df.iterrows():
+            if pd.isna(row['FTHG']):
+                continue
+                
+            game_date = row['Date'].strftime('%Y-%m-%d')
+            home_team = row['HomeTeam']
+            away_team = row['AwayTeam']
+            
+            # Create unique ID
+            game_id = f"EPL_{game_date}_{home_team.replace(' ', '')}_{away_team.replace(' ', '')}"
+            
+            self.conn.execute("""
+                INSERT OR REPLACE INTO epl_games (
+                    game_id, game_date, season,
+                    home_team, away_team, home_score, away_score, result
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                game_id, game_date, season_code,
+                home_team, away_team, int(row['FTHG']), int(row['FTAG']), row['FTR']
+            ))
         
     def _load_boxscore(self, game_id: str, file_path: Path):
         """Load game info and stats from boxscore JSON"""

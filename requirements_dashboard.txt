@@ -1,0 +1,19 @@
+# Streamlit Dashboard Requirements
+# For Sports Lift/Gain Analysis Visualization
+
+# Core dependencies
+streamlit>=1.28.0
+pandas>=1.5.0
+numpy>=1.23.0
+
+# Database
+duckdb>=0.8.0
+
+# Visualization
+plotly>=5.13.0
+
+# Data processing
+python-dateutil>=2.8.2
+
+# Optional: for better performance
+pyarrow>=12.0.0
