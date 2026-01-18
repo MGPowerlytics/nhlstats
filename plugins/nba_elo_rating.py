@@ -86,14 +86,10 @@ def load_nba_games_from_json():
                     idx_game_date = headers.index('GAME_DATE_EST')
                     idx_home_team_id = headers.index('HOME_TEAM_ID')
                     idx_visitor_team_id = headers.index('VISITOR_TEAM_ID')
-                    idx_status = headers.index('GAME_STATUS_TEXT')
                     
                     for row in result_set['rowSet']:
-                        game_status = row[idx_status]
-                        
-                        # Only include finished games
-                        if 'Final' not in game_status:
-                            continue
+                        # Don't filter by scoreboard status as it can be unreliable for backfilled data
+                        # Instead rely on boxscore existence and valid scores
                         
                         game_id = str(row[idx_game_id])
                         game_date = row[idx_game_date]

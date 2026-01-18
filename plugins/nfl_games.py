@@ -71,7 +71,8 @@ class NFLGames:
                     print(f"  Saved play-by-play to {pbp_file}")
             except Exception as pbp_error:
                 # Play-by-play data may not be available yet for recent/future games
-                if "404" in str(pbp_error) or "Not Found" in str(pbp_error):
+                error_msg = str(pbp_error)
+                if "404" in error_msg or "Not Found" in error_msg or "name 'Error' is not defined" in error_msg:
                     print(f"  Play-by-play data not available for {season_year} season")
                 else:
                     raise
@@ -79,14 +80,17 @@ class NFLGames:
             # Get weekly data for the week of these games
             # Weekly data is player-level, not game-level, so filter by season/week
             if len(date_games) > 0:
-                week = date_games.iloc[0]['week']
-                weekly = nfl.import_weekly_data([season_year])
-                date_weekly = weekly[(weekly['season'] == season_year) & (weekly['week'] == week)]
-                
-                if len(date_weekly) > 0:
-                    weekly_file = self.output_dir / f"weekly_{date_str}.json"
-                    date_weekly.to_json(weekly_file, orient='records', indent=2)
-                    print(f"  Saved weekly stats to {weekly_file}")
+                try:
+                    week = date_games.iloc[0]['week']
+                    weekly = nfl.import_weekly_data([season_year])
+                    date_weekly = weekly[(weekly['season'] == season_year) & (weekly['week'] == week)]
+                    
+                    if len(date_weekly) > 0:
+                        weekly_file = self.output_dir / f"weekly_{date_str}.json"
+                        date_weekly.to_json(weekly_file, orient='records', indent=2)
+                        print(f"  Saved weekly stats to {weekly_file}")
+                except Exception as weekly_error:
+                    print(f"  Weekly stats not available for {season_year} season: {weekly_error}")
             
             return len(date_games)
             

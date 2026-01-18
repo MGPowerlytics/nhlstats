@@ -39,7 +39,7 @@ SPORTS_CONFIG = {
         'elo_module': 'nhl_elo_rating',
         'games_module': 'nhl_game_events',
         'kalshi_function': 'fetch_nhl_markets',
-        'elo_threshold': 0.77,
+        'elo_threshold': 0.62,
         'series_ticker': 'KXNHLGAME',
         'team_mapping': {
             'ANA': 'ANA', 'BOS': 'BOS', 'BUF': 'BUF', 'CAR': 'CAR', 'CBJ': 'CBJ',
@@ -66,6 +66,20 @@ SPORTS_CONFIG = {
         'elo_threshold': 0.68,
         'series_ticker': 'KXNFLGAME',
         'team_mapping': {}  # Will be populated from database
+    },
+    'epl': {
+        'elo_module': 'epl_elo_rating',
+        'games_module': 'epl_games',
+        'kalshi_function': 'fetch_epl_markets',
+        'elo_threshold': 0.45,  # Threshold for 3-way markets
+        'series_ticker': 'KXEPLGAME',
+        'team_mapping': {
+            'MCI': 'Man City', 'MUN': 'Man United', 'NEW': 'Newcastle', 
+            'WHU': 'West Ham', 'AVL': 'Aston Villa', 'BHA': 'Brighton', 
+            'WOL': 'Wolves', 'SHU': 'Sheffield United', 'NOT': 'Nott\'m Forest',
+            'NFO': 'Nott\'m Forest', 'CRY': 'Crystal Palace', 'TOT': 'Tottenham',
+            'SOU': 'Southampton', 'LEI': 'Leicester', 'LEE': 'Leeds'
+        }
     }
 }
 
@@ -94,6 +108,10 @@ def download_games(sport, **context):
         from nfl_games import NFLGames
         games = NFLGames(date_folder=date_str)
         games.download_games_for_date(date_str)
+    elif sport == 'epl':
+        from epl_games import EPLGames
+        games = EPLGames()
+        games.download_games()
     
     print(f"✓ {sport.upper()} games downloaded")
 
@@ -115,15 +133,29 @@ def update_elo_ratings(sport, **context):
     elif sport == 'nhl':
         from nhl_elo_rating import NHLEloRating
         import duckdb
-        conn = duckdb.connect('data/nhlstats.duckdb')
+        # Use read_only to avoid locking conflicts if other processes are analyzing data
+        conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
         games = conn.execute("""
-            SELECT game_date, home_team_abbr as home_team, away_team_abbr as away_team,
+            SELECT game_date, home_team_abbrev as home_team, away_team_abbrev as away_team,
                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-            FROM games WHERE status = 'Final' ORDER BY game_date, game_id
+            FROM games WHERE game_state IN ('OFF', 'FINAL') ORDER BY game_date, game_id
         """).fetchall()
         conn.close()
-        elo = NHLEloRating(k_factor=20, home_advantage=100)
+        
+        elo = NHLEloRating(k_factor=10, home_advantage=50)
+        
+        last_date = None
         for game in games:
+            game_date_str = game[0]
+            current_date = datetime.strptime(game_date_str, '%Y-%m-%d').date()
+            
+            if last_date:
+                days_diff = (current_date - last_date).days
+                if days_diff > 90:  # New season detected
+                    print(f"📅 New NHL season detected at {game_date_str} (Last game: {last_date}, Gap: {days_diff} days)")
+                    elo.apply_season_reversion(0.35)
+            
+            last_date = current_date
             elo.update(game[1], game[2], game[3])
     elif sport == 'mlb':
         from mlb_elo_rating import calculate_current_elo_ratings
@@ -137,9 +169,15 @@ def update_elo_ratings(sport, **context):
         if not elo:
             print(f"⚠️  No NFL games available yet")
             return
+    elif sport == 'epl':
+        from epl_elo_rating import calculate_current_elo_ratings
+        elo = calculate_current_elo_ratings()
+        if not elo:
+            print(f"⚠️  No EPL games available yet")
+            return
     
     # Save ratings to CSV
-    if sport in ['nba', 'nhl']:
+    if sport in ['nba', 'nhl', 'epl']:
         Path(f'data/{sport}_current_elo_ratings.csv').parent.mkdir(parents=True, exist_ok=True)
         with open(f'data/{sport}_current_elo_ratings.csv', 'w') as f:
             f.write('team,rating\n')
@@ -156,14 +194,15 @@ def fetch_prediction_markets(sport, **context):
     """Fetch prediction markets for a sport."""
     print(f"💰 Fetching {sport.upper()} prediction markets...")
     
-    from kalshi_markets import fetch_nba_markets, fetch_nhl_markets, fetch_mlb_markets, fetch_nfl_markets
+    from kalshi_markets import fetch_nba_markets, fetch_nhl_markets, fetch_mlb_markets, fetch_nfl_markets, fetch_epl_markets
     
     config = SPORTS_CONFIG[sport]
     fetch_function = {
         'nba': fetch_nba_markets,
         'nhl': fetch_nhl_markets,
         'mlb': fetch_mlb_markets,
-        'nfl': fetch_nfl_markets
+        'nfl': fetch_nfl_markets,
+        'epl': fetch_epl_markets
     }[sport]
     
     date_str = context['ds']
@@ -173,18 +212,17 @@ def fetch_prediction_markets(sport, **context):
         print(f"ℹ️  No {sport.upper()} markets available")
         return
     
-    # Serialize datetimes
-    for market in markets:
-        if 'open_time' in market and hasattr(market['open_time'], 'isoformat'):
-            market['open_time'] = market['open_time'].isoformat()
-        if 'close_time' in market and hasattr(market['close_time'], 'isoformat'):
-            market['close_time'] = market['close_time'].isoformat()
-    
+    # Helper for JSON serialization
+    def json_serial(obj):
+        if hasattr(obj, 'isoformat'):
+            return obj.isoformat()
+        raise TypeError(f"Type {type(obj)} not serializable")
+
     # Save to file
     markets_file = Path(f'data/{sport}/markets_{date_str}.json')
     markets_file.parent.mkdir(parents=True, exist_ok=True)
     with open(markets_file, 'w') as f:
-        json.dump(markets, f, indent=2)
+        json.dump(markets, f, indent=2, default=json_serial)
     
     # Push to XCom
     context['task_instance'].xcom_push(key=f'{sport}_markets', value=markets)
@@ -219,12 +257,83 @@ def identify_good_bets(sport, **context):
     
     for market in markets:
         ticker = market.get('ticker', '')
-        
-        # Parse ticker format: KXNBAGAME-26JAN19MIAGSW-MIA
         if '-' not in ticker:
             continue
-        
+            
         parts = ticker.split('-')
+        
+        # EPL LOGIC
+        if sport == 'epl':
+            title = market.get('title', '')
+            if ' vs ' not in title or ' Winner?' not in title:
+                continue
+                
+            teams_str = title.split(' Winner?')[0]
+            try:
+                home_name, away_name = teams_str.split(' vs ')
+            except ValueError:
+                continue
+                
+            # Get predictions (Home, Draw, Away)
+            try:
+                probs = elo_system.predict_probs(home_name, away_name)
+            except KeyError:
+                # Try correcting names if needed or skip
+                continue
+                
+            outcome_code = parts[-1]
+            
+            elo_prob = 0
+            bet_on = 'Unknown'
+            
+            if outcome_code == 'TIE':
+                elo_prob = probs[1]
+                bet_on = 'Draw'
+            else:
+                # Determine if Home or Away
+                # Check mapping first
+                mapped_name = team_mapping.get(outcome_code)
+                if mapped_name == home_name:
+                    elo_prob = probs[0]
+                    bet_on = 'Home'
+                elif mapped_name == away_name:
+                    elo_prob = probs[2]
+                    bet_on = 'Away'
+                else:
+                    # Fallback to prefix matching
+                    if home_name.upper().startswith(outcome_code):
+                        elo_prob = probs[0]
+                        bet_on = 'Home'
+                    elif away_name.upper().startswith(outcome_code):
+                        elo_prob = probs[2]
+                        bet_on = 'Away'
+                    else:
+                        continue
+            
+            # Market Prob
+            yes_ask = market.get('yes_ask', 0) / 100.0
+            market_prob = yes_ask
+            
+            edge = elo_prob - market_prob
+            
+            if elo_prob > elo_threshold and edge > 0.05:
+                confidence = "HIGH" if elo_prob > (elo_threshold + 0.1) else "MEDIUM"
+                good_bets.append({
+                    'home_team': home_name,
+                    'away_team': away_name,
+                    'elo_prob': elo_prob,
+                    'market_prob': market_prob,
+                    'edge': edge,
+                    'bet_on': bet_on,
+                    'confidence': confidence,
+                    'yes_ask': market.get('yes_ask'),
+                    'no_ask': market.get('no_ask')
+                })
+                print(f"  ✓ {away_name} @ {home_name}: Bet {bet_on} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
+            
+            continue
+
+        # STANDARD LOGIC (NBA, NHL, MLB, NFL)
         if len(parts) < 3:
             continue
         

@@ -142,6 +142,34 @@ def fetch_nba_markets(date_str=None):
         return []
 
 
+
+def fetch_epl_markets(date_str=None):
+    """Fetch Kalshi markets for EPL games."""
+    try:
+        # Load credentials
+        api_key_id, private_key = load_kalshi_credentials()
+        
+        # Make authenticated request
+        api = KalshiAPI(api_key_id, private_key)
+        
+        # Try SDK first
+        try:
+            result = api.get_markets(series_ticker='KXEPLGAME', limit=200)
+            if result and 'markets' in result:
+                markets = result['markets']
+                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
+                print(f"✓ Found {len(active_markets)} EPL markets")
+                return active_markets
+        except Exception as e:
+            print(f"Error fetching EPL markets: {e}")
+            return []
+            
+        return []
+    except Exception as e:
+        print(f"Failed to fetch EPL markets: {e}")
+        return []
+
+
 def fetch_nhl_markets(date_str=None):
     """Fetch Kalshi markets for NHL games on a specific date.
     

@@ -26,7 +26,7 @@ class NHLEloRating:
         elo.save_ratings()  # Persist to disk
     """
     
-    def __init__(self, k_factor=20, home_advantage=100, initial_rating=1500):
+    def __init__(self, k_factor=10, home_advantage=50, initial_rating=1500):
         """
         Initialize Elo rating system
         
@@ -134,6 +134,20 @@ class NHLEloRating:
             'home_rating_new': self.ratings[home_team],
             'away_rating_new': self.ratings[away_team]
         }
+
+    def apply_season_reversion(self, factor=0.35):
+        """
+        Regress all team ratings towards the mean (1500) for a new season.
+        New Rating = (1 - factor) * Old Rating + factor * 1500
+        
+        Args:
+            factor: 0.0 to 1.0 (0.0 = no change, 1.0 = reset everyone to 1500)
+                    0.35 is optimal for NHL based on historical analysis.
+        """
+        for team, rating in self.ratings.items():
+            self.ratings[team] = (1 - factor) * rating + factor * self.initial_rating
+        
+        print(f"🔄 Applied season reversion (factor={factor}) to {len(self.ratings)} teams")
     
     def get_rankings(self, top_n=None):
         """

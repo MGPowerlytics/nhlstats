@@ -13,7 +13,7 @@ from datetime import datetime
 class MLBGames:
     """Fetch MLB game data from statsapi.mlb.com."""
     
-    BASE_URL = "https://statsapi.mlb.com/api/v1.1"
+    BASE_URL = "https://statsapi.mlb.com/api/v1"
     
     def __init__(self, output_dir="data/mlb", date_folder=None):
         self.output_dir = Path(output_dir)
@@ -33,6 +33,10 @@ class MLBGames:
                     print(f"Rate limited. Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
                     time.sleep(wait_time)
                     continue
+                
+                if response.status_code == 404:
+                    print(f"  Resource not found: {url}")
+                    return {}
                 
                 response.raise_for_status()
                 return response.json()
@@ -61,7 +65,8 @@ class MLBGames:
     
     def get_game_data(self, game_id):
         """Get detailed game data including play-by-play."""
-        url = f"{self.BASE_URL}/game/{game_id}/feed/live"
+        # Use v1.1 for live feed
+        url = f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live"
         return self._make_request(url)
     
     def get_game_boxscore(self, game_id):
