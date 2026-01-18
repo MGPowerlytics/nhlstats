@@ -29,8 +29,21 @@ class NHLDatabaseLoader:
         return False
         
     def connect(self):
-        """Connect to DuckDB and initialize schema"""
-        self.conn = duckdb.connect(str(self.db_path))
+        """Connect to DuckDB and initialize schema with timeout"""
+        import time
+        max_retries = 30
+        retry_delay = 2
+        
+        for attempt in range(max_retries):
+            try:
+                self.conn = duckdb.connect(str(self.db_path))
+                break
+            except Exception as e:
+                if 'lock' in str(e).lower() and attempt < max_retries - 1:
+                    print(f"  Database locked, waiting {retry_delay}s (attempt {attempt + 1}/{max_retries})...")
+                    time.sleep(retry_delay)
+                else:
+                    raise
         
         # Create tables if not exist (NHL)
         self.conn.execute("""
@@ -176,6 +189,28 @@ class NHLDatabaseLoader:
                 print(f"  Loaded NFL schedule for {date_str}")
             except Exception as e:
                 print(f"  Error loading NFL schedule for {date_str}: {e}")
+                
+        # --- Other Sports (File-based, load incremental or full) ---
+        # For EPL, Tennis, NCAAB, the daily download updates the main CSVs.
+        # So we just trigger their loaders which handle "INSERT OR REPLACE".
+        
+        try:
+            self.load_epl_history(target_date=date_str)
+            games_loaded += 1
+        except Exception as e:
+            print(f"  Error loading EPL daily: {e}")
+            
+        try:
+            self.load_tennis_history(target_date=date_str)
+            games_loaded += 1
+        except Exception as e:
+            print(f"  Error loading Tennis daily: {e}")
+            
+        try:
+            self.load_ncaab_history(target_date=date_str)
+            games_loaded += 1
+        except Exception as e:
+            print(f"  Error loading NCAAB daily: {e}")
 
         return games_loaded
 
@@ -254,7 +289,7 @@ class NHLDatabaseLoader:
             except Exception as e:
                 print(f"    Error loading NFL game {game.get('game_id')}: {e}")
 
-    def load_epl_history(self, data_dir: Path = Path("data/epl")):
+    def load_epl_history(self, data_dir: Path = Path("data/epl"), target_date: Optional[str] = None):
         """Load all available EPL CSV data into DuckDB"""
         if not data_dir.exists():
             return
@@ -262,12 +297,13 @@ class NHLDatabaseLoader:
         csv_files = list(data_dir.glob("E0_*.csv"))
         for csv_file in csv_files:
             try:
-                self._load_epl_csv(csv_file)
-                print(f"  Loaded EPL data from {csv_file.name}")
+                self._load_epl_csv(csv_file, target_date)
+                if not target_date: # Only print on full load to avoid log spam
+                    print(f"  Loaded EPL data from {csv_file.name}")
             except Exception as e:
                 print(f"  Error loading EPL file {csv_file.name}: {e}")
 
-    def load_tennis_history(self, data_dir: Path = Path("data/tennis")):
+    def load_tennis_history(self, data_dir: Path = Path("data/tennis"), target_date: Optional[str] = None):
         """Load all available Tennis CSV data into DuckDB"""
         if not data_dir.exists():
             return
@@ -275,12 +311,13 @@ class NHLDatabaseLoader:
         csv_files = list(data_dir.glob("*_*.csv")) # matches atp_21.csv, wta_24.csv
         for csv_file in csv_files:
             try:
-                self._load_tennis_csv(csv_file)
-                print(f"  Loaded Tennis data from {csv_file.name}")
+                self._load_tennis_csv(csv_file, target_date)
+                if not target_date:
+                    print(f"  Loaded Tennis data from {csv_file.name}")
             except Exception as e:
                 print(f"  Error loading Tennis file {csv_file.name}: {e}")
 
-    def load_ncaab_history(self):
+    def load_ncaab_history(self, target_date: Optional[str] = None):
         """Load all available NCAAB data into DuckDB using plugin"""
         from ncaab_games import NCAABGames
         
@@ -290,10 +327,19 @@ class NHLDatabaseLoader:
             df = ncaab.load_games()
             
             if df.empty:
-                print("  No NCAAB games found to load.")
+                if not target_date:
+                    print("  No NCAAB games found to load.")
                 return
 
-            print(f"  Parsed {len(df)} NCAAB games. Loading into DB...")
+            # Filter by date if requested
+            if target_date:
+                target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+                df = df[df['date'] == target_dt]
+                if df.empty:
+                    return
+
+            if not target_date:
+                print(f"  Parsed {len(df)} NCAAB games. Loading into DB...")
             
             # Batch insert for speed
             for _, row in df.iterrows():
@@ -325,7 +371,7 @@ class NHLDatabaseLoader:
         except Exception as e:
             print(f"  Error loading NCAAB history: {e}")
 
-    def _load_tennis_csv(self, file_path: Path):
+    def _load_tennis_csv(self, file_path: Path, target_date: Optional[str] = None):
         """Load Tennis CSV into DuckDB"""
         import pandas as pd
         
@@ -344,6 +390,12 @@ class NHLDatabaseLoader:
         if 'Date' not in df.columns: return
         
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+        
+        if target_date:
+            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+            df = df[df['Date'] == target_dt]
+            if df.empty:
+                return
         
         for _, row in df.iterrows():
             if pd.isna(row['Date']) or pd.isna(row['Winner']) or pd.isna(row['Loser']):
@@ -376,7 +428,7 @@ class NHLDatabaseLoader:
                 # ignore duplicate key errors if simple retry
                 pass
 
-    def _load_epl_csv(self, file_path: Path):
+    def _load_epl_csv(self, file_path: Path, target_date: Optional[str] = None):
         """Load EPL CSV into DuckDB"""
         import pandas as pd
         
@@ -387,6 +439,12 @@ class NHLDatabaseLoader:
         # Parse dates (DD/MM/YYYY)
         df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
         
+        if target_date:
+            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
+            df = df[df['Date'] == target_dt]
+            if df.empty:
+                return
+
         for _, row in df.iterrows():
             if pd.isna(row['FTHG']):
                 continue

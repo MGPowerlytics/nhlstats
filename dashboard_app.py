@@ -43,6 +43,21 @@ try:
 except ImportError:
     TennisEloRating = None
 
+try:
+    from ncaab_elo_rating import NCAABEloRating
+except ImportError:
+    NCAABEloRating = None
+
+# Import Glicko-2 classes
+try:
+    from glicko2_rating import (NBAGlicko2Rating, NHLGlicko2Rating, 
+                                 MLBGlicko2Rating, NFLGlicko2Rating)
+except ImportError:
+    NBAGlicko2Rating = None
+    NHLGlicko2Rating = None
+    MLBGlicko2Rating = None
+    NFLGlicko2Rating = None
+
 # --- Configuration ---
 st.set_page_config(
     page_title="Sports Betting Analytics Dashboard",
@@ -207,6 +222,33 @@ def load_data(league, db_path='data/nhlstats.duckdb'):
         finally:
             conn.close()
 
+    elif league == 'NCAAB':
+        if not os.path.exists(db_path):
+            return pd.DataFrame()
+            
+        conn = duckdb.connect(db_path, read_only=True)
+        query = """
+            SELECT 
+                game_date,
+                season,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                is_neutral,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM ncaab_games
+            WHERE home_score IS NOT NULL 
+              AND away_score IS NOT NULL
+            ORDER BY game_date
+        """
+        try:
+            games_df = conn.execute(query).fetchdf()
+        except Exception as e:
+            st.error(f"Error loading NCAAB data: {e}")
+        finally:
+            conn.close()
+
     # Ensure proper types
     if not games_df.empty:
         games_df['game_date'] = pd.to_datetime(games_df['game_date'])
@@ -253,6 +295,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
         elo = EPLEloRating(k_factor=k_factor, home_advantage=home_adv)
     elif league == 'Tennis' and TennisEloRating:
         elo = TennisEloRating(k_factor=k_factor) # No home advantage in tennis usually
+    elif league == 'NCAAB' and NCAABEloRating:
+        elo = NCAABEloRating(k_factor=k_factor, home_advantage=home_adv)
     else:
         st.error(f"Elo system for {league} not available.")
         return games_df
@@ -263,7 +307,10 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
     # We rely on games_df being sorted by date already
     for _, game in games_df.iterrows():
         # Predict
-        prob = elo.predict(game['home_team'], game['away_team'])
+        if league == 'NCAAB':
+            prob = elo.predict(game['home_team'], game['away_team'], is_neutral=game['is_neutral'])
+        else:
+            prob = elo.predict(game['home_team'], game['away_team'])
         probs.append(prob)
         
         # Update
@@ -271,6 +318,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
             elo.update(game['home_team'], game['away_team'], game['home_win'])
         elif league == 'NHL':
             elo.update(game['home_team'], game['away_team'], game['home_win'])
+        elif league == 'NCAAB':
+            elo.update(game['home_team'], game['away_team'], game['home_win'], is_neutral=game['is_neutral'])
         elif league == 'EPL':
              elo.update(game['home_team'], game['away_team'], game['result'])
         elif league == 'Tennis':
@@ -283,6 +332,43 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
                         game['home_score'], game['away_score'])
                         
     games_df['elo_prob'] = probs
+    return games_df
+
+@st.cache_data
+def run_glicko2_simulation(games_df, league, tau=0.5, home_adv=100):
+    """Run Glicko-2 simulation for the selected league."""
+    if games_df.empty:
+        return games_df
+    
+    # Initialize Glicko-2 system
+    if league == 'MLB' and MLBGlicko2Rating:
+        glicko = MLBGlicko2Rating()
+    elif league == 'NHL' and NHLGlicko2Rating:
+        glicko = NHLGlicko2Rating()
+    elif league == 'NFL' and NFLGlicko2Rating:
+        glicko = NFLGlicko2Rating()
+    elif league == 'NBA' and NBAGlicko2Rating:
+        glicko = NBAGlicko2Rating()
+    else:
+        st.warning(f"Glicko-2 system for {league} not yet implemented.")
+        return games_df
+    
+    # Override parameters
+    glicko.home_advantage = home_adv
+    glicko.TAU = tau
+    
+    probs = []
+    
+    # Process games
+    for _, game in games_df.iterrows():
+        # Predict
+        prob = glicko.predict(game['home_team'], game['away_team'])
+        probs.append(prob)
+        
+        # Update
+        glicko.update(game['home_team'], game['away_team'], game['home_win'])
+    
+    games_df['glicko2_prob'] = probs
     return games_df
 
 def calculate_deciles(df):
@@ -346,7 +432,7 @@ def calculate_cumulative_gain(df):
 st.sidebar.title("Configuration")
 
 # League Selection
-league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis"])
+league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB"])
 
 # Load Data (Cached)
 with st.spinner(f"Loading {league} data..."):
@@ -365,21 +451,30 @@ available_seasons.insert(0, "All Time")
 selected_season = st.sidebar.selectbox("Season", available_seasons)
 cutoff_date = st.sidebar.date_input("Analysis Up To Date", value=max_date, min_value=min_date, max_value=max_date)
 
+# Set defaults based on league
+default_k = 20
+default_home = 50 # MLB default
+
+if league == 'NHL': default_home = 100
+if league == 'NBA': default_home = 100
+if league == 'NFL': default_home = 65
+if league == 'EPL': default_home = 60
+if league == 'Tennis': 
+    default_home = 0
+    default_k = 32
+if league == 'NCAAB': default_home = 100
+
 # Elo Parameters (Advanced)
 with st.sidebar.expander("Elo Parameters"):
-    default_k = 20
-    default_home = 50 # MLB default
-    
-    if league == 'NHL': default_home = 100
-    if league == 'NBA': default_home = 100
-    if league == 'NFL': default_home = 65
-    if league == 'EPL': default_home = 60
-    if league == 'Tennis': 
-        default_home = 0
-        default_k = 32
-    
     k_factor = st.number_input("K-Factor", value=default_k)
     home_adv = st.number_input("Home Advantage", value=default_home)
+
+# Glicko-2 Parameters (Advanced)
+with st.sidebar.expander("Glicko-2 Parameters"):
+    enable_glicko2 = st.checkbox("Enable Glicko-2 Comparison", value=True)
+    glicko2_tau = st.slider("System Volatility (τ)", 0.3, 1.2, 0.5, 0.1,
+                            help="Lower = more stable ratings, Higher = faster adaptation")
+    glicko2_home_adv = st.number_input("Home Advantage (Glicko-2)", value=default_home)
 
 # --- Data Processing ---
 
@@ -396,6 +491,16 @@ if filtered_data.empty:
 
 with st.spinner("Running Elo Simulation..."):
     simulated_data = run_elo_simulation(filtered_data, league, k_factor, home_adv)
+
+# Run Glicko-2 if enabled
+if enable_glicko2 and league in ['NBA', 'NHL', 'MLB', 'NFL']:
+    with st.spinner("Running Glicko-2 Simulation..."):
+        simulated_data_glicko2 = run_glicko2_simulation(filtered_data, league, glicko2_tau, glicko2_home_adv)
+        # Merge predictions
+        if 'glicko2_prob' in simulated_data_glicko2.columns:
+            simulated_data['glicko2_prob'] = simulated_data_glicko2['glicko2_prob']
+else:
+    simulated_data['glicko2_prob'] = None
 
 decile_stats = calculate_deciles(simulated_data)
 gain_curve = calculate_cumulative_gain(simulated_data)
@@ -418,7 +523,7 @@ if not decile_stats.empty:
     col4.metric("Top Decile ROI (-110)", f"{top_decile['ROI (-110)']:.1f}%")
 
 # Tabs
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Lift Chart", "Calibration", "ROI Analysis", "Cumulative Gain", "Details", "Season Timing"])
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(["Lift Chart", "Calibration", "ROI Analysis", "Cumulative Gain", "Elo vs Glicko-2", "Details", "Season Timing"])
 
 with tab1:
     st.header("Lift by Probability Decile")
@@ -462,6 +567,94 @@ with tab4:
         st.caption("The curve above the red diagonal indicates the model is better than random guessing.")
 
 with tab5:
+    st.header("Elo vs Glicko-2 Comparison")
+    
+    if enable_glicko2 and 'glicko2_prob' in simulated_data.columns and simulated_data['glicko2_prob'].notna().any():
+        # Calculate metrics for both
+        comp_df = simulated_data[simulated_data['glicko2_prob'].notna()].copy()
+        
+        # Accuracy
+        elo_accuracy = ((comp_df['elo_prob'] > 0.5) == comp_df['home_win']).mean()
+        glicko2_accuracy = ((comp_df['glicko2_prob'] > 0.5) == comp_df['home_win']).mean()
+        
+        # Brier Score (lower is better)
+        elo_brier = ((comp_df['elo_prob'] - comp_df['home_win']) ** 2).mean()
+        glicko2_brier = ((comp_df['glicko2_prob'] - comp_df['home_win']) ** 2).mean()
+        
+        # Log Loss (lower is better)
+        from sklearn.metrics import log_loss
+        elo_logloss = log_loss(comp_df['home_win'], comp_df['elo_prob'])
+        glicko2_logloss = log_loss(comp_df['home_win'], comp_df['glicko2_prob'])
+        
+        # Display metrics
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            st.metric("Elo Accuracy", f"{elo_accuracy:.1%}")
+            st.metric("Elo Brier Score", f"{elo_brier:.4f}")
+            st.metric("Elo Log Loss", f"{elo_logloss:.4f}")
+        
+        with col2:
+            st.metric("Glicko-2 Accuracy", f"{glicko2_accuracy:.1%}", 
+                     delta=f"{(glicko2_accuracy - elo_accuracy)*100:.1f} pts")
+            st.metric("Glicko-2 Brier Score", f"{glicko2_brier:.4f}",
+                     delta=f"{elo_brier - glicko2_brier:.4f}",
+                     delta_color="inverse")
+            st.metric("Glicko-2 Log Loss", f"{glicko2_logloss:.4f}",
+                     delta=f"{elo_logloss - glicko2_logloss:.4f}",
+                     delta_color="inverse")
+        
+        with col3:
+            st.subheader("Winner")
+            if glicko2_accuracy > elo_accuracy:
+                st.success("✅ Glicko-2 wins on Accuracy!")
+            elif elo_accuracy > glicko2_accuracy:
+                st.info("✅ Elo wins on Accuracy!")
+            else:
+                st.warning("🤝 Tie on Accuracy")
+            
+            if glicko2_brier < elo_brier:
+                st.success("✅ Glicko-2 wins on Brier Score!")
+            elif elo_brier < glicko2_brier:
+                st.info("✅ Elo wins on Brier Score!")
+            else:
+                st.warning("🤝 Tie on Brier Score")
+        
+        # Scatter plot comparison
+        st.subheader("Probability Comparison")
+        fig = px.scatter(comp_df, x='elo_prob', y='glicko2_prob', 
+                         color='home_win', 
+                         labels={'elo_prob': 'Elo Probability', 
+                                'glicko2_prob': 'Glicko-2 Probability'},
+                         title="Elo vs Glicko-2 Predictions")
+        fig.add_shape(type="line", x0=0, y0=0, x1=1, y1=1,
+                     line=dict(color="Red", dash="dash"))
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Points near the diagonal mean both systems agree. Points off the diagonal show disagreement.")
+        
+        # Probability difference distribution
+        st.subheader("Prediction Differences")
+        comp_df['prob_diff'] = comp_df['glicko2_prob'] - comp_df['elo_prob']
+        fig = px.histogram(comp_df, x='prob_diff', nbins=50,
+                          title="Distribution of Glicko-2 vs Elo Probability Differences")
+        fig.add_vline(x=0, line_dash="dash", line_color="red")
+        st.plotly_chart(fig, use_container_width=True)
+        st.caption("Positive values mean Glicko-2 was more confident in home win. Negative means less confident.")
+        
+        # Games where they disagree significantly
+        st.subheader("Significant Disagreements (>10% difference)")
+        disagreements = comp_df[abs(comp_df['prob_diff']) > 0.10].copy()
+        if not disagreements.empty:
+            disagreements = disagreements.sort_values('prob_diff', ascending=False)
+            st.dataframe(disagreements[['game_date', 'home_team', 'away_team', 
+                                       'elo_prob', 'glicko2_prob', 'prob_diff', 'home_win']].head(20),
+                        use_container_width=True)
+        else:
+            st.info("No significant disagreements found.")
+    else:
+        st.info("Enable Glicko-2 in the sidebar to see comparison. Currently only supported for NBA, NHL, MLB, NFL.")
+
+with tab6:
     st.header("Detailed Statistics")
     if not decile_stats.empty:
         display_df = decile_stats.copy()
@@ -475,7 +668,7 @@ with tab5:
         csv = display_df.to_csv(index=False).encode('utf-8')
         st.download_button("Download CSV", csv, "lift_analysis.csv", "text/csv")
 
-with tab6:
+with tab7:
     st.header("Predictive Power Over Season")
     st.markdown("Does the model get smarter as the season progresses? Analysis breaks down performance by percentage of season played.")
     

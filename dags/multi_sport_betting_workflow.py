@@ -140,6 +140,19 @@ def download_games(sport, **context):
     print(f"✓ {sport.upper()} games downloaded")
 
 
+def load_data_to_db(sport, **context):
+    """Load downloaded games into DuckDB."""
+    print(f"💾 Loading {sport.upper()} games into database...")
+    
+    date_str = context.get('ds', datetime.now().strftime('%Y-%m-%d'))
+    from db_loader import NHLDatabaseLoader
+    
+    with NHLDatabaseLoader() as loader:
+        count = loader.load_date(date_str)
+        
+    print(f"✓ Loaded {count} new games/updates for {date_str}")
+
+
 def update_elo_ratings(sport, **context):
     """Calculate current Elo ratings for a sport."""
     print(f"📊 Updating {sport.upper()} Elo ratings...")
@@ -170,13 +183,17 @@ def update_elo_ratings(sport, **context):
         
         last_date = None
         for game in games:
-            game_date_str = game[0]
-            current_date = datetime.strptime(game_date_str, '%Y-%m-%d').date()
+            game_date = game[0]
+            # Handle both string and date objects from DuckDB
+            if isinstance(game_date, str):
+                current_date = datetime.strptime(game_date, '%Y-%m-%d').date()
+            else:
+                current_date = game_date
             
             if last_date:
                 days_diff = (current_date - last_date).days
                 if days_diff > 90:  # New season detected
-                    print(f"📅 New NHL season detected at {game_date_str} (Last game: {last_date}, Gap: {days_diff} days)")
+                    print(f"📅 New NHL season detected at {current_date} (Last game: {last_date}, Gap: {days_diff} days)")
                     elo.apply_season_reversion(0.35)
             
             last_date = current_date
@@ -287,6 +304,89 @@ def fetch_prediction_markets(sport, **context):
     context['task_instance'].xcom_push(key=f'{sport}_markets', value=markets)
     
     print(f"✓ Found {len(markets)} {sport.upper()} markets")
+
+
+def update_glicko2_ratings(sport, **context):
+    """Calculate current Glicko-2 ratings for a sport."""
+    print(f"📊 Updating {sport.upper()} Glicko-2 ratings...")
+    
+    from glicko2_rating import (NBAGlicko2Rating, NHLGlicko2Rating, 
+                                 MLBGlicko2Rating, NFLGlicko2Rating)
+    
+    # Create sport-specific Glicko-2 instance
+    glicko_classes = {
+        'nba': NBAGlicko2Rating,
+        'nhl': NHLGlicko2Rating,
+        'mlb': MLBGlicko2Rating,
+        'nfl': NFLGlicko2Rating
+    }
+    
+    if sport not in glicko_classes:
+        print(f"⚠️  Glicko-2 not implemented for {sport}")
+        return
+    
+    glicko = glicko_classes[sport]()
+    
+    # Load and process games (similar to Elo)
+    if sport == 'nba':
+        from nba_elo_rating import load_nba_games_from_json
+        import pandas as pd
+        games_df = load_nba_games_from_json()
+        for _, game in games_df.iterrows():
+            glicko.update(game['home_team'], game['away_team'], game['home_win'])
+    elif sport == 'nhl':
+        import duckdb
+        conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+        games = conn.execute("""
+            SELECT game_date, home_team_abbrev as home_team, away_team_abbrev as away_team,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM games WHERE game_state IN ('OFF', 'FINAL') ORDER BY game_date, game_id
+        """).fetchall()
+        conn.close()
+        
+        for game in games:
+            glicko.update(game[1], game[2], game[3])
+    elif sport in ['mlb', 'nfl']:
+        # Load from database
+        import duckdb
+        conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+        table_name = f'{sport}_games'
+        games = conn.execute(f"""
+            SELECT game_date, home_team, away_team,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM {table_name} WHERE game_date IS NOT NULL
+            ORDER BY game_date
+        """).fetchall()
+        conn.close()
+        
+        for game in games:
+            glicko.update(game[1], game[2], game[3])
+    
+    # Save ratings to CSV
+    Path(f'data/{sport}_current_glicko2_ratings.csv').parent.mkdir(parents=True, exist_ok=True)
+    with open(f'data/{sport}_current_glicko2_ratings.csv', 'w') as f:
+        f.write('team,rating,rd,volatility\n')
+        for team in sorted(glicko.ratings.keys()):
+            r = glicko.ratings[team]
+            f.write(f'{team},{r["rating"]:.2f},{r["rd"]:.2f},{r["vol"]:.6f}\n')
+    
+    # Push to XCom
+    context['task_instance'].xcom_push(key=f'{sport}_glicko2_ratings', value=glicko.ratings)
+    
+    print(f"✓ {sport.upper()} Glicko-2 ratings updated: {len(glicko.ratings)} teams")
+
+
+def load_bets_to_db(sport, **context):
+    """Load bet recommendations into database."""
+    print(f"💾 Loading {sport.upper()} bets into database...")
+    
+    from bet_loader import BetLoader
+    
+    date_str = context['ds']
+    loader = BetLoader()
+    count = loader.load_bets_for_date(sport, date_str)
+    
+    print(f"✓ Loaded {count} {sport.upper()} bets into database")
 
 
 def identify_good_bets(sport, **context):
@@ -590,6 +690,115 @@ def identify_good_bets(sport, **context):
             print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
 
 
+            print(f"  {bet['away_team']} @ {bet['home_team']}")
+            print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
+
+
+def place_bets_on_recommendations(sport, **context):
+    """
+    Place bets on recommended games (NBA and NCAAB only).
+    
+    CRITICAL: Verifies games have not started using The Odds API.
+    
+    Args:
+        sport: Sport name (nba, ncaab)
+        **context: Airflow context with bet recommendations
+    """
+    # Only bet on basketball
+    if sport not in ['nba', 'ncaab']:
+        print(f"⚠️  Skipping {sport.upper()} - only betting on NBA/NCAAB")
+        return
+    
+    print(f"\n{'='*80}")
+    print(f"🎰 PLACING BETS FOR {sport.upper()}")
+    print(f"{'='*80}\n")
+    
+    # Load bet recommendations from file
+    bet_file = f'data/{sport}/bets_{context["ds"]}.json'
+    
+    if not Path(bet_file).exists():
+        print(f"⚠️  No bet file found: {bet_file}")
+        return
+    
+    with open(bet_file, 'r') as f:
+        recommendations = json.load(f)
+    
+    if not recommendations:
+        print(f"ℹ️  No recommendations for {sport.upper()}")
+        return
+    
+    print(f"📊 Found {len(recommendations)} recommendations")
+    
+    # Load Kalshi credentials
+    kalshkey_file = Path('/mnt/data2/nhlstats/kalshkey')
+    if not kalshkey_file.exists():
+        print("❌ Kalshi credentials not found")
+        return
+    
+    # Parse API key ID from kalshkey
+    with open(kalshkey_file, 'r') as f:
+        first_line = f.readline().strip()
+        if 'API key id:' in first_line:
+            api_key_id = first_line.split('API key id:')[1].strip()
+        else:
+            print("❌ Invalid Kalshi credentials format")
+            return
+    
+    # Load Odds API key for game start verification
+    odds_api_key = None
+    odds_key_file = Path('/mnt/data2/nhlstats/odds_api_key')
+    if odds_key_file.exists():
+        with open(odds_key_file, 'r') as f:
+            odds_api_key = f.read().strip()
+        print(f"✅ Loaded Odds API key for game verification")
+    else:
+        print(f"⚠️  No Odds API key - cannot verify game start times!")
+    
+    # Initialize betting client
+    from kalshi_betting import KalshiBetting
+    
+    try:
+        client = KalshiBetting(
+            api_key_id=api_key_id,
+            private_key_path='/mnt/data2/nhlstats/kalshi_private_key.pem',
+            max_bet_size=5.0,
+            production=True,
+            odds_api_key=odds_api_key
+        )
+        
+        # Add sport to recommendations
+        for rec in recommendations:
+            rec['sport'] = sport.upper()
+        
+        # Process recommendations
+        result = client.process_bet_recommendations(
+            recommendations=recommendations,
+            sport_filter=[sport.upper()],
+            min_confidence=0.75,  # Only bet on >75% confidence
+            min_edge=0.05,  # Minimum 5% edge
+            dry_run=False  # Set to True for testing
+        )
+        
+        # Save betting results
+        result_file = f'data/{sport}/betting_results_{context["ds"]}.json'
+        with open(result_file, 'w') as f:
+            json.dump(result, f, indent=2, default=str)
+        
+        print(f"\n💾 Results saved to {result_file}")
+        print(f"✅ Placed: {len(result['placed'])}")
+        print(f"⏭️  Skipped: {len(result['skipped'])}")
+        print(f"❌ Errors: {len(result['errors'])}")
+        
+        # Push to XCom
+        context['task_instance'].xcom_push(key=f'{sport}_bets_placed', value=len(result['placed']))
+        
+    except Exception as e:
+        print(f"❌ Betting failed: {e}")
+        import traceback
+        traceback.print_exc()
+        print("\n⚠️  Continuing with workflow (bets not placed)")
+
+
 # Create DAG
 default_args = {
     'owner': 'airflow',
@@ -611,7 +820,7 @@ dag = DAG(
 )
 
 # Create tasks for each sport
-for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl']:
+for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'tennis', 'ncaab']:
     download_task = PythonOperator(
         task_id=f'{sport}_download_games',
         python_callable=download_games,
@@ -619,12 +828,31 @@ for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl']:
         dag=dag
     )
     
+    load_task = PythonOperator(
+        task_id=f'{sport}_load_db',
+        python_callable=load_data_to_db,
+        op_kwargs={'sport': sport},
+        dag=dag,
+        pool='duckdb_pool'
+    )
+    
     elo_task = PythonOperator(
         task_id=f'{sport}_update_elo',
         python_callable=update_elo_ratings,
         op_kwargs={'sport': sport},
-        dag=dag
+        dag=dag,
+        pool='duckdb_pool'
     )
+    
+    # Add Glicko-2 task for supported sports
+    if sport in ['nba', 'nhl', 'mlb', 'nfl']:
+        glicko2_task = PythonOperator(
+            task_id=f'{sport}_update_glicko2',
+            python_callable=update_glicko2_ratings,
+            op_kwargs={'sport': sport},
+            dag=dag,
+            pool='duckdb_pool'
+        )
     
     markets_task = PythonOperator(
         task_id=f'{sport}_fetch_markets',
@@ -640,5 +868,37 @@ for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl']:
         dag=dag
     )
     
+    load_bets_task = PythonOperator(
+        task_id=f'{sport}_load_bets_db',
+        python_callable=load_bets_to_db,
+        op_kwargs={'sport': sport},
+        dag=dag,
+        pool='duckdb_pool'
+    )
+    
+    # Place bets task (only for NBA and NCAAB)
+    if sport in ['nba', 'ncaab']:
+        place_bets_task = PythonOperator(
+            task_id=f'{sport}_place_bets',
+            python_callable=place_bets_on_recommendations,
+            op_kwargs={'sport': sport},
+            dag=dag,
+            pool='duckdb_pool'
+        )
+    
     # Set task dependencies
-    download_task >> elo_task >> markets_task >> bets_task
+    if sport in ['nba', 'nhl', 'mlb', 'nfl']:
+        # With Glicko-2
+        download_task >> load_task >> [elo_task, glicko2_task] >> markets_task >> bets_task
+        if sport in ['nba', 'ncaab']:
+            # Place bets, then load to DB
+            bets_task >> place_bets_task >> load_bets_task
+        else:
+            bets_task >> load_bets_task
+    else:
+        # Without Glicko-2
+        download_task >> load_task >> elo_task >> markets_task >> bets_task
+        if sport in ['ncaab']:
+            bets_task >> place_bets_task >> load_bets_task
+        else:
+            bets_task >> load_bets_task

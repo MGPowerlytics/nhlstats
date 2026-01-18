@@ -50,6 +50,14 @@ class EPLEloRating:
         total = p_home + p_draw + p_away
         return (p_home/total, p_draw/total, p_away/total)
     
+    def predict_3way(self, home_team, away_team):
+        """
+        Predict 3-way outcome as dict.
+        Returns: {'home': p_home, 'draw': p_draw, 'away': p_away}
+        """
+        p_home, p_draw, p_away = self.predict_probs(home_team, away_team)
+        return {'home': p_home, 'draw': p_draw, 'away': p_away}
+    
     def predict(self, home_team, away_team):
         """
         Wrapper to return just home win probability for compatibility.

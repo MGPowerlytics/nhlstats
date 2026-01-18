@@ -1,0 +1,470 @@
+"""
+Kalshi API bet placement integration.
+Handles automated bet placement for NBA and NCAAB games using direct REST API.
+"""
+
+import os
+import json
+import uuid
+import base64
+import requests
+from datetime import datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+import time
+from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.backends import default_backend
+from cryptography.hazmat.primitives.asymmetric import padding
+
+
+class KalshiBetting:
+    """
+    Kalshi API betting client for automated bet placement.
+    
+    Features:
+    - Place bets on NBA/NCAAB markets using REST API with RSA-PSS auth
+    - Check game start times (no betting on started games)
+    - Position size limits ($5 max per bet)
+    - Balance checks before betting
+    - Trade history tracking
+    """
+    
+    def __init__(self, api_key_id: str, private_key_path: str, max_bet_size: float = 5.0, 
+                 production: bool = True):
+        """
+        Initialize Kalshi betting client.
+        
+        Args:
+            api_key_id: Kalshi API key ID (UUID format)
+            private_key_path: Path to RSA private key file (.key or .pem)
+            max_bet_size: Maximum bet size in dollars (default: $5)
+            production: Use production API (True) or demo (False)
+        """
+        self.api_key_id = api_key_id
+        self.max_bet_size = max_bet_size
+        self.min_bet_size = 2.0  # Kalshi minimum
+        self.max_position_pct = 0.05  # Max 5% of balance per bet
+        
+        # Set base URL
+        self.base_url = "https://api.kalshi.com" if production else "https://demo-api.kalshi.co"
+        
+        # Load private key
+        print("🔐 Loading private key...")
+        with open(private_key_path, "rb") as f:
+            self.private_key = serialization.load_pem_private_key(
+                f.read(),
+                password=None,
+                backend=default_backend()
+            )
+        
+        print(f"✅ Connected to {self.base_url}")
+    
+    def _create_signature(self, timestamp: str, method: str, path: str) -> str:
+        """
+        Create RSA-PSS signature for authentication.
+        
+        Args:
+            timestamp: Current time in milliseconds
+            method: HTTP method (GET, POST, DELETE)
+            path: API path (without query params)
+            
+        Returns:
+            Base64-encoded signature
+        """
+        # Strip query parameters before signing
+        path_without_query = path.split('?')[0]
+        
+        # Create message to sign: timestamp + method + path
+        message = f"{timestamp}{method}{path_without_query}".encode('utf-8')
+        
+        # Sign with RSA-PSS
+        signature = self.private_key.sign(
+            message,
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()),
+                salt_length=padding.PSS.DIGEST_LENGTH
+            ),
+            hashes.SHA256()
+        )
+        
+        # Return base64 encoded
+        return base64.b64encode(signature).decode('utf-8')
+    
+    def _get_headers(self, method: str, path: str) -> Dict[str, str]:
+        """Get authenticated request headers."""
+        timestamp = str(int(datetime.now().timestamp() * 1000))
+        signature = self._create_signature(timestamp, method, path)
+        
+        return {
+            'KALSHI-ACCESS-KEY': self.api_key_id,
+            'KALSHI-ACCESS-SIGNATURE': signature,
+            'KALSHI-ACCESS-TIMESTAMP': timestamp,
+            'Content-Type': 'application/json'
+        }
+    
+    def _get(self, path: str) -> Dict:
+        """Make authenticated GET request."""
+        headers = self._get_headers('GET', path)
+        response = requests.get(self.base_url + path, headers=headers)
+        response.raise_for_status()
+        return response.json()
+    
+    def _post(self, path: str, data: Dict) -> Dict:
+        """Make authenticated POST request."""
+        headers = self._get_headers('POST', path)
+        response = requests.post(self.base_url + path, headers=headers, json=data)
+        response.raise_for_status()
+        return response.json()
+    
+    def get_balance(self) -> Tuple[float, float]:
+        """
+        Get current account balance.
+        
+        Returns:
+            (balance, portfolio_value) in dollars
+        """
+        try:
+            response = self._get('/trade-api/v2/portfolio/balance')
+            response.raise_for_status()
+            
+            result = response.json()
+            # Kalshi returns balance in cents
+            available = result.get('balance', 0) / 100.0
+            
+            print(f"💰 Balance: ${available:.2f}")
+            return available, available
+            
+        except Exception as e:
+            print(f"⚠️ Failed to get balance: {e}")
+            return 0.0, 0.0
+    
+    def get_market_details(self, ticker: str) -> Optional[Dict]:
+        """
+        Get market details including event status and prices.
+        
+        Args:
+            ticker: Market ticker (e.g., "NBA-ATL-BOS-JAN18")
+            
+        Returns:
+            Market details dict or None if not found
+        """
+        url = f"{self.base_url}/markets/{ticker}"
+        
+        try:
+            response = requests.get(url, headers=self._get_headers())
+            response.raise_for_status()
+            
+            market = response.json().get('market', {})
+            return market
+            
+        except Exception as e:
+            print(f"⚠️ Failed to get market {ticker}: {e}")
+            return None
+    
+    def is_game_started(self, market: Dict) -> bool:
+        """
+        Check if game has already started.
+        
+        Args:
+            market: Market details dict
+            
+        Returns:
+            True if game has started or closed
+        """
+        # Check market status
+        status = market.get('status', '')
+        if status in ['closed', 'settled', 'finalized']:
+            return True
+        
+        # Check close time
+        close_time_str = market.get('close_time')
+        if close_time_str:
+            close_time = datetime.fromisoformat(close_time_str.replace('Z', '+00:00'))
+            if datetime.now(close_time.tzinfo) > close_time:
+                return True
+        
+        # Check event start time
+        event_ticker = market.get('event_ticker', '')
+        # Extract date from ticker (e.g., "NBA-ATL-BOS-JAN18")
+        if event_ticker:
+            parts = event_ticker.split('-')
+            if len(parts) >= 4:
+                date_str = parts[-1]  # e.g., "JAN18"
+                # Parse and check if today or in past
+                # This is approximate - better to use API event time
+                pass
+        
+        return False
+    
+    def calculate_bet_size(self, confidence: float, edge: float, balance: float) -> float:
+        """
+        Calculate bet size using Kelly Criterion with safety limits.
+        
+        Args:
+            confidence: Elo probability (0.0-1.0)
+            edge: Edge over market (0.0-1.0)
+            balance: Available balance
+            
+        Returns:
+            Bet size in dollars
+        """
+        # Kelly fraction: f* = edge / odds
+        # For simplicity, use fractional Kelly (1/4 Kelly)
+        if confidence > 0.75 and edge > 0.05:
+            # Use 1/4 Kelly for safety
+            kelly = edge / 4.0
+            bet_size = balance * kelly
+        else:
+            # Default to minimum
+            bet_size = 2.0
+        
+        # Apply limits
+        bet_size = max(2.0, min(bet_size, self.max_bet_size, balance * 0.05))
+        
+        return round(bet_size, 2)
+    
+    def place_bet(
+        self,
+        ticker: str,
+        side: str,
+        amount: float,
+        price: Optional[int] = None
+    ) -> Optional[Dict]:
+        """
+        Place a bet on Kalshi market.
+        
+        Args:
+            ticker: Market ticker
+            side: 'yes' or 'no'
+            amount: Dollar amount to bet
+            price: Limit price in cents (1-99), None for market order
+            
+        Returns:
+            Order response dict or None if failed
+        """
+        # Convert amount to cents (Kalshi uses cents)
+        count = int(amount * 100)
+        
+        # Build order
+        order = {
+            'ticker': ticker,
+            'action': 'buy',
+            'side': side,
+            'count': count,
+            'type': 'market' if price is None else 'limit'
+        }
+        
+        if price is not None:
+            order['yes_price'] = price if side == 'yes' else None
+            order['no_price'] = price if side == 'no' else None
+        
+        url = f"{self.base_url}/portfolio/orders"
+        
+        try:
+            print(f"📤 Placing bet: {ticker} {side.upper()} ${amount:.2f}")
+            
+            response = requests.post(url, json=order, headers=self._get_headers())
+            response.raise_for_status()
+            
+            result = response.json()
+            order_id = result.get('order', {}).get('order_id')
+            
+            print(f"✅ Order placed: {order_id}")
+            return result
+            
+        except Exception as e:
+            print(f"❌ Failed to place bet: {e}")
+            return None
+    
+    def get_open_positions(self) -> List[Dict]:
+        """
+        Get all open positions.
+        
+        Returns:
+            List of position dicts
+        """
+        url = f"{self.base_url}/portfolio/positions"
+        
+        try:
+            response = requests.get(url, headers=self._get_headers())
+            response.raise_for_status()
+            
+            positions = response.json().get('positions', [])
+            return positions
+            
+        except Exception as e:
+            print(f"⚠️ Failed to get positions: {e}")
+            return []
+    
+    def process_bet_recommendations(
+        self,
+        recommendations: List[Dict],
+        sport_filter: Optional[List[str]] = None,
+        min_confidence: float = 0.75,
+        min_edge: float = 0.05,
+        dry_run: bool = False
+    ) -> Dict:
+        """
+        Process bet recommendations and place bets.
+        
+        Args:
+            recommendations: List of bet recommendation dicts
+            sport_filter: List of sports to bet on (e.g., ['NBA', 'NCAAB'])
+            min_confidence: Minimum Elo confidence to bet (default: 75%)
+            min_edge: Minimum edge required (default: 5%)
+            dry_run: If True, don't actually place bets
+            
+        Returns:
+            Summary dict with placed bets and skipped bets
+        """
+        print(f"\n{'='*80}")
+        print(f"🎯 PROCESSING BET RECOMMENDATIONS")
+        print(f"{'='*80}\n")
+        
+        # Get current balance
+        balance, _ = self.get_balance()
+        
+        if balance < self.max_bet_size:
+            print(f"⚠️ Insufficient balance: ${balance:.2f} < ${self.max_bet_size:.2f}")
+            return {'placed': [], 'skipped': [], 'errors': []}
+        
+        # Filter recommendations
+        filtered = []
+        for rec in recommendations:
+            # Filter by sport
+            if sport_filter and rec.get('sport') not in sport_filter:
+                continue
+            
+            # Filter by confidence
+            if rec.get('elo_prob', 0) < min_confidence:
+                continue
+            
+            # Filter by edge
+            if rec.get('edge', 0) < min_edge:
+                continue
+            
+            filtered.append(rec)
+        
+        print(f"📊 Recommendations: {len(recommendations)} total, {len(filtered)} passed filters")
+        print(f"   Filters: sports={sport_filter}, min_conf={min_confidence:.1%}, min_edge={min_edge:.1%}\n")
+        
+        placed = []
+        skipped = []
+        errors = []
+        
+        for i, rec in enumerate(filtered, 1):
+            print(f"\n--- Bet {i}/{len(filtered)} ---")
+            print(f"Sport: {rec['sport']}")
+            print(f"Game: {rec['home_team']} vs {rec['away_team']}")
+            print(f"Bet on: {rec['bet_on']}")
+            print(f"Elo Prob: {rec['elo_prob']:.1%}, Edge: {rec['edge']:.1%}")
+            print(f"Ticker: {rec['ticker']}")
+            
+            # Get market details
+            ticker = rec['ticker']
+            market = self.get_market_details(ticker)
+            
+            if not market:
+                print(f"❌ Market not found")
+                errors.append({'rec': rec, 'reason': 'Market not found'})
+                continue
+            
+            # Check if game started
+            if self.is_game_started(market):
+                print(f"⚠️ Game already started or closed")
+                skipped.append({'rec': rec, 'reason': 'Game started'})
+                continue
+            
+            # Calculate bet size
+            bet_size = self.calculate_bet_size(
+                rec['elo_prob'],
+                rec['edge'],
+                balance
+            )
+            
+            # Check if we have enough balance
+            if bet_size > balance:
+                print(f"⚠️ Insufficient balance: ${balance:.2f} < ${bet_size:.2f}")
+                skipped.append({'rec': rec, 'reason': 'Insufficient balance'})
+                break
+            
+            print(f"💵 Bet size: ${bet_size:.2f}")
+            
+            # Determine side (yes = home wins, no = away wins)
+            side = 'yes' if rec['bet_on'] == 'home' else 'no'
+            
+            # Place bet
+            if dry_run:
+                print(f"🔍 DRY RUN - Would place: {ticker} {side.upper()} ${bet_size:.2f}")
+                placed.append({
+                    'rec': rec,
+                    'bet_size': bet_size,
+                    'side': side,
+                    'dry_run': True
+                })
+            else:
+                result = self.place_bet(ticker, side, bet_size)
+                
+                if result:
+                    placed.append({
+                        'rec': rec,
+                        'bet_size': bet_size,
+                        'side': side,
+                        'order_id': result.get('order', {}).get('order_id'),
+                        'result': result
+                    })
+                    balance -= bet_size
+                    print(f"💰 Remaining balance: ${balance:.2f}")
+                else:
+                    errors.append({'rec': rec, 'reason': 'Order placement failed'})
+            
+            # Rate limit (1 second between bets)
+            if i < len(filtered):
+                time.sleep(1)
+        
+        # Summary
+        print(f"\n{'='*80}")
+        print(f"📊 BETTING SUMMARY")
+        print(f"{'='*80}")
+        print(f"✅ Bets placed: {len(placed)}")
+        print(f"⚠️ Bets skipped: {len(skipped)}")
+        print(f"❌ Errors: {len(errors)}")
+        
+        if placed:
+            total_wagered = sum(p['bet_size'] for p in placed)
+            print(f"💵 Total wagered: ${total_wagered:.2f}")
+            print(f"💰 Remaining balance: ${balance:.2f}")
+        
+        return {
+            'placed': placed,
+            'skipped': skipped,
+            'errors': errors,
+            'balance': balance
+        }
+
+
+def main():
+    """Test betting client."""
+    # Load credentials
+    with open('/mnt/data2/nhlstats/kalshkey', 'r') as f:
+        api_key = f.read().strip()
+    
+    # Initialize client
+    client = KalshiBetting(api_key, max_bet_size=5.0)
+    
+    # Check balance
+    balance, _ = client.get_balance()
+    print(f"\n💰 Current balance: ${balance:.2f}")
+    
+    # Get open positions
+    positions = client.get_open_positions()
+    print(f"📊 Open positions: {len(positions)}")
+    
+    for pos in positions[:5]:
+        ticker = pos.get('ticker', 'N/A')
+        side = pos.get('position', 'N/A')
+        contracts = pos.get('total_traded', 0)
+        print(f"  - {ticker} {side}: {contracts} contracts")
+
+
+if __name__ == '__main__':
+    main()

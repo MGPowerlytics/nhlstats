@@ -18,6 +18,7 @@ try:
     from nhl_elo_rating import NHLEloRating
     from nfl_elo_rating import NFLEloRating
     from epl_elo_rating import EPLEloRating
+    from ncaab_elo_rating import NCAABEloRating
 except ImportError as e:
     print(f"Error importing Elo classes: {e}")
 
@@ -64,6 +65,14 @@ def load_data(league, db_path='data/nhlstats.duckdb'):
             WHERE result IS NOT NULL
             ORDER BY game_date
         """
+    elif league == 'NCAAB':
+        query = """
+            SELECT game_date, season, home_team, away_team, home_score, away_score, is_neutral,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM ncaab_games
+            WHERE home_score IS NOT NULL
+            ORDER BY game_date
+        """
     else:
         return pd.DataFrame()
 
@@ -91,19 +100,26 @@ def run_simulation(df, league):
         elo = NFLEloRating(k_factor=20, home_advantage=65)
     elif league == 'EPL':
         elo = EPLEloRating(k_factor=20, home_advantage=60)
+    elif league == 'NCAAB':
+        elo = NCAABEloRating(k_factor=20, home_advantage=100)
         
     if not elo: return df
     
     probs = []
     
     for _, row in df.iterrows():
-        prob = elo.predict(row['home_team'], row['away_team'])
+        if league == 'NCAAB':
+             prob = elo.predict(row['home_team'], row['away_team'], is_neutral=row['is_neutral'])
+        else:
+             prob = elo.predict(row['home_team'], row['away_team'])
         probs.append(prob)
         
         if league == 'EPL':
             elo.update(row['home_team'], row['away_team'], row['result'])
         elif league == 'NBA': # Not implemented in load yet
             elo.update(row['home_team'], row['away_team'], row['home_win'])
+        elif league == 'NCAAB':
+            elo.update(row['home_team'], row['away_team'], row['home_win'], is_neutral=row['is_neutral'])
         else:
             elo.update(row['home_team'], row['away_team'], row['home_score'], row['away_score'])
             
@@ -114,7 +130,7 @@ def analyze_season_timing():
     print("Running Seasonal Timing Analysis...")
     results = []
     
-    for league in ['MLB', 'NHL', 'NFL', 'EPL']:
+    for league in ['MLB', 'NHL', 'NFL', 'EPL', 'NCAAB']:
         print(f"Processing {league}...")
         df = load_data(league)
         if df.empty:
