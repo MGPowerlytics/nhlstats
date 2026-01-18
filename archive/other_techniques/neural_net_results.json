@@ -1,0 +1,21 @@
+{
+  "model": "Neural Network",
+  "architecture": {
+    "input_dim": 98,
+    "hidden_dims": [
+      128,
+      64,
+      32
+    ],
+    "dropout": 0.3,
+    "optimizer": "Adam",
+    "learning_rate": 0.001
+  },
+  "train_auc": 0.840430476689085,
+  "val_auc": 0.5880893073841915,
+  "test_auc": 0.6109155410015009,
+  "test_accuracy": 0.5978915662650602,
+  "baseline_accuracy": 0.525602400302887,
+  "num_games": 4426,
+  "num_features": 98
+}

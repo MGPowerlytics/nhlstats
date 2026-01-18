@@ -1,0 +1,364 @@
+🏒 NHL XGBoost Model Training with Hyperopt
+================================================================================
+
+📊 Loaded 4426 games from 2021-10-16 to 2025-05-06
+   Home win rate: 53.8%
+
+📈 Features: 93
+
+📦 Split:
+   Train: 3098 games (70.0%)
+   Val:   664 games (15.0%)
+   Test:  664 games (15.0%)
+
+🔍 Starting Hyperopt optimization...
+   Using custom loss: 1 - (val_auc - abs(train_auc - val_auc))
+   This penalizes overfitting while maximizing validation AUC
+  0%|          | 0/50 [00:00<?, ?trial/s, best loss=?]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:13] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+  2%|▏         | 1/50 [00:02<01:48,  2.21s/trial, best loss: 0.6697864497574828]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:15] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+  4%|▍         | 2/50 [00:02<00:49,  1.02s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:15] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+  6%|▌         | 3/50 [00:02<00:37,  1.24trial/s, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:16] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+  8%|▊         | 4/50 [00:06<01:25,  1.87s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:19] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 10%|█         | 5/50 [00:07<01:03,  1.41s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:20] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 12%|█▏        | 6/50 [00:09<01:11,  1.63s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:22] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 14%|█▍        | 7/50 [00:17<02:48,  3.93s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:31] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 16%|█▌        | 8/50 [00:19<02:13,  3.19s/trial, best loss: 0.6533953655456979]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:32] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 18%|█▊        | 9/50 [00:21<01:59,  2.92s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:35] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+                                                                                   [ 10] Train AUC: 0.9421, Val AUC: 0.6042, Gap: 0.3379, Loss: 0.7337
+ 18%|█▊        | 9/50 [00:24<01:59,  2.92s/trial, best loss: 0.6021551046962599] 20%|██        | 10/50 [00:24<01:49,  2.74s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:37] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 22%|██▏       | 11/50 [00:25<01:33,  2.41s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:39] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 24%|██▍       | 12/50 [00:27<01:20,  2.11s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:40] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 26%|██▌       | 13/50 [00:28<01:12,  1.97s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:42] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 28%|██▊       | 14/50 [00:32<01:26,  2.39s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:45] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 30%|███       | 15/50 [00:37<01:52,  3.21s/trial, best loss: 0.6021551046962599]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:50] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 32%|███▏      | 16/50 [00:37<01:19,  2.34s/trial, best loss: 0.506811072841042] /home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:50] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 34%|███▍      | 17/50 [00:40<01:23,  2.53s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:53] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 36%|███▌      | 18/50 [00:41<01:05,  2.05s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:54] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 38%|███▊      | 19/50 [00:46<01:28,  2.86s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:36:59] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+                                                                                   [ 20] Train AUC: 0.8674, Val AUC: 0.6019, Gap: 0.2655, Loss: 0.6636
+ 38%|███▊      | 19/50 [00:46<01:28,  2.86s/trial, best loss: 0.506811072841042] 40%|████      | 20/50 [00:46<01:06,  2.22s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:00] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 42%|████▏     | 21/50 [00:47<00:53,  1.85s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:01] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 44%|████▍     | 22/50 [00:48<00:38,  1.38s/trial, best loss: 0.506811072841042]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:01] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 46%|████▌     | 23/50 [00:48<00:27,  1.02s/trial, best loss: 0.47262771388391656]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:01] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 48%|████▊     | 24/50 [00:48<00:21,  1.21trial/s, best loss: 0.47262771388391656]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:02] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 50%|█████     | 25/50 [00:48<00:15,  1.61trial/s, best loss: 0.4710022408726453] /home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:02] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 52%|█████▏    | 26/50 [00:49<00:18,  1.32trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:03] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 54%|█████▍    | 27/50 [00:50<00:17,  1.30trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:04] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 56%|█████▌    | 28/50 [00:51<00:19,  1.15trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:05] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 58%|█████▊    | 29/50 [00:52<00:13,  1.50trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:05] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+                                                                                     [ 30] Train AUC: 0.7608, Val AUC: 0.6287, Gap: 0.1321, Loss: 0.5034
+ 58%|█████▊    | 29/50 [00:52<00:13,  1.50trial/s, best loss: 0.47008220038342596] 60%|██████    | 30/50 [00:52<00:11,  1.81trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:05] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 62%|██████▏   | 31/50 [00:52<00:10,  1.87trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:06] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 64%|██████▍   | 32/50 [00:54<00:13,  1.30trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:07] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 66%|██████▌   | 33/50 [00:55<00:16,  1.05trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:08] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 68%|██████▊   | 34/50 [00:55<00:12,  1.25trial/s, best loss: 0.47008220038342596]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:09] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 70%|███████   | 35/50 [00:56<00:10,  1.46trial/s, best loss: 0.4688046226737652] /home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:09] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 72%|███████▏  | 36/50 [00:59<00:17,  1.28s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:12] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 74%|███████▍  | 37/50 [00:59<00:13,  1.01s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:12] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 76%|███████▌  | 38/50 [01:02<00:19,  1.64s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:15] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 78%|███████▊  | 39/50 [01:03<00:15,  1.45s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:17] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+                                                                                    [ 40] Train AUC: 0.8386, Val AUC: 0.6164, Gap: 0.2222, Loss: 0.6057
+ 78%|███████▊  | 39/50 [01:10<00:15,  1.45s/trial, best loss: 0.4688046226737652] 80%|████████  | 40/50 [01:10<00:31,  3.12s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:24] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 82%|████████▏ | 41/50 [01:12<00:26,  2.90s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:26] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 84%|████████▍ | 42/50 [01:14<00:19,  2.47s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:27] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 86%|████████▌ | 43/50 [01:15<00:15,  2.14s/trial, best loss: 0.4688046226737652]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:29] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 88%|████████▊ | 44/50 [01:21<00:18,  3.08s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:34] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 90%|█████████ | 45/50 [01:22<00:12,  2.44s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:35] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 92%|█████████▏| 46/50 [01:23<00:08,  2.13s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:36] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 94%|█████████▍| 47/50 [01:26<00:06,  2.32s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:39] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 96%|█████████▌| 48/50 [01:27<00:03,  1.89s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:40] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+ 98%|█████████▊| 49/50 [01:28<00:01,  1.83s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:42] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+                                                                                    [ 50] Train AUC: 0.7549, Val AUC: 0.6232, Gap: 0.1317, Loss: 0.5085
+ 98%|█████████▊| 49/50 [01:30<00:01,  1.83s/trial, best loss: 0.4623344639561109]100%|██████████| 50/50 [01:30<00:00,  1.95s/trial, best loss: 0.4623344639561109]100%|██████████| 50/50 [01:30<00:00,  1.82s/trial, best loss: 0.4623344639561109]/home/matthew/anaconda3/lib/python3.12/site-packages/xgboost/training.py:199: UserWarning: [11:37:44] WARNING: /workspace/src/learner.cc:790: 
+Parameters: { "use_label_encoder" } are not used.
+
+  bst.update(dtrain, iteration=i, fobj=obj)
+
+
+================================================================================
+🏆 BEST HYPERPARAMETERS FOUND
+================================================================================
+  max_depth           : 3
+  min_child_weight    : 10
+  learning_rate       : 0.0102
+  subsample           : 0.6925
+  colsample_bytree    : 0.9943
+  gamma               : 4.8455
+  reg_alpha           : 0.1901
+  reg_lambda          : 0.0057
+  n_estimators        : 150
+
+  Best Train AUC:      0.7107
+  Best Val AUC:        0.6242
+  Overfitting Gap:     0.0865
+  Best Loss:           0.4623
+
+================================================================================
+🤖 Training Final Model with Best Parameters
+================================================================================
+
+📊 FINAL MODEL PERFORMANCE
+================================================================================
+
+TRAIN SET:
+  Accuracy:  0.648
+  Precision: 0.634
+  Recall:    0.786
+  F1 Score:  0.702
+  ROC-AUC:   0.711
+
+  Confusion Matrix:
+                 Predicted
+               Away    Home
+    Actual Away  720     742
+          Home  350     1286
+
+VAL SET:
+  Accuracy:  0.602
+  Precision: 0.611
+  Recall:    0.762
+  F1 Score:  0.678
+  ROC-AUC:   0.624
+
+  Confusion Matrix:
+                 Predicted
+               Away    Home
+    Actual Away  122     177
+          Home   87     278
+
+TEST SET:
+  Accuracy:  0.577
+  Precision: 0.606
+  Recall:    0.739
+  F1 Score:  0.666
+  ROC-AUC:   0.590
+
+  Confusion Matrix:
+                 Predicted
+               Away    Home
+    Actual Away  103     182
+          Home   99     280
+
+🎯 Baseline (always predict home): 0.571
+   Model improvement: +0.006
+
+================================================================================
+🔍 TOP 10 FEATURE IMPORTANCE
+================================================================================
+  home_points_pct                0.0346
+  away_shots_l10                 0.0284
+  away_corsi_for_l10             0.0265
+  away_fenwick_for_l10           0.0262
+  away_points_pct                0.0249
+  home_fenwick_against_l10       0.0238
+  away_fenwick_against_l10       0.0220
+  away_shots_l3                  0.0216
+  home_corsi_against_l10         0.0211
+  away_corsi_against_l3          0.0205
+
+💾 Model saved to data/nhl_xgboost_hyperopt_model.json
+💾 Best parameters saved to data/nhl_best_params.json
+
+================================================================================
+✅ Training Complete!
+================================================================================

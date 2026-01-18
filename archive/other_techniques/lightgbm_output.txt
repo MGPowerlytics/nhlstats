@@ -1,0 +1,63 @@
+🏒 Training LightGBM Model for NHL Game Prediction
+
+Loading training data...
+  Dataset: 4426 games, 98 features
+  Home win rate: 53.8%
+
+Train set: 3098 games
+Val set:   664 games
+Test set:  664 games
+
+Starting hyperparameter optimization (50 trials)...
+
+✅ Optimization complete!
+
+Best parameters:
+  colsample_bytree: 0.6090
+  learning_rate: 0.2052
+  max_depth: 3
+  min_child_samples: 34
+  n_estimators: 260
+  num_leaves: 34
+  reg_alpha: 0.0002
+  reg_lambda: 0.0011
+  subsample: 0.6979
+
+Best model performance:
+  Train AUC: 0.7114
+  Val AUC:   0.6327
+  Overfit:   0.0787
+
+Evaluating on test set...
+
+📊 Test Set Results:
+  Test AUC:      0.6190
+  Test Accuracy: 0.6084
+  Baseline Acc:  0.5256 (always predict home win)
+  Improvement:   0.0828
+
+Classification Report:
+              precision    recall  f1-score   support
+
+    Away Win       0.62      0.44      0.52       315
+    Home Win       0.60      0.76      0.67       349
+
+    accuracy                           0.61       664
+   macro avg       0.61      0.60      0.59       664
+weighted avg       0.61      0.61      0.60       664
+
+
+Top 10 Features:
+  home_points_pct                     115
+  away_corsi_against_l10               81
+  home_fenwick_for_l10                 71
+  away_points_pct                      69
+  away_corsi_for_l10                   59
+  away_shots_l3                        49
+  away_fenwick_for_l10                 33
+  home_fenwick_for_l3                  32
+  home_corsi_against_l10               28
+  away_fenwick_against_l10             27
+
+✅ Model saved to /mnt/data2/nhlstats/other_techniques/lightgbm_model.txt
+✅ Results saved to /mnt/data2/nhlstats/other_techniques/lightgbm_results.json

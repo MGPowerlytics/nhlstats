@@ -87,21 +87,15 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
     - ${AIRFLOW_PROJ_DIR:-.}/nhl_game_events.py:/opt/airflow/nhl_game_events.py
-    - ${AIRFLOW_PROJ_DIR:-.}/nhl_shifts.py:/opt/airflow/nhl_shifts.py
-    - ${AIRFLOW_PROJ_DIR:-.}/nhl_db_loader.py:/opt/airflow/nhl_db_loader.py
-    - ${AIRFLOW_PROJ_DIR:-.}/nhl_db_schema.sql:/opt/airflow/nhl_db_schema.sql
-    - ${AIRFLOW_PROJ_DIR:-.}/query_nhl_stats.py:/opt/airflow/query_nhl_stats.py
-    - ${AIRFLOW_PROJ_DIR:-.}/build_training_dataset.py:/opt/airflow/build_training_dataset.py
-    - ${AIRFLOW_PROJ_DIR:-.}/train_xgboost.py:/opt/airflow/train_xgboost.py
-    - ${AIRFLOW_PROJ_DIR:-.}/train_xgboost_hyperopt.py:/opt/airflow/train_xgboost_hyperopt.py
-    - ${AIRFLOW_PROJ_DIR:-.}/backfill_nba_playbyplay.py:/opt/airflow/backfill_nba_playbyplay.py
-    - ${AIRFLOW_PROJ_DIR:-.}/hk_racing_scraper.py:/opt/airflow/hk_racing_scraper.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nhl_elo_rating.py:/opt/airflow/nhl_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/mlb_elo_rating.py:/opt/airflow/mlb_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nfl_elo_rating.py:/opt/airflow/nfl_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nba_elo_rating.py:/opt/airflow/nba_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nba_games.py:/opt/airflow/nba_games.py
+    - ${AIRFLOW_PROJ_DIR:-.}/kalshi_markets.py:/opt/airflow/kalshi_markets.py
     - ${AIRFLOW_PROJ_DIR:-.}/nfl_games.py:/opt/airflow/nfl_games.py
     - ${AIRFLOW_PROJ_DIR:-.}/nba_games.py:/opt/airflow/nba_games.py
-    - ${AIRFLOW_PROJ_DIR:-.}/nba_db_loader.py:/opt/airflow/nba_db_loader.py
-    - ${AIRFLOW_PROJ_DIR:-.}/nba_db_schema.sql:/opt/airflow/nba_db_schema.sql
     - ${AIRFLOW_PROJ_DIR:-.}/mlb_games.py:/opt/airflow/mlb_games.py
-    - ${AIRFLOW_PROJ_DIR:-.}/betting_workflow.py:/opt/airflow/betting_workflow.py
     - ${AIRFLOW_PROJ_DIR:-.}/kalshkey:/opt/airflow/kalshkey
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:

@@ -1,0 +1,29 @@
+{
+  "n_games": 200,
+  "date_range": "2025-03-26 to 2025-05-06",
+  "auc": 0.5551702395964692,
+  "accuracy": 0.59,
+  "baseline_accuracy": 0.61,
+  "improvement": -0.020000000000000018,
+  "confusion_matrix": [
+    [
+      21,
+      57
+    ],
+    [
+      25,
+      97
+    ]
+  ],
+  "betting_simulation": {
+    "threshold": 0.6,
+    "total_bets": 36,
+    "total_wins": 24,
+    "win_rate": 0.6666666666666666,
+    "roi": -0.3333333333333333,
+    "home_bets": 36,
+    "away_bets": 0,
+    "home_wins": 24,
+    "away_wins": 0
+  }
+}
