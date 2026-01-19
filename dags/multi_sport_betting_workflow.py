@@ -96,6 +96,34 @@ SPORTS_CONFIG = {
         'elo_threshold': 0.65,
         'series_ticker': 'KXNCAAMBGAME',
         'team_mapping': {}
+    },
+    'ligue1': {
+        'elo_module': 'ligue1_elo_rating',
+        'games_module': 'ligue1_games',
+        'kalshi_function': 'fetch_ligue1_markets',
+        'elo_threshold': 0.45,  # Threshold for 3-way markets
+        'series_ticker': 'KXLIGUE1GAME',
+        'team_mapping': {
+            'PSG': 'PSG', 'PAR': 'PSG',
+            'MAR': 'Marseille', 'OLM': 'Marseille',
+            'LYO': 'Lyon', 'OL': 'Lyon',
+            'MON': 'Monaco', 'ASM': 'Monaco',
+            'LIL': 'Lille', 'LOSC': 'Lille',
+            'NIC': 'Nice', 'OGCN': 'Nice',
+            'REN': 'Rennes', 'SRFC': 'Rennes',
+            'LEN': 'Lens', 'RCL': 'Lens',
+            'NAT': 'Nantes', 'FCN': 'Nantes',
+            'AUX': 'Auxerre', 'AJA': 'Auxerre',
+            'LHA': 'Le Havre', 'HAC': 'Le Havre',
+            'LOR': 'Lorient', 'FCL': 'Lorient',
+            'TOU': 'Toulouse', 'TFC': 'Toulouse',
+            'ANG': 'Angers', 'SCO': 'Angers',
+            'BRE': 'Brest', 'SB29': 'Brest',
+            'STR': 'Strasbourg', 'RCS': 'Strasbourg',
+            'REI': 'Reims', 'SDR': 'Reims',
+            'MON': 'Montpellier', 'FCM': 'Montpellier',
+            'STB': 'Brest'
+        }
     }
 }
 
@@ -128,6 +156,12 @@ def download_games(sport, **context):
         from epl_games import EPLGames
         games = EPLGames()
         games.download_games()
+    elif sport == 'ligue1':
+        from ligue1_games import Ligue1GameDownloader
+        downloader = Ligue1GameDownloader()
+        # For now, using manual data since API requires key
+        # In production, would download from API
+        print(f"⚠️  Using pre-generated Ligue 1 ratings")
     elif sport == 'tennis':
         from tennis_games import TennisGames
         games = TennisGames()
@@ -216,6 +250,16 @@ def update_elo_ratings(sport, **context):
         if not elo:
             print(f"⚠️  No EPL games available yet")
             return
+    elif sport == 'ligue1':
+        from ligue1_elo_rating import Ligue1EloRating
+        import csv
+        # Load pre-generated ratings
+        elo = Ligue1EloRating(k_factor=20, home_advantage=60)
+        with open(f'data/ligue1_current_elo_ratings.csv', 'r') as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                elo.ratings[row['team']] = float(row['rating'])
+        print(f"✓ Loaded {len(elo.ratings)} Ligue 1 teams")
     elif sport == 'ncaab':
         from ncaab_elo_rating import NCAABEloRating
         from ncaab_games import NCAABGames
@@ -606,6 +650,85 @@ def identify_good_bets(sport, **context):
                     'no_ask': market.get('no_ask')
                 })
                 print(f"  ✓ {away_name} @ {home_name}: Bet {bet_on} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
+            
+            continue
+        
+        # LIGUE 1 LOGIC (same as EPL - 3-way markets)
+        if sport == 'ligue1':
+            # Ticker format: KXLIGUE1GAME-26JAN25LILRCS-LIL
+            # Parse team codes from ticker
+            try:
+                game_part = parts[1]  # LILRCS (home+away codes)
+                outcome_code = parts[2] if len(parts) > 2 else None
+                
+                if not outcome_code or outcome_code not in ['TIE', 'LIL', 'RCS', 'PAR', 'ANG', 'OL', 'FCM', 'TFC', 'STB', 'NIC', 'FCN']:
+                    continue
+                
+                # Try to match to known teams
+                home_team = None
+                away_team = None
+                
+                # Simple heuristic: first 3 chars = away, next 3 = home
+                # Or check team_mapping
+                for code, team in team_mapping.items():
+                    if code in game_part:
+                        if not away_team and game_part.startswith(code):
+                            away_team = team
+                        elif not home_team:
+                            home_team = team
+                
+                if not home_team or not away_team:
+                    continue
+                
+                # Get 3-way predictions
+                try:
+                    probs = elo_system.predict_3way(home_team, away_team)
+                except (KeyError, AttributeError):
+                    continue
+                
+                elo_prob = 0
+                bet_on = 'Unknown'
+                
+                if outcome_code == 'TIE':
+                    elo_prob = probs['draw']
+                    bet_on = 'Draw'
+                else:
+                    # Check if outcome matches home or away
+                    mapped_team = team_mapping.get(outcome_code)
+                    if mapped_team == home_team:
+                        elo_prob = probs['home']
+                        bet_on = 'home'
+                    elif mapped_team == away_team:
+                        elo_prob = probs['away']
+                        bet_on = 'away'
+                    else:
+                        continue
+                
+                # Market probability
+                yes_ask = market.get('yes_ask', 0) / 100.0
+                market_prob = yes_ask
+                
+                edge = elo_prob - market_prob
+                
+                if elo_prob > elo_threshold and edge > 0.05:
+                    confidence = "HIGH" if elo_prob > (elo_threshold + 0.1) else "MEDIUM"
+                    good_bets.append({
+                        'home_team': home_team,
+                        'away_team': away_team,
+                        'elo_prob': elo_prob,
+                        'market_prob': market_prob,
+                        'edge': edge,
+                        'bet_on': bet_on,
+                        'confidence': confidence,
+                        'yes_ask': market.get('yes_ask'),
+                        'no_ask': market.get('no_ask'),
+                        'sport': 'Ligue 1',
+                        'ticker': ticker
+                    })
+                    print(f"  ✓ {away_team} @ {home_team}: Bet {bet_on} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
+            
+            except Exception as e:
+                print(f"  ⚠️  Error processing Ligue 1 market {ticker}: {e}")
             
             continue
             

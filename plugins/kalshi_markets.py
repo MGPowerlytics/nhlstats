@@ -383,3 +383,44 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+def fetch_ligue1_markets(date_str=None):
+    """Fetch Kalshi markets for Ligue 1 games."""
+    try:
+        # Load credentials
+        api_key_id, private_key = load_kalshi_credentials()
+        
+        # Make authenticated request
+        api = KalshiAPI(api_key_id, private_key)
+        
+        # Try SDK first
+        try:
+            # Note: Actual series ticker may vary - check Kalshi docs
+            # Common formats: KXLIGUE1GAME, KXFRENCHLEAGUE, etc.
+            result = api.get_markets(series_ticker='KXLIGUE1GAME', limit=200)
+            if result and 'markets' in result:
+                markets = result['markets']
+                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
+                print(f"✓ Found {len(active_markets)} Ligue 1 markets")
+                return active_markets
+        except Exception as e:
+            print(f"⚠️  Error fetching Ligue 1 markets: {e}")
+            # Try alternative ticker formats
+            for ticker in ['KXFRENCHLEAGUE', 'KXFRENCHFOOTBALL', 'KXLIGUE1']:
+                try:
+                    result = api.get_markets(series_ticker=ticker, limit=200)
+                    if result and 'markets' in result:
+                        markets = result['markets']
+                        active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
+                        if active_markets:
+                            print(f"✓ Found {len(active_markets)} Ligue 1 markets using {ticker}")
+                            return active_markets
+                except:
+                    continue
+            return []
+            
+        return []
+    except Exception as e:
+        print(f"❌ Failed to fetch Ligue 1 markets: {e}")
+        return []
