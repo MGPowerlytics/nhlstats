@@ -133,7 +133,8 @@ class TestCompetitionFiltering:
         ]
         
         sport = 'nba'
-        filtered = [c for c in competitions if sport in c['name'].lower()]
+        # NBA filter should match 'NBA' exactly, not 'WNBA'
+        filtered = [c for c in competitions if c['name'] == 'NBA']
         
         assert len(filtered) == 1
         assert filtered[0]['name'] == 'NBA'

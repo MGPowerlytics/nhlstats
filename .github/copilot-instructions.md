@@ -12,6 +12,8 @@ KEEP THIS PROJECT ORGANIZED, NEAT AND WELL-DOCUMENTED. FOLLOW THE CODING CONVENT
 5. Place code into well-organized files and directories
 6. Document all fixes in the CHANGELOG
 7. RUN TESTS AND DATA VALIDATION BEFORE COMMITTING
+8. Add tests if we drop below 85% coverage
+9. Don't ask if you can or should do something - just do it, following these instructions and best practices
 
 ## Technology Stack
 

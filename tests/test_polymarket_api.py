@@ -115,13 +115,13 @@ class TestSportDetection:
     
     def test_detect_nfl(self):
         """Test detecting NFL market."""
-        question = "Will the Chiefs win the Super Bowl?"
+        question = "Will the Chiefs win the NFL game?"
         
         sport = None
-        if 'nfl' in question.lower() or 'super bowl' in question.lower():
+        if 'nfl' in question.lower():
             sport = 'nfl'
         
-        assert sport is None  # "super bowl" doesn't match our keywords
+        assert sport == 'nfl'
     
     def test_no_sport_detected(self):
         """Test when no sport is detected."""
@@ -261,5 +261,5 @@ class TestOrderBook:
         spread = ask - bid
         spread_pct = spread / ask * 100
         
-        assert spread == 0.03
+        assert spread == pytest.approx(0.03, abs=0.001)
         assert spread_pct == pytest.approx(5.45, abs=0.1)
