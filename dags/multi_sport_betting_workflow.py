@@ -271,7 +271,12 @@ def load_data_to_db(sport, **context):
     from db_loader import NHLDatabaseLoader
 
     with NHLDatabaseLoader() as loader:
-        count = loader.load_date(date_str)
+        if sport == "tennis":
+            # Tennis needs full history reload to capture new matches
+            loader.load_tennis_history(target_date=date_str)
+            count = "all"
+        else:
+            count = loader.load_date(date_str)
 
     print(f"✓ Loaded {count} new games/updates for {date_str}")
 
