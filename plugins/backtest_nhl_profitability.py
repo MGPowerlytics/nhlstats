@@ -23,11 +23,21 @@ import duckdb
 import numpy as np
 import pandas as pd
 
-from .betting_backtest import choose_side_by_edge, simulate_unit_bets
-from .compare_elo_trueskill_nhl import (
-    calculate_elo_probabilities,
-    calculate_trueskill_probabilities,
-)
+# Note: This file is for standalone execution, not Airflow plugin import
+# Relative imports don't work in Airflow plugins directory
+try:
+    from betting_backtest import choose_side_by_edge, simulate_unit_bets
+    from compare_elo_trueskill_nhl import (
+        calculate_elo_probabilities,
+        calculate_trueskill_probabilities,
+    )
+except ImportError:
+    # Fallback if run from different location
+    from plugins.betting_backtest import choose_side_by_edge, simulate_unit_bets
+    from plugins.compare_elo_trueskill_nhl import (
+        calculate_elo_probabilities,
+        calculate_trueskill_probabilities,
+    )
 from .lift_gain_analysis import get_current_season_start
 
 
@@ -178,7 +188,9 @@ def add_no_vig_probs(df: pd.DataFrame) -> pd.DataFrame:
     """
 
     df = df.copy()
-    total = df["home_implied_prob"].astype(float) + df["away_implied_prob"].astype(float)
+    total = df["home_implied_prob"].astype(float) + df["away_implied_prob"].astype(
+        float
+    )
     df["home_market_prob_nv"] = df["home_implied_prob"].astype(float) / total
     df["away_market_prob_nv"] = df["away_implied_prob"].astype(float) / total
     return df
@@ -188,7 +200,9 @@ def main(argv: Optional[list[str]] = None) -> None:
     args = parse_args(argv)
 
     season_start = get_current_season_start("nhl")
-    since_ts = pd.to_datetime(args.since) if args.since else pd.to_datetime(season_start)
+    since_ts = (
+        pd.to_datetime(args.since) if args.since else pd.to_datetime(season_start)
+    )
 
     print("📥 Loading NHL games + betting lines...")
     conn = duckdb.connect(args.db_path, read_only=True)
@@ -226,12 +240,19 @@ def main(argv: Optional[list[str]] = None) -> None:
             df.loc[missing_mask, col] = fallback[col].to_numpy()
 
     df = df.dropna(
-        subset=["home_ml_close", "away_ml_close", "home_implied_prob", "away_implied_prob"]
+        subset=[
+            "home_ml_close",
+            "away_ml_close",
+            "home_implied_prob",
+            "away_implied_prob",
+        ]
     ).copy()
     df = df.sort_values(["game_date", "game_id"], ascending=True)
 
     if df.empty:
-        raise SystemExit("No joined games with betting lines found for the requested window")
+        raise SystemExit(
+            "No joined games with betting lines found for the requested window"
+        )
 
     df = add_no_vig_probs(df)
     print(f"✅ Joined games with lines: {len(df)}")
@@ -250,7 +271,11 @@ def main(argv: Optional[list[str]] = None) -> None:
 
     w_elo = float(args.w_elo)
     w_ts = float(args.w_ts)
-    if not np.isfinite(w_elo) or not np.isfinite(w_ts) or abs((w_elo + w_ts) - 1.0) > 1e-6:
+    if (
+        not np.isfinite(w_elo)
+        or not np.isfinite(w_ts)
+        or abs((w_elo + w_ts) - 1.0) > 1e-6
+    ):
         raise SystemExit("--w-elo + --w-ts must sum to 1.0")
 
     df["model_prob"] = w_elo * df["elo_prob"] + w_ts * df["trueskill_prob"]

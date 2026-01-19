@@ -53,6 +53,11 @@ try:
 except ImportError:
     Ligue1EloRating = None
 
+try:
+    from wncaab_elo_rating import WNCAABEloRating
+except ImportError:
+    WNCAABEloRating = None
+
 # Import Glicko-2 classes
 try:
     from glicko2_rating import (NBAGlicko2Rating, NHLGlicko2Rating, 
@@ -254,6 +259,33 @@ def load_data(league, db_path='data/nhlstats.duckdb'):
         finally:
             conn.close()
     
+    elif league == 'WNCAAB':
+        if not os.path.exists(db_path):
+            return pd.DataFrame()
+            
+        conn = duckdb.connect(db_path, read_only=True)
+        query = """
+            SELECT 
+                game_date,
+                season,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                neutral_site,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM wncaab_games
+            WHERE home_score IS NOT NULL 
+              AND away_score IS NOT NULL
+            ORDER BY game_date
+        """
+        try:
+            games_df = conn.execute(query).fetchdf()
+        except Exception as e:
+            st.error(f"Error loading WNCAAB data: {e}")
+        finally:
+            conn.close()
+    
     elif league == 'Ligue1':
         if not os.path.exists(db_path):
             return pd.DataFrame()
@@ -328,6 +360,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
         elo = TennisEloRating(k_factor=k_factor) # No home advantage in tennis usually
     elif league == 'NCAAB' and NCAABEloRating:
         elo = NCAABEloRating(k_factor=k_factor, home_advantage=home_adv)
+    elif league == 'WNCAAB' and WNCAABEloRating:
+        elo = WNCAABEloRating(k_factor=k_factor, home_advantage=home_adv)
     elif league == 'Ligue1' and Ligue1EloRating:
         elo = Ligue1EloRating(k_factor=k_factor, home_advantage=home_adv)
     else:
@@ -342,6 +376,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
         # Predict
         if league == 'NCAAB':
             prob = elo.predict(game['home_team'], game['away_team'], is_neutral=game['is_neutral'])
+        elif league == 'WNCAAB':
+            prob = elo.predict(game['home_team'], game['away_team'], is_neutral=game['neutral_site'])
         else:
             prob = elo.predict(game['home_team'], game['away_team'])
         probs.append(prob)
@@ -353,6 +389,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
             elo.update(game['home_team'], game['away_team'], game['home_win'])
         elif league == 'NCAAB':
             elo.update(game['home_team'], game['away_team'], game['home_win'], is_neutral=game['is_neutral'])
+        elif league == 'WNCAAB':
+            elo.update(game['home_team'], game['away_team'], game['home_win'], is_neutral=game['neutral_site'])
         elif league == 'EPL':
              elo.update(game['home_team'], game['away_team'], game['result'])
         elif league == 'Ligue1':
@@ -478,7 +516,7 @@ if page == "Betting Performance":
 st.sidebar.title("Configuration")
 
 # League Selection
-league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "Ligue1"])
+league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "WNCAAB", "Ligue1"])
 
 # Load Data (Cached)
 with st.spinner(f"Loading {league} data..."):
@@ -510,6 +548,7 @@ if league == 'Tennis':
     default_home = 0
     default_k = 32
 if league == 'NCAAB': default_home = 100
+if league == 'WNCAAB': default_home = 100  # Added for Women's NCAA Basketball
 
 # Elo Parameters (Advanced)
 with st.sidebar.expander("Elo Parameters"):

@@ -336,6 +336,34 @@ def fetch_ncaab_markets(date_str=None):
         print(f"⚠️ Error fetching NCAAB markets: {e}")
         return []
 
+def fetch_wncaab_markets(date_str=None):
+    """Fetch Kalshi markets for Women's NCAAB games."""
+    try:
+        # Load credentials
+        api_key_id, private_key = load_kalshi_credentials()
+        
+        # Make authenticated request
+        api = KalshiAPI(api_key_id, private_key)
+        
+        # Call via SDK
+        try:
+            print("  Searching for KXNCAAWBGAME...")
+            result = api.get_markets(series_ticker='KXNCAAWBGAME', limit=200)
+            if result and 'markets' in result:
+                markets = result['markets']
+                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
+                print(f"✓ Found {len(active_markets)} WNCAAB markets")
+                return active_markets
+        except Exception as e:
+            print(f"  SDK fetch failed: {e}")
+            
+        print("⚠️ No WNCAAB markets found")
+        return []
+        
+    except Exception as e:
+        print(f"⚠️ Error fetching WNCAAB markets: {e}")
+        return []
+
 def fetch_tennis_markets(date_str=None):
     """
     Fetch Tennis markets from Kalshi.

@@ -254,6 +254,14 @@ SPORTS_CONFIG = {
             "STB": "Brest",
         },
     },
+    "wncaab": {
+        "elo_module": "wncaab_elo_rating",
+        "games_module": "wncaab_games",
+        "kalshi_function": "fetch_wncaab_markets",
+        "elo_threshold": 0.65,
+        "series_ticker": "KXNCAAWBGAME",
+        "team_mapping": {},
+    },
 }
 
 
@@ -480,6 +488,28 @@ def update_elo_ratings(sport, **context):
                 is_neutral=game["neutral"],
             )
 
+    elif sport == "wncaab":
+        from wncaab_elo_rating import WNCAABEloRating
+        from wncaab_games import WNCAABGames
+
+        elo = WNCAABEloRating(k_factor=20, home_advantage=100)
+        games_obj = WNCAABGames()
+        df = games_obj.load_games()
+
+        if df.empty:
+            print("⚠️ No WNCAAB games loaded")
+            return
+
+        df = df.sort_values("date")
+        for _, game in df.iterrows():
+            home_won = 1.0 if game["home_score"] > game["away_score"] else 0.0
+            elo.update(
+                game["home_team"],
+                game["away_team"],
+                home_won,
+                is_neutral=game.get("neutral", False),
+            )
+
     elif sport == "tennis":
         # Tennis is unique, we compute globally usually
         # But for DAG, let's just create a dummy object or compute current
@@ -498,7 +528,7 @@ def update_elo_ratings(sport, **context):
             elo.update(w, l)
 
     # Save ratings to CSV
-    if sport in ["nba", "nhl", "epl", "tennis"]:
+    if sport in ["nba", "nhl", "epl", "tennis", "ncaab", "wncaab"]:
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
@@ -526,6 +556,7 @@ def fetch_prediction_markets(sport, **context):
         fetch_tennis_markets,
         fetch_ncaab_markets,
         fetch_ligue1_markets,
+        fetch_wncaab_markets,
     )
 
     config = SPORTS_CONFIG[sport]
@@ -538,6 +569,7 @@ def fetch_prediction_markets(sport, **context):
         "tennis": fetch_tennis_markets,
         "ncaab": fetch_ncaab_markets,
         "ligue1": fetch_ligue1_markets,
+        "wncaab": fetch_wncaab_markets,
     }[sport]
 
     date_str = context["ds"]
@@ -697,6 +729,46 @@ def identify_good_bets(sport, **context):
 
     good_bets = []
 
+    def _normalize_team_name(name: str) -> str:
+        """Normalize team names for matching Kalshi titles to Elo keys."""
+
+        return (
+            name.lower()
+            .replace("&", "and")
+            .replace(".", "")
+            .replace("'", "")
+            .replace(" ", "_")
+            .strip()
+        )
+
+    def _resolve_team_name(raw_name: str) -> str | None:
+        """Resolve a Kalshi title team name to an Elo key."""
+
+        # Fast path: exact key
+        if raw_name in elo_ratings:
+            return raw_name
+
+        candidate = _normalize_team_name(raw_name)
+        # 1) Exact match after normalization
+        for key in elo_ratings.keys():
+            if _normalize_team_name(key) == candidate:
+                return key
+
+        # 2) Heuristic replacements common in titles
+        alt = candidate.replace("_st", "_state")
+        for key in elo_ratings.keys():
+            nk = _normalize_team_name(key)
+            if nk == alt:
+                return key
+
+        # 3) Substring match (best-effort)
+        for key in elo_ratings.keys():
+            nk = _normalize_team_name(key)
+            if candidate and (candidate in nk or nk in candidate):
+                return key
+
+        return None
+
     for market in markets:
         ticker = market.get("ticker", "")
         if "-" not in ticker:
@@ -704,8 +776,8 @@ def identify_good_bets(sport, **context):
 
         parts = ticker.split("-")
 
-        # NCAAB LOGIC
-        if sport == "ncaab":
+        # NCAAB / WNCAAB LOGIC (Kalshi "Winner?" style markets)
+        if sport in ["ncaab", "wncaab"]:
             title = market.get("title", "")
             if " at " not in title:
                 continue
@@ -717,46 +789,10 @@ def identify_good_bets(sport, **context):
             except ValueError:
                 continue
 
-            # Find closest match in Elo ratings
-            # Simple normalization helper
-            def normalize(s):
-                return (
-                    s.replace("St", "State")
-                    .replace("Univ", "")
-                    .replace(".", "")
-                    .strip()
-                )
-
-            params = [away_raw, home_raw]
-            matched_teams = []
-
-            for p in params:
-                # 1. Exact match
-                if p in elo_ratings:
-                    matched_teams.append(p)
-                    continue
-
-                # 2. Normalized match
-                norm_p = normalize(p)
-                found = None
-                for k in elo_ratings.keys():
-                    if normalize(k) == norm_p:
-                        found = k
-                        break
-                if found:
-                    matched_teams.append(found)
-                    continue
-
-                # 3. Substring match (dangerous but useful for UMass -> Massachusetts?)
-                # Massachusetts contains Mass? No.
-                # UMass -> Massachusetts.
-                # Let's skip obscure ones and focus on clean matches
-                matched_teams.append(None)
-
-            if None in matched_teams:
+            away_team = _resolve_team_name(away_raw)
+            home_team = _resolve_team_name(home_raw)
+            if not away_team or not home_team:
                 continue
-
-            away_team, home_team = matched_teams
 
             # Predict
             try:
@@ -764,54 +800,19 @@ def identify_good_bets(sport, **context):
             except:
                 continue
 
-            # Market Prob
+            # Market probability for this contract (YES = the team identified by ticker suffix wins)
             yes_ask = market.get("yes_ask", 0) / 100.0
 
-            # Identify which side is Yes
-            # Ticker: KXNCAAMBGAME-DATE-AWAY-HOME-WINNER
-            # If ticker ends with HOME, Yes = Home Win.
-            # But ticker uses abbreviations!
-            # We can't easily rely on ticker to know who is who if mappings are unknown.
-            # But the Title says "Toledo at UMass Winner?" (Yes/No).
-            # Usually "Yes" means the named event happens?
-            # Wait, Kalshi structure for "Winner?" markets:
-            # Title: "Toledo at UMass Winner?"
-            # Subtitle: "Toledo" (Option Yes?) No, unrelated.
+            # Determine whether this market is for home or away team.
+            # Kalshi tickers look like:
+            #   KXNCAAWBGAME-26JAN22MASSLUVM-UVM
+            # where the event portion ends with the home code, and the final segment is the team code.
+            event_part = parts[1]
+            team_code = parts[-1]
 
-            # Actually, "Winner?" markets are often:
-            # Title: "Toledo at UMass Winner?"
-            # This is ambiguous. Does Yes mean Home wins? Or simple match winner?
-
-            # Let's check verify_ncaab_series.py output again
-            # Ticker: KXNCAAMBGAME-26JAN20TOLMASS-TOL
-            # Title: Toledo at UMass Winner?
-            # The last part of ticker is TOL.
-            # This implies the market is "Will TOL win?"
-
-            # So if ticker ends with TOL, and Away is Toledo, then YES = Away Win.
-            # We need to extract the target from ticker.
-
-            target_abbr = parts[-1]
-
-            # Need to match target_abbr to away_team or home_team.
-            # We don't have abbreviations in elo_ratings keys (full names).
-            # But we have `away_raw` ("Toledo") and `home_raw` ("UMass").
-            # TOL matches Toledo? Yes (Startswith).
-            # MASS matches UMass? Yes (Contains/Ending).
-
-            target_side = "Unknown"
-            if (
-                away_raw.upper().startswith(target_abbr)
-                or target_abbr in away_raw.upper()
-            ):
-                target_side = "away"
-            elif (
-                home_raw.upper().startswith(target_abbr)
-                or target_abbr in home_raw.upper()
-            ):
+            target_side = "away"
+            if isinstance(event_part, str) and isinstance(team_code, str) and event_part.endswith(team_code):
                 target_side = "home"
-            else:
-                continue
 
             market_prob = yes_ask
             elo_prob = prob if target_side == "home" else (1.0 - prob)
@@ -829,6 +830,11 @@ def identify_good_bets(sport, **context):
                         "bet_on": target_side,
                         "confidence": confidence,
                         "ticker": ticker,
+                        "title": title,
+                        "yes_ask": market.get("yes_ask"),
+                        "no_ask": market.get("no_ask"),
+                        "close_time": serialize_datetime(market.get("close_time")),
+                        "status": market.get("status"),
                     }
                 )
 
@@ -1766,7 +1772,7 @@ dag = DAG(
 )
 
 # Create tasks for each sport
-for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "ligue1"]:
+for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "wncaab", "ligue1"]:
     download_task = PythonOperator(
         task_id=f"{sport}_download_games",
         python_callable=download_games,
@@ -1822,8 +1828,8 @@ for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "ligue1"]:
         pool="duckdb_pool",
     )
 
-    # Place bets task (for NBA, NCAAB, and TENNIS)
-    if sport in ["nba", "ncaab", "tennis"]:
+    # Place bets task (for NBA, NCAAB, WNCAAB, and TENNIS)
+    if sport in ["nba", "ncaab", "wncaab", "tennis"]:
         place_bets_task = PythonOperator(
             task_id=f"{sport}_place_bets",
             python_callable=place_bets_on_recommendations,
@@ -1850,7 +1856,7 @@ for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "ligue1"]:
     else:
         # Without Glicko-2
         download_task >> load_task >> elo_task >> markets_task >> bets_task
-        if sport in ["ncaab", "tennis"]:
+        if sport in ["ncaab", "wncaab", "tennis"]:
             bets_task >> place_bets_task >> load_bets_task
         else:
             bets_task >> load_bets_task
@@ -1867,7 +1873,17 @@ portfolio_betting_task = PythonOperator(
 # Get all the bets_task for each sport
 all_bets_tasks = [
     dag.get_task(f"{sport}_identify_bets")
-    for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "ligue1"]
+    for sport in [
+        "nba",
+        "nhl",
+        "mlb",
+        "nfl",
+        "epl",
+        "tennis",
+        "ncaab",
+        "wncaab",
+        "ligue1",
+    ]
 ]
 
 # Portfolio betting runs after all bets are identified

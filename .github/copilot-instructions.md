@@ -6,14 +6,15 @@ This is a **multi-sport betting system** that uses Elo ratings to identify betti
 
 KEEP THIS PROJECT ORGANIZED, NEAT AND WELL-DOCUMENTED. FOLLOW THE CODING CONVENTIONS BELOW. 
 1. Run black on new code
-2. Add type hints and docstrings
-3. Use clear, descriptive names for variables and functions
-4. Use google docstring style
-5. Place code into well-organized files and directories
-6. Document all fixes in the CHANGELOG
-7. RUN TESTS AND DATA VALIDATION BEFORE COMMITTING
-8. Add tests if we drop below 85% coverage
-9. Don't ask if you can or should do something - just do it, following these instructions and best practices
+2. DO NOT GENERATE MANUAL DAGRUNS. CLEAR OUT THE TASKS AND LET AIRFLOW HANDLE IT.
+3. Add type hints and docstrings
+4. Use clear, descriptive names for variables and functions
+5. Use google docstring style
+6. Place code into well-organized files and directories
+7. Document all fixes in the CHANGELOG
+8. RUN TESTS AND DATA VALIDATION BEFORE COMMITTING
+9. Add tests if we drop below 85% coverage
+10. Don't ask if you can or should do something - just do it, following these instructions and best practices
 
 ## Technology Stack
 
