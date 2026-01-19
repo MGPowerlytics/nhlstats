@@ -1,164 +1,333 @@
-#!/usr/bin/env python3
 """
-Tune NHL Elo parameters to maximize prediction accuracy.
+NHL Elo Parameter Tuning with Recency Weighting
+Tests different parameters to optimize prediction accuracy.
 """
 
 import duckdb
-import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 from collections import defaultdict
-from datetime import datetime
+import sys
 
-# Define parameter grid
-K_FACTORS = [6, 10, 15, 20, 25, 30]
-HOME_ADVANTAGES = [25, 50, 75, 100, 125, 150]
-
-class SimpleElo:
-    def __init__(self, k, ha, initial=1500):
-        self.k = k
-        self.ha = ha
-        self.ratings = defaultdict(lambda: initial)
-        
-    def predict(self, home, away):
-        r_home = self.ratings[home] + self.ha
-        r_away = self.ratings[away]
-        return 1 / (1 + 10 ** ((r_away - r_home) / 400))
-        
-    def update(self, home, away, home_win):
-        pred = self.predict(home, away)
-        actual = 1.0 if home_win else 0.0
-        change = self.k * (actual - pred)
-        self.ratings[home] += change
-        self.ratings[away] -= change
-        return pred
-
-def load_games():
-    """Load ordered games from DuckDB"""
-    conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
-    query = """
-        SELECT 
-            game_date,
-            home_team_name,
-            away_team_name,
-            CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-        FROM games 
-        WHERE game_state IN ('OFF', 'FINAL') 
-          AND home_score IS NOT NULL 
-          AND away_score IS NOT NULL
-        ORDER BY game_date, game_id
-    """
-    df = conn.execute(query).fetchdf()
-    conn.close()
-    return df
-
-def run_tuning():
-    print("Loading data...")
-    df = load_games()
-    print(f"Loaded {len(df)} games")
+class NHLEloRatingTunable:
+    """NHL Elo Rating with configurable parameters and recency weighting"""
     
-    # Split point for current season (approx)
-    current_season_start = '2025-10-01'
+    def __init__(self, k_factor=20, home_advantage=100, initial_rating=1500, 
+                 recency_weight=0.0, season_reversion=0.35):
+        self.k_factor = k_factor
+        self.home_advantage = home_advantage
+        self.initial_rating = initial_rating
+        self.recency_weight = recency_weight  # 0 = no weighting, 0.1-0.3 typical
+        self.season_reversion = season_reversion
+        self.ratings = defaultdict(lambda: initial_rating)
+        self.game_dates = defaultdict(lambda: None)  # Track last game date per team
+        
+    def get_rating(self, team):
+        return self.ratings[team]
+        
+    def expected_score(self, rating_a, rating_b):
+        """Calculate expected score using logistic function"""
+        return 1 / (1 + 10 ** ((rating_b - rating_a) / 400))
+        
+    def predict(self, home_team, away_team):
+        """Predict probability of home team winning"""
+        home_rating = self.ratings[home_team] + self.home_advantage
+        away_rating = self.ratings[away_team]
+        return self.expected_score(home_rating, away_rating)
+        
+    def update(self, home_team, away_team, home_won, game_date=None):
+        """Update ratings after a game with optional recency weighting"""
+        home_rating = self.ratings[home_team]
+        away_rating = self.ratings[away_team]
+        
+        # Calculate expected scores
+        home_expected = self.expected_score(
+            home_rating + self.home_advantage, 
+            away_rating
+        )
+        
+        # Actual scores
+        home_actual = 1.0 if home_won else 0.0
+        away_actual = 1.0 - home_actual
+        
+        # Apply recency weighting if enabled
+        k_factor = self.k_factor
+        if self.recency_weight > 0 and game_date:
+            # Boost k-factor for teams that haven't played recently
+            for team in [home_team, away_team]:
+                if self.game_dates[team]:
+                    days_since = (game_date - self.game_dates[team]).days
+                    if days_since > 7:  # More than a week since last game
+                        k_factor *= (1 + self.recency_weight)
+        
+        # Update ratings
+        home_change = k_factor * (home_actual - home_expected)
+        away_change = k_factor * (away_actual - (1 - home_expected))
+        
+        self.ratings[home_team] += home_change
+        self.ratings[away_team] += away_change
+        
+        # Track game dates
+        if game_date:
+            self.game_dates[home_team] = game_date
+            self.game_dates[away_team] = game_date
+        
+        return {
+            'home_change': home_change,
+            'away_change': away_change,
+            'home_rating': self.ratings[home_team],
+            'away_rating': self.ratings[away_team]
+        }
+        
+    def apply_season_reversion(self, regression_factor=0.35):
+        """Regress ratings toward mean between seasons"""
+        mean_rating = self.initial_rating
+        for team in self.ratings:
+            self.ratings[team] = (
+                self.ratings[team] * (1 - regression_factor) + 
+                mean_rating * regression_factor
+            )
+
+
+def evaluate_parameters(k_factor, home_advantage, recency_weight, season_reversion,
+                       test_season='2025', use_recent_only=False):
+    """Evaluate Elo parameters on historical data"""
+    
+    conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+    
+    # Filter out exhibition teams and duplicates
+    exhibition_teams = ('CAN', 'USA', 'ATL', 'MET', 'CEN', 'PAC', 
+                       'SWE', 'FIN', 'EIS', 'MUN', 'SCB', 'KLS', 
+                       'KNG', 'MKN', 'HGS', 'MAT', 'MCD')
+    
+    games = conn.execute("""
+        WITH ranked_games AS (
+            SELECT game_date, home_team_abbrev, away_team_abbrev,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_won,
+                   season,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY game_date, home_team_abbrev, away_team_abbrev 
+                       ORDER BY game_id
+                   ) as rn
+            FROM games 
+            WHERE game_state IN ('OFF', 'FINAL')
+              AND home_team_abbrev NOT IN ?
+              AND away_team_abbrev NOT IN ?
+        )
+        SELECT game_date, home_team_abbrev, away_team_abbrev, home_won, season
+        FROM ranked_games
+        WHERE rn = 1
+        ORDER BY game_date, home_team_abbrev
+    """, [exhibition_teams, exhibition_teams]).fetchall()
+    conn.close()
+    
+    if use_recent_only:
+        # Only use last 120 games for rapid iteration
+        games = games[-120:]
+    
+    elo = NHLEloRatingTunable(
+        k_factor=k_factor,
+        home_advantage=home_advantage,
+        recency_weight=recency_weight,
+        season_reversion=season_reversion
+    )
+    
+    # Track predictions
+    predictions = []
+    test_predictions = []
+    
+    last_season = None
+    
+    for game in games:
+        game_date, home, away, home_won, season = game
+        
+        # Convert date if needed
+        if isinstance(game_date, str):
+            game_date = datetime.strptime(game_date, '%Y-%m-%d').date()
+        
+        # Apply season reversion
+        if last_season and season != last_season:
+            elo.apply_season_reversion(season_reversion)
+        last_season = season
+        
+        # Make prediction
+        pred_prob = elo.predict(home, away)
+        pred_result = 1 if pred_prob > 0.5 else 0
+        
+        # Store prediction
+        is_correct = (pred_result == home_won)
+        
+        if str(season) == test_season:
+            test_predictions.append({
+                'prob': pred_prob,
+                'actual': home_won,
+                'correct': is_correct,
+                'home': home,
+                'away': away,
+                'date': game_date
+            })
+        
+        predictions.append({
+            'prob': pred_prob,
+            'actual': home_won,
+            'correct': is_correct
+        })
+        
+        # Update ratings with this result
+        elo.update(home, away, home_won, game_date)
+    
+    # Calculate metrics
+    overall_accuracy = np.mean([p['correct'] for p in predictions])
+    
+    if test_predictions:
+        test_accuracy = np.mean([p['correct'] for p in test_predictions])
+        
+        # Brier score (lower is better)
+        brier = np.mean([(p['prob'] - p['actual'])**2 for p in test_predictions])
+        
+        # Log loss (lower is better)
+        log_loss = -np.mean([
+            p['actual'] * np.log(p['prob'] + 1e-10) + 
+            (1 - p['actual']) * np.log(1 - p['prob'] + 1e-10)
+            for p in test_predictions
+        ])
+        
+        # Calibration by decile
+        test_probs = [p['prob'] for p in test_predictions]
+        test_actuals = [p['actual'] for p in test_predictions]
+        
+        return {
+            'overall_accuracy': overall_accuracy,
+            'test_accuracy': test_accuracy,
+            'test_games': len(test_predictions),
+            'brier_score': brier,
+            'log_loss': log_loss,
+            'test_predictions': test_predictions
+        }
+    
+    return {
+        'overall_accuracy': overall_accuracy,
+        'test_accuracy': None,
+        'test_games': 0
+    }
+
+
+def grid_search():
+    """Test multiple parameter combinations"""
+    
+    print("=" * 80)
+    print("NHL ELO PARAMETER TUNING - GRID SEARCH")
+    print("=" * 80)
+    print("\nTesting parameters on 2025 season (current)...")
+    print()
+    
+    # Parameter grid
+    k_factors = [10, 15, 20, 25, 30]
+    home_advantages = [50, 75, 100, 125]
+    recency_weights = [0.0, 0.1, 0.2, 0.3]
+    season_reversions = [0.25, 0.35, 0.45]
     
     results = []
     
-    print(f"Testing {len(K_FACTORS) * len(HOME_ADVANTAGES)} combinations...")
-    print("-" * 80)
-    print(f"{'K':<5} {'HA':<5} {'Acc (All)':<12} {'LL (All)':<12} {'Acc (25-26)':<12} {'LL (25-26)':<12}")
+    total_tests = len(k_factors) * len(home_advantages) * len(recency_weights) * len(season_reversions)
+    test_num = 0
+    
+    print(f"Running {total_tests} parameter combinations...\n")
+    
+    for k in k_factors:
+        for ha in home_advantages:
+            for rw in recency_weights:
+                for sr in season_reversions:
+                    test_num += 1
+                    
+                    if test_num % 20 == 0:
+                        print(f"Progress: {test_num}/{total_tests} ({test_num/total_tests*100:.0f}%)")
+                    
+                    result = evaluate_parameters(k, ha, rw, sr, test_season='2025')
+                    
+                    if result['test_accuracy'] is not None:
+                        results.append({
+                            'k_factor': k,
+                            'home_advantage': ha,
+                            'recency_weight': rw,
+                            'season_reversion': sr,
+                            'accuracy': result['test_accuracy'],
+                            'brier': result['brier_score'],
+                            'log_loss': result['log_loss'],
+                            'games': result['test_games']
+                        })
+    
+    # Sort by accuracy
+    results.sort(key=lambda x: (-x['accuracy'], x['brier']))
+    
+    # Display top 10
+    print("\n" + "=" * 80)
+    print("TOP 10 PARAMETER COMBINATIONS")
+    print("=" * 80)
+    print(f"\n{'Rank':<5} {'K':>4} {'HA':>5} {'RW':>5} {'SR':>5} {'Acc':>7} {'Brier':>7} {'LogLoss':>8}")
     print("-" * 80)
     
-    for k in K_FACTORS:
-        for ha in HOME_ADVANTAGES:
-            elo = SimpleElo(k, ha)
-            
-            correct = 0
-            log_loss = 0
-            
-            curr_correct = 0
-            curr_log_loss = 0
-            curr_count = 0
-            
-            for _, row in df.iterrows():
-                home = row['home_team_name']
-                away = row['away_team_name']
-                win = row['home_win']
-                date = str(row['game_date'])
-                
-                prob = elo.predict(home, away)
-                
-                # Check prediction
-                is_correct = (prob > 0.5 and win == 1) or (prob < 0.5 and win == 0)
-                ll = -np.log(prob if win == 1 else 1 - prob)
-                
-                # Update total stats
-                if is_correct: correct += 1
-                log_loss += ll
-                
-                # Update current season stats
-                if date >= current_season_start:
-                    if is_correct: curr_correct += 1
-                    curr_log_loss += ll
-                    curr_count += 1
-                
-                # Update ratings
-                elo.update(home, away, win)
-            
-            acc_all = correct / len(df)
-            ll_all = log_loss / len(df)
-            
-            acc_curr = curr_correct / curr_count if curr_count > 0 else 0
-            ll_curr = curr_log_loss / curr_count if curr_count > 0 else 0
-            
-            results.append({
-                'k': k,
-                'ha': ha,
-                'acc_all': acc_all,
-                'll_all': ll_all,
-                'acc_curr': acc_curr,
-                'll_curr': ll_curr
-            })
-            
-            print(f"{k:<5} {ha:<5} {acc_all:.4f}       {ll_all:.4f}       {acc_curr:.4f}        {ll_curr:.4f}")
+    for i, r in enumerate(results[:10], 1):
+        print(f"{i:<5} {r['k_factor']:>4} {r['home_advantage']:>5} "
+              f"{r['recency_weight']:>5.2f} {r['season_reversion']:>5.2f} "
+              f"{r['accuracy']:>7.1%} {r['brier']:>7.4f} {r['log_loss']:>8.4f}")
+    
+    # Show current parameters
+    print("\n" + "=" * 80)
+    print("CURRENT PARAMETERS vs BEST")
+    print("=" * 80)
+    
+    current = evaluate_parameters(10, 50, 0.0, 0.35, test_season='2025')
+    best = results[0]
+    
+    print(f"\nCurrent (k=10, ha=50, rw=0.0, sr=0.35):")
+    print(f"  Accuracy: {current['test_accuracy']:.1%}")
+    print(f"  Brier:    {current['brier_score']:.4f}")
+    print(f"  LogLoss:  {current['log_loss']:.4f}")
+    
+    print(f"\nBest (k={best['k_factor']}, ha={best['home_advantage']}, "
+          f"rw={best['recency_weight']:.2f}, sr={best['season_reversion']:.2f}):")
+    print(f"  Accuracy: {best['accuracy']:.1%}")
+    print(f"  Brier:    {best['brier']:.4f}")
+    print(f"  LogLoss:  {best['log_loss']:.4f}")
+    
+    improvement = (best['accuracy'] - current['test_accuracy']) / current['test_accuracy'] * 100
+    print(f"\n  Improvement: {improvement:+.1f}%")
+    
+    return results
 
+
+def quick_test():
+    """Quick test with recommended parameters"""
+    
+    print("=" * 80)
+    print("QUICK PARAMETER TEST")
+    print("=" * 80)
+    
+    configs = [
+        {'name': 'Current', 'k': 10, 'ha': 50, 'rw': 0.0, 'sr': 0.35},
+        {'name': 'Higher K', 'k': 25, 'ha': 50, 'rw': 0.0, 'sr': 0.35},
+        {'name': 'Higher HA', 'k': 10, 'ha': 100, 'rw': 0.0, 'sr': 0.35},
+        {'name': 'Recency 0.2', 'k': 10, 'ha': 50, 'rw': 0.2, 'sr': 0.35},
+        {'name': 'Combined', 'k': 25, 'ha': 100, 'rw': 0.2, 'sr': 0.35},
+    ]
+    
+    print(f"\n{'Config':<15} {'K':>4} {'HA':>5} {'RW':>5} {'SR':>5} {'Acc':>7} {'Brier':>7}")
     print("-" * 80)
     
-    # Find best params based on Log Loss (better measure of probability quality)
-    best_all = min(results, key=lambda x: x['ll_all'])
-    best_curr = min(results, key=lambda x: x['ll_curr'])
-    
-    print("\nBest Parameters (Overall Log Loss):")
-    print(f"K={best_all['k']}, HA={best_all['ha']} -> Acc: {best_all['acc_all']:.4f}, LL: {best_all['ll_all']:.4f}")
-    
-    print("\nBest Parameters (Current Season Log Loss):")
-    print(f"K={best_curr['k']}, HA={best_curr['ha']} -> Acc: {best_curr['acc_curr']:.4f}, LL: {best_curr['ll_curr']:.4f}")
-
-def analyze_distribution(k, ha):
-    print(f"\nAnalyzing Distribution for K={k}, HA={ha}")
-    print("-" * 60)
-    
-    df = load_games()
-    elo = SimpleElo(k, ha)
-    probs = []
-    
-    for _, row in df.iterrows():
-        home = row['home_team_name']
-        away = row['away_team_name']
-        win = row['home_win']
+    for cfg in configs:
+        result = evaluate_parameters(
+            cfg['k'], cfg['ha'], cfg['rw'], cfg['sr'], 
+            test_season='2025'
+        )
         
-        prob = elo.predict(home, away)
-        probs.append(prob)
-        elo.update(home, away, win)
-    
-    probs = np.array(probs)
-    print(f"Mean Probability: {np.mean(probs):.4f}")
-    print(f"Std Dev: {np.std(probs):.4f}")
-    print(f"Min: {np.min(probs):.4f}")
-    print(f"Max: {np.max(probs):.4f}")
-    
-    thresholds = [0.55, 0.60, 0.65, 0.70, 0.75]
-    for t in thresholds:
-        count = np.sum(probs > t)
-        print(f"Games > {t*100}%: {count} ({count/len(probs)*100:.1f}%)")
+        print(f"{cfg['name']:<15} {cfg['k']:>4} {cfg['ha']:>5} "
+              f"{cfg['rw']:>5.2f} {cfg['sr']:>5.2f} "
+              f"{result['test_accuracy']:>7.1%} {result['brier_score']:>7.4f}")
 
-if __name__ == "__main__":
-    # Run distribution analysis for the proposed parameters
-    analyze_distribution(10, 50)
+
+if __name__ == '__main__':
+    if '--quick' in sys.argv:
+        quick_test()
+    else:
+        grid_search()

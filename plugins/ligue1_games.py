@@ -1,82 +1,89 @@
 """
 Ligue 1 (French Soccer) game data downloader.
 
-Downloads historical match results to build Elo ratings.
+Downloads historical match results from football-data.co.uk (free CSV source).
 """
 
+import pandas as pd
+from pathlib import Path
 import requests
 from datetime import datetime
-from typing import List, Dict
 
-class Ligue1GameDownloader:
-    """Download Ligue 1 match results."""
+class Ligue1Games:
+    """Download and manage Ligue 1 game data."""
     
-    def __init__(self):
-        # Using a free soccer API - football-data.org
-        # For production, may need API key
-        self.base_url = "https://api.football-data.org/v4"
-        self.headers = {}
-        # Ligue 1 competition ID: 2015 (FL1)
-        self.competition_id = 2015
-    
-    def download_season_games(self, season: str = "2023") -> List[Dict]:
-        """
-        Download games for a season.
+    def __init__(self, data_dir='data/ligue1'):
+        self.data_dir = Path(data_dir)
+        self.data_dir.mkdir(parents=True, exist_ok=True)
+        # Seasons to fetch (e.g., '2122' for 2021-2022)
+        self.seasons = ['2122', '2223', '2324', '2425', '2526']
         
-        Args:
-            season: Season year (e.g., "2023" for 2023/24 season)
+    def download_games(self):
+        """Download historical and current Ligue 1 data."""
+        success = True
+        for season in self.seasons:
+            url = f"https://www.football-data.co.uk/mmz4281/{season}/F1.csv"
+            filename = self.data_dir / f"F1_{season}.csv"
             
-        Returns:
-            List of match dictionaries
-        """
-        url = f"{self.base_url}/competitions/{self.competition_id}/matches"
-        params = {'season': season}
-        
-        try:
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
-            
-            if response.status_code == 200:
-                data = response.json()
-                matches = data.get('matches', [])
+            # Skip historical if already downloaded (keep current fresh)
+            if filename.exists() and season != '2526':
+                continue
                 
-                games = []
-                for match in matches:
-                    if match['status'] == 'FINISHED':
-                        score = match.get('score', {}).get('fullTime', {})
-                        home_score = score.get('home')
-                        away_score = score.get('away')
+            print(f"📥 Downloading Ligue 1 data ({season}) from {url}...")
+            try:
+                headers = {'User-Agent': 'Mozilla/5.0'}
+                response = requests.get(url, headers=headers)
+                response.raise_for_status()
+                
+                with open(filename, 'wb') as f:
+                    f.write(response.content)
+                    
+                print(f"✓ Saved Ligue 1 data to {filename}")
+            except Exception as e:
+                print(f"✗ Failed to download Ligue 1 data for {season}: {e}")
+                success = False
+        return success
+            
+    def load_games(self):
+        """Load games into standard format from all downloaded files."""
+        # Ensure we have data
+        self.download_games()
+            
+        all_games = []
+        
+        for season in self.seasons:
+            csv_path = self.data_dir / f"F1_{season}.csv"
+            if not csv_path.exists():
+                continue
+                
+            try:
+                df = pd.read_csv(csv_path)
+                
+                # Standardize columns
+                # CSV cols: Date, HomeTeam, AwayTeam, FTHG, FTAG, FTR (H, D, A)
+                
+                # Parse dates (usually DD/MM/YYYY)
+                df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
+                
+                for _, row in df.iterrows():
+                    if pd.isna(row['FTHG']):  # Skip unplayed
+                        continue
                         
-                        if home_score is not None and away_score is not None:
-                            # Determine outcome
-                            if home_score > away_score:
-                                outcome = 'home'
-                            elif away_score > home_score:
-                                outcome = 'away'
-                            else:
-                                outcome = 'draw'
-                            
-                            games.append({
-                                'date': match['utcDate'],
-                                'home_team': match['homeTeam']['name'],
-                                'away_team': match['awayTeam']['name'],
-                                'home_score': home_score,
-                                'away_score': away_score,
-                                'outcome': outcome
-                            })
+                    all_games.append({
+                        'date': row['Date'],
+                        'home_team': row['HomeTeam'],
+                        'away_team': row['AwayTeam'],
+                        'home_score': int(row['FTHG']),
+                        'away_score': int(row['FTAG']),
+                        'result': row['FTR']  # H, D, A
+                    })
+            except Exception as e:
+                print(f"Error loading Ligue 1 games for {season}: {e}")
                 
-                print(f"  ✓ Downloaded {len(games)} Ligue 1 matches for {season}")
-                return games
-            else:
-                print(f"  ⚠️  API returned status {response.status_code}")
-                return []
-                
-        except Exception as e:
-            print(f"  ❌ Error downloading Ligue 1 games: {e}")
-            return []
-    
-    def get_team_mapping(self) -> Dict[str, str]:
-        """
-        Map between different team name formats.
+        return pd.DataFrame(all_games)
+
+    def get_team_mapping(self):
+        """Map between different team name formats used in CSV vs Kalshi.
         
         Returns:
             Dictionary mapping various name formats to canonical names
@@ -107,27 +114,9 @@ class Ligue1GameDownloader:
         }
 
 
-def download_ligue1_history():
-    """Download multiple seasons of Ligue 1 history."""
-    downloader = Ligue1GameDownloader()
-    
-    print("📥 Downloading Ligue 1 historical data...\n")
-    
-    all_games = []
-    # Download last 3 seasons
-    for season in ['2021', '2022', '2023']:
-        games = downloader.download_season_games(season)
-        all_games.extend(games)
-    
-    print(f"\n✓ Total games downloaded: {len(all_games)}")
-    return all_games
-
-
-if __name__ == '__main__':
-    games = download_ligue1_history()
-    
-    if games:
-        print(f"\n📊 Sample games:")
-        for game in games[:5]:
-            print(f"  {game['date']}: {game['away_team']} @ {game['home_team']} "
-                  f"({game['away_score']}-{game['home_score']}) - {game['outcome'].upper()}")
+if __name__ == "__main__":
+    ligue1 = Ligue1Games()
+    ligue1.download_games()
+    df = ligue1.load_games()
+    print(f"Loaded {len(df)} finished games.")
+    print(df.tail())

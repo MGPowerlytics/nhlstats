@@ -13,6 +13,12 @@ plugins_dir = Path(__file__).parent.parent / 'plugins'
 if str(plugins_dir) not in sys.path:
     sys.path.insert(0, str(plugins_dir))
 
+def serialize_datetime(obj):
+    """Convert datetime objects to ISO format strings for JSON serialization."""
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    return obj
+
 from airflow import DAG
 from airflow.providers.standard.operators.python import PythonOperator
 
@@ -157,11 +163,9 @@ def download_games(sport, **context):
         games = EPLGames()
         games.download_games()
     elif sport == 'ligue1':
-        from ligue1_games import Ligue1GameDownloader
-        downloader = Ligue1GameDownloader()
-        # For now, using manual data since API requires key
-        # In production, would download from API
-        print(f"⚠️  Using pre-generated Ligue 1 ratings")
+        from ligue1_games import Ligue1Games
+        games = Ligue1Games()
+        games.download_games()
     elif sport == 'tennis':
         from tennis_games import TennisGames
         games = TennisGames()
@@ -206,14 +210,38 @@ def update_elo_ratings(sport, **context):
         import duckdb
         # Use read_only to avoid locking conflicts if other processes are analyzing data
         conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+        
+        # Filter out:
+        # 1. Exhibition games (non-NHL teams)
+        # 2. Duplicates (keep first occurrence per matchup+date)
+        exhibition_teams = ('CAN', 'USA', 'ATL', 'MET', 'CEN', 'PAC', 
+                           'SWE', 'FIN', 'EIS', 'MUN', 'SCB', 'KLS', 
+                           'KNG', 'MKN', 'HGS', 'MAT', 'MCD')
+        
         games = conn.execute("""
-            SELECT game_date, home_team_abbrev as home_team, away_team_abbrev as away_team,
-                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-            FROM games WHERE game_state IN ('OFF', 'FINAL') ORDER BY game_date, game_id
-        """).fetchall()
+            WITH ranked_games AS (
+                SELECT game_date, home_team_abbrev, away_team_abbrev,
+                       CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY game_date, home_team_abbrev, away_team_abbrev 
+                           ORDER BY game_id
+                       ) as rn
+                FROM games 
+                WHERE game_state IN ('OFF', 'FINAL')
+                  AND home_team_abbrev NOT IN ?
+                  AND away_team_abbrev NOT IN ?
+            )
+            SELECT game_date, home_team_abbrev as home_team, 
+                   away_team_abbrev as away_team, home_win
+            FROM ranked_games
+            WHERE rn = 1
+            ORDER BY game_date, home_team
+        """, [exhibition_teams, exhibition_teams]).fetchall()
         conn.close()
         
-        elo = NHLEloRating(k_factor=10, home_advantage=50)
+        print(f"  Loaded {len(games)} NHL games (filtered duplicates and exhibitions)")
+        
+        elo = NHLEloRating(k_factor=10, home_advantage=50, recency_weight=0.2)
         
         last_date = None
         for game in games:
@@ -228,10 +256,11 @@ def update_elo_ratings(sport, **context):
                 days_diff = (current_date - last_date).days
                 if days_diff > 90:  # New season detected
                     print(f"📅 New NHL season detected at {current_date} (Last game: {last_date}, Gap: {days_diff} days)")
-                    elo.apply_season_reversion(0.35)
+                    elo.apply_season_reversion(0.45)
             
             last_date = current_date
-            elo.update(game[1], game[2], game[3])
+            # Pass game_date for recency weighting
+            elo.update(game[1], game[2], game[3], game_date=current_date)
     elif sport == 'mlb':
         from mlb_elo_rating import calculate_current_elo_ratings
         elo = calculate_current_elo_ratings(output_path=f'data/{sport}_current_elo_ratings.csv')
@@ -452,7 +481,14 @@ def identify_good_bets(sport, **context):
     
     # Import Elo module to get predict function
     elo_module = __import__(config['elo_module'])
-    elo_class = getattr(elo_module, f'{sport.upper()}EloRating')
+    # Map sport names to their Elo class names
+    class_mapping = {
+        'tennis': 'TennisEloRating',
+        'ncaab': 'NCAABEloRating',
+        'ligue1': 'Ligue1EloRating'
+    }
+    class_name = class_mapping.get(sport, f'{sport.upper()}EloRating')
+    elo_class = getattr(elo_module, class_name)
     elo_system = elo_class()
     elo_system.ratings = elo_ratings
     
@@ -732,9 +768,169 @@ def identify_good_bets(sport, **context):
             
             continue
             
-        # TENNIS LOGIC (Placeholder)
+        # TENNIS LOGIC
         if sport == 'tennis':
-             continue
+            # Tennis ticker format: "KXATPMATCH-26JAN17DIMMAC-DIM" or "KXWTAMATCH-26JAN17PLAYER1PLAYER2-PLAYER"
+            # Title: "Will [Player] win the [Player1] vs [Player2] : Round match?"
+            
+            title = market.get('title', '')
+            ticker = market.get('ticker', '')
+            
+            # Parse player names from title
+            # Format: "Will Grigor Dimitrov win the Dimitrov vs Machac : Round Of 128 match?"
+            if 'Will ' not in title or ' win the ' not in title or ' vs ' not in title:
+                continue
+            
+            try:
+                # Extract the player from "Will X win"
+                after_will = title.split('Will ')[1]
+                yes_player_full = after_will.split(' win the ')[0].strip()
+                
+                # Extract matchup "Player1 vs Player2"
+                rest = after_will.split(' win the ')[1]
+                matchup = rest.split(':')[0].strip()  # "Dimitrov vs Machac"
+                
+                if ' vs ' not in matchup:
+                    continue
+                
+                matchup_parts = matchup.split(' vs ')
+                player1_short = matchup_parts[0].strip()
+                player2_short = matchup_parts[1].strip()
+                
+                # Match to Elo system using full names
+                # Build a more robust lookup: try full name match first, then lastname match
+                def find_elo_player(search_name, elo_ratings):
+                    """Find player in Elo system by name."""
+                    search_lower = search_name.lower()
+                    
+                    # Try exact match
+                    for elo_name in elo_ratings.keys():
+                        if elo_name.lower() == search_lower:
+                            return elo_name
+                    
+                    # Try lastname + first initial match
+                    search_lastname = search_name.split()[-1].lower() if ' ' in search_name else search_name.lower()
+                    candidates = []
+                    for elo_name in elo_ratings.keys():
+                        elo_lastname = elo_name.split()[0].lower()
+                        if elo_lastname == search_lastname:
+                            candidates.append(elo_name)
+                    
+                    # If only one match, use it
+                    if len(candidates) == 1:
+                        return candidates[0]
+                    
+                    # Multiple matches - try to use first name
+                    if ' ' in search_name and len(candidates) > 1:
+                        search_first = search_name.split()[0].lower()
+                        for cand in candidates:
+                            # Elo format: "Lastname F." or "Lastname F.I."
+                            if len(cand.split()) > 1:
+                                elo_first_initial = cand.split()[1][0].lower()
+                                if search_first.startswith(elo_first_initial):
+                                    return cand
+                        # Return first candidate if no match
+                        return candidates[0]
+                    
+                    return None
+                
+                # The YES side is the player mentioned in "Will X win"
+                yes_player_elo = find_elo_player(yes_player_full, elo_system.ratings)
+                
+                # Determine NO player (the other one in the matchup)
+                # Check which short name matches the YES player
+                if player1_short.lower() in yes_player_full.lower():
+                    no_player_elo = find_elo_player(player2_short, elo_system.ratings)
+                    player1_elo = yes_player_elo
+                    player2_elo = no_player_elo
+                    player1 = yes_player_full
+                    player2 = player2_short
+                else:
+                    no_player_elo = find_elo_player(player1_short, elo_system.ratings)
+                    player1_elo = no_player_elo
+                    player2_elo = yes_player_elo
+                    player1 = player1_short
+                    player2 = yes_player_full
+                
+                if not yes_player_elo or not no_player_elo:
+                    # Players not found in Elo system
+                    continue
+                
+                # Get Elo predictions for YES player
+                # YES player is the one mentioned in "Will X win"
+                try:
+                    yes_player_win_prob = elo_system.predict(yes_player_elo, no_player_elo)
+                except:
+                    # Players not in Elo system yet - skip
+                    continue
+                
+                # Market probability for YES player winning
+                yes_ask = market.get('yes_ask', 0) / 100.0
+                market_prob = yes_ask
+                elo_prob = yes_player_win_prob
+                
+                # Calculate edge
+                edge = elo_prob - market_prob
+                
+                # Check if YES player is a good bet
+                if elo_prob > elo_threshold and edge > 0.05:
+                    confidence = "HIGH" if elo_prob > (elo_threshold + 0.1) else "MEDIUM"
+                    
+                    good_bets.append({
+                        'player1': yes_player_full,
+                        'player2': no_player_elo.split()[0],  # Just lastname of opponent
+                        'elo_prob': elo_prob,
+                        'market_prob': market_prob,
+                        'edge': edge,
+                        'bet_on': yes_player_full,
+                        'opponent': no_player_elo.split()[0],
+                        'matchup': matchup,
+                        'confidence': confidence,
+                        'yes_ask': market.get('yes_ask'),
+                        'no_ask': market.get('no_ask'),
+                        'ticker': ticker,
+                        'title': title,
+                        'close_time': serialize_datetime(market.get('close_time')),
+                        'status': market.get('status'),
+                        'sport': 'tennis'
+                    })
+                    
+                    print(f"  ✓ {matchup}: Bet YES on {yes_player_full} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
+                
+                # Check NO side (betting against YES player)
+                no_player_win_prob = 1 - yes_player_win_prob
+                market_prob_no = 1 - market_prob
+                edge_no = no_player_win_prob - (market.get('no_ask', 0) / 100.0)
+                
+                if no_player_win_prob > elo_threshold and edge_no > 0.05:
+                    confidence = "HIGH" if no_player_win_prob > (elo_threshold + 0.1) else "MEDIUM"
+                    
+                    good_bets.append({
+                        'player1': no_player_elo.split()[0],
+                        'player2': yes_player_full,
+                        'elo_prob': no_player_win_prob,
+                        'market_prob': market.get('no_ask', 0) / 100.0,
+                        'edge': edge_no,
+                        'bet_on': no_player_elo,
+                        'opponent': yes_player_full.split()[-1],
+                        'matchup': matchup,
+                        'confidence': confidence,
+                        'yes_ask': market.get('no_ask'),  # Buy NO = sell YES
+                        'no_ask': market.get('yes_ask'),
+                        'ticker': ticker,
+                        'title': title,
+                        'close_time': serialize_datetime(market.get('close_time')),
+                        'status': market.get('status'),
+                        'sport': 'tennis'
+                    })
+                    
+                    print(f"  ✓ {matchup}: Bet NO on {yes_player_full} (= {no_player_elo} wins) (Edge: {edge_no:.1%}, Elo: {no_player_win_prob:.1%})")
+                    
+            except Exception as e:
+                print(f"  ⚠️  Error parsing tennis match: {e}")
+                continue
+            
+            continue
 
         # STANDARD LOGIC (NBA, NHL, MLB, NFL)
         if len(parts) < 3:
@@ -792,7 +988,11 @@ def identify_good_bets(sport, **context):
                 'bet_on': bet_on,
                 'confidence': confidence,
                 'yes_ask': market.get('yes_ask'),
-                'no_ask': market.get('no_ask')
+                'no_ask': market.get('no_ask'),
+                'ticker': market.get('ticker'),
+                'title': market.get('title'),
+                'close_time': serialize_datetime(market.get('close_time')),
+                'status': market.get('status')
             })
             
             print(f"  ✓ {away_team} @ {home_team}: Bet {bet_on} (Edge: {edge:.1%}, Elo: {elo_prob:.1%})")
@@ -809,27 +1009,27 @@ def identify_good_bets(sport, **context):
     if good_bets:
         print(f"\n{sport.upper()} Betting Opportunities:")
         for bet in good_bets:
-            print(f"  {bet['away_team']} @ {bet['home_team']}")
-            print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
-
-
-            print(f"  {bet['away_team']} @ {bet['home_team']}")
-            print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
+            if sport == 'tennis':
+                print(f"  {bet.get('matchup', 'Unknown')}")
+                print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
+            else:
+                print(f"  {bet['away_team']} @ {bet['home_team']}")
+                print(f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}")
 
 
 def place_bets_on_recommendations(sport, **context):
     """
-    Place bets on recommended games (NBA and NCAAB only).
+    Place bets on recommended games (NBA, NCAAB, and TENNIS).
     
-    CRITICAL: Verifies games have not started using The Odds API.
+    CRITICAL: Verifies games have not started using The Odds API or close_time.
     
     Args:
-        sport: Sport name (nba, ncaab)
+        sport: Sport name (nba, ncaab, tennis)
         **context: Airflow context with bet recommendations
     """
-    # Only bet on basketball
-    if sport not in ['nba', 'ncaab']:
-        print(f"⚠️  Skipping {sport.upper()} - only betting on NBA/NCAAB")
+    # Only bet on selected sports
+    if sport not in ['nba', 'ncaab', 'tennis']:
+        print(f"⚠️  Skipping {sport.upper()} - only betting on NBA/NCAAB/TENNIS")
         return
     
     print(f"\n{'='*80}")
@@ -852,8 +1052,11 @@ def place_bets_on_recommendations(sport, **context):
     
     print(f"📊 Found {len(recommendations)} recommendations")
     
-    # Load Kalshi credentials
-    kalshkey_file = Path('/mnt/data2/nhlstats/kalshkey')
+    # Load Kalshi credentials (check data directory first, then root)
+    kalshkey_file = Path('/opt/airflow/kalshkey')
+    if not kalshkey_file.exists():
+        kalshkey_file = Path('kalshkey')
+    
     if not kalshkey_file.exists():
         print("❌ Kalshi credentials not found")
         return
@@ -867,9 +1070,25 @@ def place_bets_on_recommendations(sport, **context):
             print("❌ Invalid Kalshi credentials format")
             return
     
+    # Find private key file (check data directory)
+    private_key_path = Path('data/kalshi_private_key.pem')
+    if not private_key_path.exists():
+        private_key_path = Path('/opt/airflow/data/kalshi_private_key.pem')
+    if not private_key_path.exists():
+        private_key_path = Path('/opt/airflow/kalshi_private_key.pem')
+    
+    if not private_key_path.exists():
+        print("❌ Kalshi private key not found")
+        return
+    
     # Load Odds API key for game start verification
     odds_api_key = None
-    odds_key_file = Path('/mnt/data2/nhlstats/odds_api_key')
+    odds_key_file = Path('data/odds_api_key')
+    if not odds_key_file.exists():
+        odds_key_file = Path('/opt/airflow/data/odds_api_key')
+    if not odds_key_file.exists():
+        odds_key_file = Path('/opt/airflow/odds_api_key')
+    
     if odds_key_file.exists():
         with open(odds_key_file, 'r') as f:
             odds_api_key = f.read().strip()
@@ -877,13 +1096,59 @@ def place_bets_on_recommendations(sport, **context):
     else:
         print(f"⚠️  No Odds API key - cannot verify game start times!")
     
+    # Check for already placed bets
+    placed_bets_file = Path(f'data/{sport}/bets_placed_{context["ds"].replace("-", "")[-4:]}.json')
+    already_placed_tickers = set()
+    if placed_bets_file.exists():
+        try:
+            with open(placed_bets_file, 'r') as f:
+                placed_bets = json.load(f)
+            already_placed_tickers = {bet.get('ticker') for bet in placed_bets if bet.get('ticker')}
+            print(f"📋 Found {len(already_placed_tickers)} already placed bets to avoid")
+        except:
+            pass
+    
+    # Filter out already placed bets
+    original_count = len(recommendations)
+    recommendations = [r for r in recommendations if r.get('ticker') not in already_placed_tickers]
+    if len(recommendations) < original_count:
+        print(f"⏭️  Skipped {original_count - len(recommendations)} duplicate bets")
+    
+    # Filter out matches that have already started (unless we're winning)
+    # Check close_time for tennis and other time-sensitive sports
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
+    started_filtered = []
+    
+    for rec in recommendations:
+        close_time_str = rec.get('close_time')
+        if close_time_str:
+            try:
+                close_time = datetime.fromisoformat(close_time_str.replace('Z', '+00:00'))
+                if close_time <= now:
+                    print(f"⏭️  Skipping {rec.get('ticker')}: Match already started")
+                    continue
+            except:
+                pass
+        started_filtered.append(rec)
+    
+    skipped_started = len(recommendations) - len(started_filtered)
+    if skipped_started > 0:
+        print(f"⏭️  Skipped {skipped_started} matches that already started")
+    
+    recommendations = started_filtered
+    
+    if not recommendations:
+        print(f"ℹ️  All recommendations already placed or started")
+        return
+    
     # Initialize betting client
     from kalshi_betting import KalshiBetting
     
     try:
         client = KalshiBetting(
             api_key_id=api_key_id,
-            private_key_path='/mnt/data2/nhlstats/kalshi_private_key.pem',
+            private_key_path=str(private_key_path),
             max_bet_size=5.0,
             production=True,
             odds_api_key=odds_api_key
@@ -937,13 +1202,13 @@ dag = DAG(
     'multi_sport_betting_workflow',
     default_args=default_args,
     description='Multi-sport betting opportunities using Elo ratings',
-    schedule='0 10 * * *',  # Run daily at 10 AM
+    schedule='0 5 * * *',  # Run daily at 5 AM Eastern (using America/New_York timezone)
     catchup=False,
     tags=['betting', 'elo', 'multi-sport']
 )
 
 # Create tasks for each sport
-for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'tennis', 'ncaab']:
+for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'tennis', 'ncaab', 'ligue1']:
     download_task = PythonOperator(
         task_id=f'{sport}_download_games',
         python_callable=download_games,
@@ -999,8 +1264,8 @@ for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'tennis', 'ncaab']:
         pool='duckdb_pool'
     )
     
-    # Place bets task (only for NBA and NCAAB)
-    if sport in ['nba', 'ncaab']:
+    # Place bets task (for NBA, NCAAB, and TENNIS)
+    if sport in ['nba', 'ncaab', 'tennis']:
         place_bets_task = PythonOperator(
             task_id=f'{sport}_place_bets',
             python_callable=place_bets_on_recommendations,
@@ -1021,7 +1286,7 @@ for sport in ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'tennis', 'ncaab']:
     else:
         # Without Glicko-2
         download_task >> load_task >> elo_task >> markets_task >> bets_task
-        if sport in ['ncaab']:
+        if sport in ['ncaab', 'tennis']:
             bets_task >> place_bets_task >> load_bets_task
         else:
             bets_task >> load_bets_task

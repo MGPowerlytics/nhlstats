@@ -48,6 +48,11 @@ try:
 except ImportError:
     NCAABEloRating = None
 
+try:
+    from ligue1_elo_rating import Ligue1EloRating
+except ImportError:
+    Ligue1EloRating = None
+
 # Import Glicko-2 classes
 try:
     from glicko2_rating import (NBAGlicko2Rating, NHLGlicko2Rating, 
@@ -248,6 +253,32 @@ def load_data(league, db_path='data/nhlstats.duckdb'):
             st.error(f"Error loading NCAAB data: {e}")
         finally:
             conn.close()
+    
+    elif league == 'Ligue1':
+        if not os.path.exists(db_path):
+            return pd.DataFrame()
+            
+        conn = duckdb.connect(db_path, read_only=True)
+        query = """
+            SELECT 
+                game_date,
+                season,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                result,
+                CASE WHEN result = 'H' THEN 1 ELSE 0 END as home_win
+            FROM ligue1_games
+            WHERE result IS NOT NULL
+            ORDER BY game_date
+        """
+        try:
+            games_df = conn.execute(query).fetchdf()
+        except Exception as e:
+            st.error(f"Error loading Ligue1 data: {e}")
+        finally:
+            conn.close()
 
     # Ensure proper types
     if not games_df.empty:
@@ -297,6 +328,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
         elo = TennisEloRating(k_factor=k_factor) # No home advantage in tennis usually
     elif league == 'NCAAB' and NCAABEloRating:
         elo = NCAABEloRating(k_factor=k_factor, home_advantage=home_adv)
+    elif league == 'Ligue1' and Ligue1EloRating:
+        elo = Ligue1EloRating(k_factor=k_factor, home_advantage=home_adv)
     else:
         st.error(f"Elo system for {league} not available.")
         return games_df
@@ -321,6 +354,8 @@ def run_elo_simulation(games_df, league, k_factor, home_adv):
         elif league == 'NCAAB':
             elo.update(game['home_team'], game['away_team'], game['home_win'], is_neutral=game['is_neutral'])
         elif league == 'EPL':
+             elo.update(game['home_team'], game['away_team'], game['result'])
+        elif league == 'Ligue1':
              elo.update(game['home_team'], game['away_team'], game['result'])
         elif league == 'Tennis':
              # Update with actual winner/loser
@@ -429,10 +464,21 @@ def calculate_cumulative_gain(df):
 
 # --- Sidebar Controls ---
 
+# Add page navigation
+page = st.sidebar.radio(
+    "📍 Navigation",
+    ["Elo Ratings & Analysis", "Betting Performance"],
+    index=0
+)
+
+if page == "Betting Performance":
+    betting_performance_page_v2()
+    st.stop()
+
 st.sidebar.title("Configuration")
 
 # League Selection
-league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB"])
+league = st.sidebar.selectbox("Select League", ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "Ligue1"])
 
 # Load Data (Cached)
 with st.spinner(f"Loading {league} data..."):
@@ -459,6 +505,7 @@ if league == 'NHL': default_home = 100
 if league == 'NBA': default_home = 100
 if league == 'NFL': default_home = 65
 if league == 'EPL': default_home = 60
+if league == 'Ligue1': default_home = 60
 if league == 'Tennis': 
     default_home = 0
     default_k = 32
@@ -726,3 +773,462 @@ with tab7:
                 st.plotly_chart(fig_roi, use_container_width=True)
             
             st.dataframe(timing_df, use_container_width=True)
+
+
+# --- Betting Performance Functions ---
+
+def load_betting_results():
+    """Load betting results from JSON files."""
+    import json
+    betting_data = []
+    data_dir = Path('data')
+    
+    for sport_dir in ['nba', 'ncaab', 'nhl', 'mlb', 'nfl', 'epl', 'tennis']:
+        sport_path = data_dir / sport_dir
+        if not sport_path.exists():
+            continue
+            
+        # Find all betting_results JSON files
+        for results_file in sport_path.glob('betting_results_*.json'):
+            try:
+                with open(results_file, 'r') as f:
+                    data = json.load(f)
+                
+                # Extract date from filename
+                date_str = results_file.stem.replace('betting_results_', '').replace('_FINAL', '')
+                
+                # Parse placed bets
+                for bet in data.get('placed', []):
+                    rec = bet.get('rec', {})
+                    order = bet.get('result', {}).get('order', {})
+                    
+                    betting_data.append({
+                        'sport': sport_dir.upper(),
+                        'date': date_str,
+                        'home_team': rec.get('home_team', rec.get('player2', 'N/A')),
+                        'away_team': rec.get('away_team', rec.get('player1', 'N/A')),
+                        'bet_on': rec.get('bet_on', 'N/A'),
+                        'elo_prob': rec.get('elo_prob', 0),
+                        'market_prob': rec.get('market_prob', 0),
+                        'edge': rec.get('edge', 0),
+                        'confidence': rec.get('confidence', 'N/A'),
+                        'bet_size': bet.get('bet_size', 0),
+                        'side': bet.get('side', 'N/A'),
+                        'price': order.get('yes_price', 0) / 100 if order.get('yes_price') else 0,
+                        'contracts': order.get('fill_count', 0),
+                        'cost': float(str(order.get('taker_fill_cost_dollars', '0')).replace('$', '')),
+                        'fees': float(str(order.get('taker_fees_dollars', '0')).replace('$', '')),
+                        'ticker': rec.get('ticker', 'N/A'),
+                        'status': 'placed'
+                    })
+                
+                # Parse skipped bets
+                for skip in data.get('skipped', []):
+                    rec = skip.get('rec', {})
+                    betting_data.append({
+                        'sport': sport_dir.upper(),
+                        'date': date_str,
+                        'home_team': rec.get('home_team', rec.get('player2', 'N/A')),
+                        'away_team': rec.get('away_team', rec.get('player1', 'N/A')),
+                        'bet_on': rec.get('bet_on', 'N/A'),
+                        'elo_prob': rec.get('elo_prob', 0),
+                        'market_prob': rec.get('market_prob', 0),
+                        'edge': rec.get('edge', 0),
+                        'confidence': rec.get('confidence', 'N/A'),
+                        'bet_size': 0,
+                        'side': 'N/A',
+                        'price': 0,
+                        'contracts': 0,
+                        'cost': 0,
+                        'fees': 0,
+                        'ticker': rec.get('ticker', 'N/A'),
+                        'status': f"skipped: {skip.get('reason', 'unknown')}"
+                    })
+                    
+            except Exception as e:
+                continue
+    
+    return pd.DataFrame(betting_data)
+
+
+def betting_performance_page_v2():
+    """Display betting performance metrics."""
+    st.title("🎰 Betting Performance Tracker")
+    
+    # Load betting data
+    betting_df = load_betting_results()
+    
+    if betting_df.empty:
+        st.warning("No betting data available yet.")
+        return
+    
+    # Convert numeric columns
+    numeric_cols = ['elo_prob', 'market_prob', 'edge', 'bet_size', 'price', 'contracts']
+    for col in numeric_cols:
+        betting_df[col] = pd.to_numeric(betting_df[col], errors='coerce')
+    
+    betting_df['cost'] = pd.to_numeric(betting_df['cost'], errors='coerce')
+    betting_df['fees'] = pd.to_numeric(betting_df['fees'], errors='coerce')
+    
+    # Filter controls
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        sports = ['All'] + sorted(betting_df['sport'].unique().tolist())
+        selected_sport = st.selectbox('Sport', sports)
+    
+    with col2:
+        dates = ['All'] + sorted(betting_df['date'].unique().tolist(), reverse=True)
+        selected_date = st.selectbox('Date', dates)
+    
+    with col3:
+        statuses = ['All'] + sorted(betting_df['status'].unique().tolist())
+        selected_status = st.selectbox('Status', statuses)
+    
+    # Apply filters
+    filtered_df = betting_df.copy()
+    if selected_sport != 'All':
+        filtered_df = filtered_df[filtered_df['sport'] == selected_sport]
+    if selected_date != 'All':
+        filtered_df = filtered_df[filtered_df['date'] == selected_date]
+    if selected_status != 'All':
+        filtered_df = filtered_df[filtered_df['status'] == selected_status]
+    
+    # Summary metrics
+    placed_df = filtered_df[filtered_df['status'] == 'placed']
+    
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("Total Bets Placed", len(placed_df))
+    
+    with col2:
+        total_invested = placed_df['cost'].sum()
+        st.metric("Total Invested", f"${total_invested:.2f}")
+    
+    with col3:
+        total_fees = placed_df['fees'].sum()
+        st.metric("Total Fees", f"${total_fees:.2f}")
+    
+    with col4:
+        avg_edge = placed_df['edge'].mean() * 100 if not placed_df.empty else 0
+        st.metric("Avg Edge", f"{avg_edge:.1f}%")
+    
+    with col5:
+        avg_elo = placed_df['elo_prob'].mean() * 100 if not placed_df.empty else 0
+        st.metric("Avg Elo Prob", f"{avg_elo:.1f}%")
+    
+    # Tabs for different views
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📈 By Sport", "📅 By Date", "📋 All Bets"])
+    
+    with tab1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Bets by sport
+            sport_summary = filtered_df.groupby('sport').agg({
+                'bet_size': 'count',
+                'cost': 'sum',
+                'edge': 'mean',
+                'elo_prob': 'mean'
+            }).reset_index()
+            sport_summary.columns = ['Sport', 'Count', 'Total Cost', 'Avg Edge', 'Avg Elo Prob']
+            
+            fig = px.bar(sport_summary, x='Sport', y='Count', 
+                        title='Bets by Sport',
+                        color='Avg Edge',
+                        color_continuous_scale='RdYlGn')
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Confidence distribution
+            conf_dist = placed_df['confidence'].value_counts()
+            fig = px.pie(values=conf_dist.values, names=conf_dist.index,
+                        title='Confidence Distribution')
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        # Sport-specific analysis
+        for sport in filtered_df['sport'].unique():
+            sport_data = filtered_df[filtered_df['sport'] == sport]
+            placed_sport = sport_data[sport_data['status'] == 'placed']
+            
+            st.subheader(f"📊 {sport}")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                st.metric("Placed", len(placed_sport))
+            
+            with col2:
+                skipped = len(sport_data[sport_data['status'] != 'placed'])
+                st.metric("Skipped", skipped)
+            
+            with col3:
+                invested = placed_sport['cost'].sum()
+                st.metric("Invested", f"${invested:.2f}")
+            
+            with col4:
+                avg_edge = placed_sport['edge'].mean() * 100 if not placed_sport.empty else 0
+                st.metric("Avg Edge", f"{avg_edge:.1f}%")
+            
+            # Show recent bets
+            if not placed_sport.empty:
+                display_df = placed_sport[['date', 'away_team', 'home_team', 'bet_on', 
+                                          'elo_prob', 'market_prob', 'edge', 'cost']].tail(5).copy()
+                display_df['elo_prob'] = (display_df['elo_prob'] * 100).round(1)
+                display_df['market_prob'] = (display_df['market_prob'] * 100).round(1)
+                display_df['edge'] = (display_df['edge'] * 100).round(1)
+                st.dataframe(display_df, use_container_width=True)
+    
+    with tab3:
+        # Daily summary
+        daily = placed_df.groupby('date').agg({
+            'cost': 'sum',
+            'fees': 'sum',
+            'bet_size': 'count',
+            'edge': 'mean'
+        }).reset_index()
+        daily.columns = ['Date', 'Total Cost', 'Total Fees', 'Num Bets', 'Avg Edge']
+        daily['Avg Edge'] = (daily['Avg Edge'] * 100).round(1)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=daily['Date'], y=daily['Total Cost'], name='Cost'))
+        fig.add_trace(go.Bar(x=daily['Date'], y=daily['Total Fees'], name='Fees'))
+        fig.update_layout(title='Daily Betting Activity', barmode='stack')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.dataframe(daily, use_container_width=True)
+    
+    with tab4:
+        # Full bet list
+        display_df = filtered_df.sort_values('date', ascending=False).copy()
+        for col in ['elo_prob', 'market_prob', 'edge']:
+            if col in display_df.columns:
+                display_df[col] = (display_df[col] * 100).round(1)
+        
+        st.dataframe(display_df, 
+                    use_container_width=True,
+                    height=600)
+
+
+
+# --- Main Application Entry ---
+
+# Add page selector at the top (before sidebar)
+page = st.sidebar.radio(
+    "�� Navigation",
+    ["Elo Ratings & Analysis", "Betting Performance"],
+    index=0
+)
+
+if page == "Betting Performance":
+    betting_performance_page_v2()
+    st.stop()
+
+# Otherwise continue with existing dashboard code below...
+
+
+# --- Updated Betting Performance with Database Integration ---
+
+def load_betting_results_from_db():
+    """Load betting results from database."""
+    import json
+    
+    conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+    
+    try:
+        # Check if table exists
+        tables = conn.execute("SHOW TABLES").fetchall()
+        if not any('placed_bets' in str(t) for t in tables):
+            return pd.DataFrame()
+        
+        bets_df = conn.execute("""
+            SELECT *
+            FROM placed_bets
+            ORDER BY placed_date DESC, created_at DESC
+        """).fetchdf()
+        
+        conn.close()
+        return bets_df
+    except:
+        conn.close()
+        return pd.DataFrame()
+
+
+def betting_performance_page_v2():
+    """Enhanced betting performance page with outcomes tracking."""
+    st.title("🎰 Betting Performance Tracker")
+    
+    # Sync button
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        if st.button("🔄 Sync from Kalshi"):
+            with st.spinner("Syncing bets from Kalshi API..."):
+                import subprocess
+                result = subprocess.run(['python3', 'plugins/bet_tracker.py'], 
+                                      capture_output=True, text=True)
+                if result.returncode == 0:
+                    st.success("✅ Synced successfully!")
+                    st.rerun()
+                else:
+                    st.error(f"Error: {result.stderr}")
+    
+    # Load betting data from database
+    betting_df = load_betting_results_from_db()
+    
+    if betting_df.empty:
+        st.warning("No betting data available. Click 'Sync from Kalshi' to load your bets.")
+        return
+    
+    # Summary metrics
+    total_bets = len(betting_df)
+    total_invested = betting_df['cost_dollars'].sum()
+    wins = len(betting_df[betting_df['status'] == 'won'])
+    losses = len(betting_df[betting_df['status'] == 'lost'])
+    open_bets = len(betting_df[betting_df['status'] == 'open'])
+    
+    settled_df = betting_df[betting_df['status'].isin(['won', 'lost'])]
+    total_profit = settled_df['profit_dollars'].sum() if not settled_df.empty else 0
+    win_rate = (wins / (wins + losses) * 100) if (wins + losses) > 0 else 0
+    roi = (total_profit / total_invested * 100) if total_invested > 0 else 0
+    
+    # Top metrics
+    col1, col2, col3, col4, col5 = st.columns(5)
+    
+    with col1:
+        st.metric("Total Bets", total_bets)
+    
+    with col2:
+        st.metric("Win Rate", f"{win_rate:.1f}%")
+    
+    with col3:
+        st.metric("Total Invested", f"${total_invested:.2f}")
+    
+    with col4:
+        profit_color = "normal" if total_profit >= 0 else "inverse"
+        st.metric("Total Profit", f"${total_profit:.2f}", 
+                 delta=f"{roi:.1f}% ROI", 
+                 delta_color=profit_color)
+    
+    with col5:
+        st.metric("Open Bets", open_bets)
+    
+    # Filters
+    st.subheader("Filters")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        sports = ['All'] + sorted(betting_df['sport'].unique().tolist())
+        selected_sport = st.selectbox('Sport', sports, key='sport_filter_v2')
+    
+    with col2:
+        dates = ['All'] + sorted(betting_df['placed_date'].unique().tolist(), reverse=True)
+        selected_date = st.selectbox('Date', dates, key='date_filter_v2')
+    
+    with col3:
+        statuses = ['All'] + sorted(betting_df['status'].unique().tolist())
+        selected_status = st.selectbox('Status', statuses, key='status_filter_v2')
+    
+    # Apply filters
+    filtered_df = betting_df.copy()
+    if selected_sport != 'All':
+        filtered_df = filtered_df[filtered_df['sport'] == selected_sport]
+    if selected_date != 'All':
+        filtered_df = filtered_df[filtered_df['placed_date'] == selected_date]
+    if selected_status != 'All':
+        filtered_df = filtered_df[filtered_df['status'] == selected_status]
+    
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 Overview", "📅 Daily Performance", "🏆 By Sport", "📋 All Bets"])
+    
+    with tab1:
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Win/Loss pie chart
+            wl_data = pd.DataFrame({
+                'Status': ['Won', 'Lost', 'Open'],
+                'Count': [wins, losses, open_bets]
+            })
+            fig = px.pie(wl_data, values='Count', names='Status',
+                        title='Bet Outcomes',
+                        color='Status',
+                        color_discrete_map={'Won': 'green', 'Lost': 'red', 'Open': 'gray'})
+            st.plotly_chart(fig, use_container_width=True)
+        
+        with col2:
+            # Profit by sport
+            sport_profit = filtered_df[filtered_df['status'].isin(['won', 'lost'])].groupby('sport').agg({
+                'profit_dollars': 'sum'
+            }).reset_index()
+            
+            fig = px.bar(sport_profit, x='sport', y='profit_dollars',
+                        title='Profit/Loss by Sport',
+                        color='profit_dollars',
+                        color_continuous_scale='RdYlGn',
+                        color_continuous_midpoint=0)
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    with tab2:
+        # Daily performance
+        daily = filtered_df.groupby('placed_date').agg({
+            'bet_id': 'count',
+            'cost_dollars': 'sum',
+            'profit_dollars': lambda x: x[filtered_df.loc[x.index, 'status'].isin(['won', 'lost'])].sum()
+        }).reset_index()
+        daily.columns = ['Date', 'Bets', 'Invested', 'Profit']
+        daily['ROI %'] = (daily['Profit'] / daily['Invested'] * 100).round(1)
+        
+        fig = go.Figure()
+        fig.add_trace(go.Bar(x=daily['Date'], y=daily['Invested'], name='Invested', marker_color='lightblue'))
+        fig.add_trace(go.Bar(x=daily['Date'], y=daily['Profit'], name='Profit', marker_color='green'))
+        fig.update_layout(title='Daily Performance', barmode='group')
+        st.plotly_chart(fig, use_container_width=True)
+        
+        st.dataframe(daily, use_container_width=True)
+    
+    with tab3:
+        # By sport analysis
+        for sport in filtered_df['sport'].unique():
+            sport_data = filtered_df[filtered_df['sport'] == sport]
+            settled = sport_data[sport_data['status'].isin(['won', 'lost'])]
+            
+            st.subheader(f"📊 {sport}")
+            
+            col1, col2, col3, col4 = st.columns(4)
+            
+            with col1:
+                sport_wins = len(sport_data[sport_data['status'] == 'won'])
+                sport_losses = len(sport_data[sport_data['status'] == 'lost'])
+                st.metric("Record", f"{sport_wins}W - {sport_losses}L")
+            
+            with col2:
+                sport_wr = (sport_wins / (sport_wins + sport_losses) * 100) if (sport_wins + sport_losses) > 0 else 0
+                st.metric("Win Rate", f"{sport_wr:.1f}%")
+            
+            with col3:
+                sport_invested = sport_data['cost_dollars'].sum()
+                st.metric("Invested", f"${sport_invested:.2f}")
+            
+            with col4:
+                sport_profit = settled['profit_dollars'].sum() if not settled.empty else 0
+                st.metric("Profit", f"${sport_profit:.2f}")
+            
+            # Recent bets
+            if not sport_data.empty:
+                display_cols = ['placed_date', 'ticker', 'side', 'contracts', 'price_cents', 'cost_dollars', 'status', 'profit_dollars']
+                available_cols = [c for c in display_cols if c in sport_data.columns]
+                st.dataframe(sport_data[available_cols].head(10), use_container_width=True)
+    
+    with tab4:
+        # Full bet list with formatting
+        display_df = filtered_df.copy()
+        if 'profit_dollars' in display_df.columns:
+            display_df['profit_dollars'] = display_df['profit_dollars'].apply(lambda x: f"${x:.2f}" if pd.notna(x) else "pending")
+        if 'cost_dollars' in display_df.columns:
+            display_df['cost_dollars'] = display_df['cost_dollars'].apply(lambda x: f"${x:.2f}")
+        
+        st.dataframe(display_df, use_container_width=True, height=600)
+

@@ -97,6 +97,8 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/nba_games.py:/opt/airflow/nba_games.py
     - ${AIRFLOW_PROJ_DIR:-.}/mlb_games.py:/opt/airflow/mlb_games.py
     - ${AIRFLOW_PROJ_DIR:-.}/kalshkey:/opt/airflow/kalshkey
+    - ${AIRFLOW_PROJ_DIR:-.}/kalshi_private_key.pem:/opt/airflow/kalshi_private_key.pem
+    - ${AIRFLOW_PROJ_DIR:-.}/odds_api_key:/opt/airflow/odds_api_key
   user: "${AIRFLOW_UID:-50000}:0"
   depends_on:
     &airflow-common-depends-on

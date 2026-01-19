@@ -204,16 +204,50 @@ class KalshiBetting:
             
             # CRITICAL: Verify game has not started using The Odds API
             sport = rec.get('sport', 'NBA')
-            if not self.verify_game_not_started(rec['home_team'], rec['away_team'], sport):
-                skipped.append({'rec': rec, 'reason': 'Game already started'}); continue
+            if sport.lower() != 'tennis':
+                if not self.verify_game_not_started(rec['home_team'], rec['away_team'], sport):
+                    skipped.append({'rec': rec, 'reason': 'Game already started'}); continue
             
             if self.is_game_started(market):
                 skipped.append({'rec': rec, 'reason': 'Market closed'}); continue
             bet_size = self.calculate_bet_size(elo_prob, edge, balance)
             if bet_size < self.min_bet_size:
                 skipped.append({'rec': rec, 'reason': f'Insufficient balance'}); continue
-            side = 'yes' if rec['bet_on'] == 'home' else 'no'
-            print(f"🎯 {rec['away_team']} @ {rec['home_team']}\n   Side: {side.upper()}, Size: ${bet_size:.2f}, Confidence: {elo_prob:.1%}, Edge: {edge:.1%}")
+            
+            # Determine side (YES or NO)
+            if sport.lower() == 'tennis':
+                # For tennis: check if YES means the player we're betting on wins
+                # The ticker format is: KXATPMATCH-26JAN17PLAYER1PLAYER2-YESPLAYER
+                # If YES player matches our bet_on, we bet YES, otherwise NO
+                ticker_parts = ticker.split('-')
+                if len(ticker_parts) >= 3:
+                    yes_player_abbr = ticker_parts[-1]  # Last part is YES player abbreviation
+                    bet_on_upper = rec['bet_on'].upper()
+                    # Check if our player's name is in the YES abbreviation
+                    if any(word[:3].upper() == yes_player_abbr[:3] for word in rec['bet_on'].split()):
+                        side = 'yes'
+                    else:
+                        side = 'no'
+                else:
+                    # Fallback: check title
+                    title = market.get('title', '')
+                    if rec['bet_on'] in title and 'Will ' + rec['bet_on'] in title:
+                        side = 'yes'
+                    else:
+                        side = 'no'
+            else:
+                # Team sports: home/away
+                side = 'yes' if rec['bet_on'] == 'home' else 'no'
+            
+            # Format match info
+            if sport.lower() == 'tennis':
+                match_info = rec.get('matchup', 'Unknown match')
+                bet_player = rec['bet_on']
+            else:
+                match_info = f"{rec['away_team']} @ {rec['home_team']}"
+                bet_player = rec['bet_on']
+            
+            print(f"🎯 {match_info}\n   Bet: {bet_player}, Side: {side.upper()}, Size: ${bet_size:.2f}, Confidence: {elo_prob:.1%}, Edge: {edge:.1%}")
             if not dry_run:
                 result = self.place_bet(ticker, side, bet_size)
                 if result:

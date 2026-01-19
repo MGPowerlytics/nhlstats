@@ -4,6 +4,15 @@
 
 This is a **multi-sport betting system** that uses Elo ratings to identify betting opportunities on Kalshi prediction markets. The system covers NBA, NHL, MLB, and NFL and runs as an Airflow DAG.
 
+KEEP THIS PROJECT ORGANIZED, NEAT AND WELL-DOCUMENTED. FOLLOW THE CODING CONVENTIONS BELOW. 
+1. Run black on new code
+2. Add type hints and docstrings
+3. Use clear, descriptive names for variables and functions
+4. Use google docstring style
+5. Place code into well-organized files and directories
+6. Document all fixes in the CHANGELOG
+7. RUN TESTS AND DATA VALIDATION BEFORE COMMITTING
+
 ## Technology Stack
 
 - **Python 3.10+**

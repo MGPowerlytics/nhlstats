@@ -26,7 +26,7 @@ class NHLEloRating:
         elo.save_ratings()  # Persist to disk
     """
     
-    def __init__(self, k_factor=10, home_advantage=50, initial_rating=1500):
+    def __init__(self, k_factor=10, home_advantage=50, initial_rating=1500, recency_weight=0.2):
         """
         Initialize Elo rating system
         
@@ -34,12 +34,15 @@ class NHLEloRating:
             k_factor: How quickly ratings change (higher = more volatile)
             home_advantage: Elo points added to home team (typically 50-150)
             initial_rating: Starting rating for new teams
+            recency_weight: Weight for recent games (0.0 = no weighting, 0.2 = optimal)
         """
         self.k_factor = k_factor
         self.home_advantage = home_advantage
         self.initial_rating = initial_rating
+        self.recency_weight = recency_weight
         self.ratings = {}
         self.game_history = []
+        self.last_game_date = {}  # Track last game date per team
         
     def get_rating(self, team):
         """Get current Elo rating for a team"""
@@ -75,9 +78,9 @@ class NHLEloRating:
         
         return self.expected_score(home_rating_adj, away_rating)
     
-    def update(self, home_team, away_team, home_won, home_score=None, away_score=None):
+    def update(self, home_team, away_team, home_won, home_score=None, away_score=None, game_date=None):
         """
-        Update Elo ratings after a game
+        Update Elo ratings after a game with recency weighting
         
         Args:
             home_team: Name of home team
@@ -85,6 +88,7 @@ class NHLEloRating:
             home_won: Boolean, True if home team won
             home_score: Optional final score (for history)
             away_score: Optional final score (for history)
+            game_date: Optional game date for recency weighting
             
         Returns:
             dict: Changes in ratings
@@ -104,12 +108,26 @@ class NHLEloRating:
         actual_home = 1.0 if home_won else 0.0
         actual_away = 1.0 - actual_home
         
+        # Apply recency weighting: boost k-factor for teams that haven't played recently
+        k_factor = self.k_factor
+        if self.recency_weight > 0 and game_date:
+            for team in [home_team, away_team]:
+                if team in self.last_game_date:
+                    days_since = (game_date - self.last_game_date[team]).days
+                    if days_since > 5:  # More than 5 days since last game
+                        k_factor *= (1 + self.recency_weight * min(days_since / 7, 1.0))
+        
         # Update ratings
-        home_change = self.k_factor * (actual_home - expected_home)
-        away_change = self.k_factor * (actual_away - expected_away)
+        home_change = k_factor * (actual_home - expected_home)
+        away_change = k_factor * (actual_away - expected_away)
         
         self.ratings[home_team] = home_rating_before + home_change
         self.ratings[away_team] = away_rating_before + away_change
+        
+        # Track game dates for recency weighting
+        if game_date:
+            self.last_game_date[home_team] = game_date
+            self.last_game_date[away_team] = game_date
         
         # Record history
         self.game_history.append({
@@ -135,14 +153,14 @@ class NHLEloRating:
             'away_rating_new': self.ratings[away_team]
         }
 
-    def apply_season_reversion(self, factor=0.35):
+    def apply_season_reversion(self, factor=0.45):
         """
         Regress all team ratings towards the mean (1500) for a new season.
         New Rating = (1 - factor) * Old Rating + factor * 1500
         
         Args:
             factor: 0.0 to 1.0 (0.0 = no change, 1.0 = reset everyone to 1500)
-                    0.35 is optimal for NHL based on historical analysis.
+                    0.45 is optimal for NHL based on grid search (Jan 2026).
         """
         for team, rating in self.ratings.items():
             self.ratings[team] = (1 - factor) * rating + factor * self.initial_rating

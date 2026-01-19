@@ -7,6 +7,7 @@ from kalshi_python import Configuration, ApiClient, MarketsApi
 import json
 from datetime import datetime
 from pathlib import Path
+import requests
 
 
 class KalshiAPI:
@@ -336,8 +337,39 @@ def fetch_ncaab_markets(date_str=None):
         return []
 
 def fetch_tennis_markets(date_str=None):
-    """Fetch Tennis markets (Placeholder)"""
-    return []
+    """
+    Fetch Tennis markets from Kalshi.
+    
+    Uses KXATPMATCH (ATP) and KXWTAMATCH (WTA) series tickers.
+    """
+    try:
+        # Load credentials
+        api_key_id, private_key = load_kalshi_credentials()
+        
+        # Make authenticated request
+        api = KalshiAPI(api_key_id, private_key)
+        
+        # Tennis series on Kalshi
+        tennis_series = ['KXATPMATCH', 'KXWTAMATCH']
+        
+        all_markets = []
+        for series in tennis_series:
+            try:
+                response = api.get_markets(series_ticker=series, status='open')
+                if response and 'markets' in response:
+                    markets = response['markets']
+                    print(f"  ✓ Found {len(markets)} {series} markets")
+                    all_markets.extend(markets)
+            except Exception as e:
+                print(f"  ⚠️  Error fetching {series}: {e}")
+                continue
+        
+        print(f"  ✓ Total: {len(all_markets)} tennis markets")
+        return all_markets
+            
+    except Exception as e:
+        print(f"❌ Error fetching Tennis markets: {e}")
+        return []
 
 def main():
     print("🎲 Kalshi Markets Fetcher (SDK version)")
