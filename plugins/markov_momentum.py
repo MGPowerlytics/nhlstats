@@ -79,7 +79,9 @@ class MarkovMomentum:
 
     last_outcome: Dict[str, Optional[int]] = field(default_factory=dict)
     team_counts: Dict[Tuple[str, int], _Counts] = field(default_factory=dict)
-    global_counts: Dict[int, _Counts] = field(default_factory=lambda: {0: _Counts(), 1: _Counts()})
+    global_counts: Dict[int, _Counts] = field(
+        default_factory=lambda: {0: _Counts(), 1: _Counts()}
+    )
 
     def _get_prev(self, team: str) -> Optional[int]:
         return self.last_outcome.get(team)

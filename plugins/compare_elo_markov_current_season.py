@@ -57,7 +57,11 @@ def compute_metrics(df: pd.DataFrame, prob_col: str) -> Metrics:
     brier = float(np.mean((p - y) ** 2)) if len(y) else float("nan")
 
     # Binary log loss
-    log_loss = float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p))) if len(y) else float("nan")
+    log_loss = (
+        float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
+        if len(y)
+        else float("nan")
+    )
 
     return Metrics(
         n_games=int(len(y)),
@@ -104,7 +108,9 @@ def run_for_sport(sport: str, alpha: float, smoothing: float) -> None:
         print(f"⚠️  No {sport.upper()} games since {season_start}")
         return
 
-    print(f"📅 Evaluating current season since {season_start}: {len(season_df):,} games")
+    print(
+        f"📅 Evaluating current season since {season_start}: {len(season_df):,} games"
+    )
 
     metrics: Dict[str, Metrics] = {
         "elo": compute_metrics(season_df, "elo_prob"),
@@ -121,11 +127,17 @@ def run_for_sport(sport: str, alpha: float, smoothing: float) -> None:
     # Lift/gain by decile
     print("\n📈 Lift/Gain by decile (Elo)")
     elo_deciles = calculate_lift_gain_by_decile(season_df, prob_col="elo_prob")
-    print_decile_table(elo_deciles, sport, f"CURRENT SEASON — Elo (Since {season_start})")
+    print_decile_table(
+        elo_deciles, sport, f"CURRENT SEASON — Elo (Since {season_start})"
+    )
 
     print("\n📈 Lift/Gain by decile (Elo+Markov)")
-    markov_deciles = calculate_lift_gain_by_decile(season_df, prob_col="elo_markov_prob")
-    print_decile_table(markov_deciles, sport, f"CURRENT SEASON — Elo+Markov (Since {season_start})")
+    markov_deciles = calculate_lift_gain_by_decile(
+        season_df, prob_col="elo_markov_prob"
+    )
+    print_decile_table(
+        markov_deciles, sport, f"CURRENT SEASON — Elo+Markov (Since {season_start})"
+    )
 
 
 def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
@@ -136,8 +148,12 @@ def parse_args(argv: List[str] | None = None) -> argparse.Namespace:
         choices=["nba", "nhl"],
         help="Sport to analyze. Can be passed multiple times. Default: nba and nhl.",
     )
-    parser.add_argument("--alpha", type=float, default=0.35, help="Markov alpha scaling.")
-    parser.add_argument("--smoothing", type=float, default=2.0, help="Markov smoothing strength.")
+    parser.add_argument(
+        "--alpha", type=float, default=0.35, help="Markov alpha scaling."
+    )
+    parser.add_argument(
+        "--smoothing", type=float, default=2.0, help="Markov smoothing strength."
+    )
     return parser.parse_args(argv)
 
 
