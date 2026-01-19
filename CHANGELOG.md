@@ -1,5 +1,36 @@
 # Changelog
 
+## 2026-01-19 - Daily Summary Email Notifications & Fixed SMS
+
+### Added
+- **Daily Summary SMS**: New `send_daily_summary` task at end of DAG sends 3-part SMS:
+  - Message 1: Balance, portfolio value, yesterday's P/L
+  - Message 2: Today's bets placed with top bet details  
+  - Message 3: Additional bets or available balance
+- **Custom SMS Function**: Added `send_sms()` using direct SMTP instead of Airflow's email utility
+  - Bypasses Airflow email authentication issues with Gmail
+  - Properly formats for Verizon SMS gateway (7244959219@vtext.com)
+  - Handles multi-part messages with 2-second delays between sends
+- **Balance Tracking**: Daily balance snapshots saved to `data/portfolio/balance_YYYY-MM-DD.json`
+  - Enables day-over-day P/L calculation
+  - Tracks both cash balance and total portfolio value
+
+### Fixed
+- **Email Notifications**: Replaced Airflow `send_email()` with custom `send_sms()`
+  - Resolves SMTP authentication errors (530: Authentication Required)
+  - Uses `smtplib` directly with Gmail app password from environment
+  - Applied to both bet placement notifications and daily summaries
+  - Task failure notifications still use Airflow default (DAG default_args)
+
+### Technical Details
+- SMS messages split into 3 parts to stay under 160 char SMS limit
+- 2-second delays between messages ensure proper delivery order
+- Graceful fallback if yesterday's balance data not available
+- Task runs after `portfolio_optimized_betting` task
+- Imports: Added `time` module for message delays
+
+---
+
 ## 2026-01-19 - Portfolio-Level Betting Optimization
 
 ### Added
@@ -65,3 +96,6 @@ All notable changes to this project are documented in this file.
 - Added a current-season-only comparison runner for NBA/NHL Elo vs Elo+Markov (`plugins/compare_elo_markov_current_season.py`).
 - Added a leakage-safe Elo calibration runner (Platt scaling) for NBA/NHL (`plugins/compare_elo_calibrated_current_season.py`).
 - Enhanced the calibration runner with recent-window training controls (`--train-window-days`, `--train-max-games`) and leakage-safe tuned-threshold accuracy reporting.
+- Added Kalshi historical candlestick backfill utility for research/backtesting (`plugins/kalshi_historical_data.py`).
+- Extended Kalshi historical backfill to support market metadata and trade tape ingestion (`plugins/kalshi_historical_data.py`, `--mode markets|trades`).
+- Added a first-pass NHL backtest harness against historical Kalshi prices using last trade before decision time (`plugins/backtest_kalshi_nhl.py`).

@@ -69,12 +69,14 @@ x-airflow-common:
     # See https://airflow.apache.org/docs/apache-airflow/stable/administration-and-deployment/logging-monitoring/check-health.html#scheduler-health-check-server
     # yamllint enable rule:line-length
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
-    # SMS alerts via Verizon email-to-SMS gateway using Postfix
-    AIRFLOW__SMTP__SMTP_HOST: 'postfix'
-    AIRFLOW__SMTP__SMTP_STARTTLS: 'false'
+    # Gmail SMTP for email/SMS notifications
+    AIRFLOW__SMTP__SMTP_HOST: 'smtp.gmail.com'
+    AIRFLOW__SMTP__SMTP_STARTTLS: 'true'
     AIRFLOW__SMTP__SMTP_SSL: 'false'
     AIRFLOW__SMTP__SMTP_PORT: '587'
-    AIRFLOW__SMTP__SMTP_MAIL_FROM: 'airflow@nhlstats.local'
+    AIRFLOW__SMTP__SMTP_USER: ${GMAIL_USER}
+    AIRFLOW__SMTP__SMTP_PASSWORD: ${GMAIL_APP_PASSWORD}
+    AIRFLOW__SMTP__SMTP_MAIL_FROM: ${GMAIL_USER}
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
@@ -353,14 +355,15 @@ services:
       airflow-init:
         condition: service_completed_successfully
 
-  postfix:
-    image: boky/postfix:latest
-    environment:
-      ALLOWED_SENDER_DOMAINS: "nhlstats.local"
-      ALLOW_EMPTY_SENDER_DOMAINS: "true"
-    ports:
-      - "1025:587"  # SMTP server
-    restart: always
+  # Postfix relay no longer needed - using Gmail SMTP directly
+  # postfix:
+  #   image: boky/postfix:latest
+  #   environment:
+  #     ALLOWED_SENDER_DOMAINS: "nhlstats.local"
+  #     ALLOW_EMPTY_SENDER_DOMAINS: "true"
+  #   ports:
+  #     - "1025:587"  # SMTP server
+  #   restart: always
 
   dashboard:
     build: .

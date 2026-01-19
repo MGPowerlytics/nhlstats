@@ -7,11 +7,57 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sys
 import json
+import smtplib
+import os
+import time
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 # Add plugins directory to Python path
 plugins_dir = Path(__file__).parent.parent / "plugins"
 if str(plugins_dir) not in sys.path:
     sys.path.insert(0, str(plugins_dir))
+
+
+def send_sms(to_number: str, subject: str, body: str) -> bool:
+    """Send SMS via Verizon email gateway using Gmail SMTP.
+
+    Args:
+        to_number: Phone number (without formatting)
+        subject: SMS subject line
+        body: SMS message body
+
+    Returns:
+        True if sent successfully, False otherwise
+    """
+    try:
+        smtp_host = os.getenv("AIRFLOW__SMTP__SMTP_HOST", "smtp.gmail.com")
+        smtp_port = int(os.getenv("AIRFLOW__SMTP__SMTP_PORT", "587"))
+        smtp_user = os.getenv("AIRFLOW__SMTP__SMTP_USER")
+        smtp_password = os.getenv("AIRFLOW__SMTP__SMTP_PASSWORD")
+
+        if not all([smtp_user, smtp_password]):
+            print("⚠️  SMTP credentials not configured")
+            return False
+
+        # Create message
+        msg = MIMEMultipart()
+        msg["From"] = smtp_user
+        msg["To"] = f"{to_number}@vtext.com"
+        msg["Subject"] = subject
+        msg.attach(MIMEText(body, "plain"))
+
+        # Send via Gmail SMTP
+        server = smtplib.SMTP(smtp_host, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_password)
+        server.send_message(msg)
+        server.quit()
+
+        return True
+    except Exception as e:
+        print(f"⚠️  Failed to send SMS: {e}")
+        return False
 
 
 def serialize_datetime(obj):
@@ -479,6 +525,7 @@ def fetch_prediction_markets(sport, **context):
         fetch_epl_markets,
         fetch_tennis_markets,
         fetch_ncaab_markets,
+        fetch_ligue1_markets,
     )
 
     config = SPORTS_CONFIG[sport]
@@ -490,6 +537,7 @@ def fetch_prediction_markets(sport, **context):
         "epl": fetch_epl_markets,
         "tennis": fetch_tennis_markets,
         "ncaab": fetch_ncaab_markets,
+        "ligue1": fetch_ligue1_markets,
     }[sport]
 
     date_str = context["ds"]
@@ -1342,6 +1390,35 @@ def place_portfolio_optimized_bets(**context):
         print(f"  Skipped: {len(results['skipped_bets'])}")
         print(f"  Errors: {len(results['errors'])}")
 
+        # Send SMS notification with summary
+        try:
+            placed_count = len(results["placed_bets"])
+            total_amount = sum(b.get("amount", 0) for b in results["placed_bets"])
+
+            # Create SMS message (keep it short - SMS has 160 char limit)
+            sms_body = f"BETS PLACED {date_str}\n"
+            sms_body += f"{placed_count} bets, ${total_amount:.2f} total\n\n"
+
+            # List top 5 bets
+            for i, bet in enumerate(results["placed_bets"][:5], 1):
+                player = bet.get("player", bet.get("home_team", "Unknown"))[:15]
+                amount = bet.get("amount", 0)
+                sms_body += f"{i}. {player} ${amount:.0f}\n"
+
+            if placed_count > 5:
+                sms_body += f"...+{placed_count - 5} more"
+
+            if send_sms(
+                to_number="7244959219",
+                subject=f"Bets: {placed_count} placed, ${total_amount:.0f}",
+                body=sms_body,
+            ):
+                print(f"✓ SMS notification sent")
+            else:
+                print(f"⚠️  SMS notification failed")
+        except Exception as e:
+            print(f"⚠️  Failed to send SMS: {e}")
+
         return results
 
     finally:
@@ -1522,12 +1599,158 @@ def place_portfolio_optimized_bets(**context):
         print("\n⚠️  Continuing with workflow (bets not placed)")
 
 
+def send_daily_summary(**context):
+    """Send daily summary SMS with balance, yesterday's winnings, and today's bets."""
+    import os
+    from pathlib import Path
+    from datetime import datetime, timedelta
+
+    print("\n📧 Preparing daily summary SMS...")
+
+    # Initialize Kalshi client
+    api_key_id = os.getenv("KALSHI_API_KEY")
+    private_key_path = Path("/opt/airflow/kalshi_private_key.pem")
+
+    if not api_key_id or not private_key_path.exists():
+        print("⚠️  Missing Kalshi credentials - cannot fetch balance")
+        return
+
+    try:
+        from kalshi_betting import KalshiBetting
+
+        client = KalshiBetting(
+            api_key_id=api_key_id,
+            private_key_path=str(private_key_path),
+            production=True,
+        )
+
+        # Get current balance and portfolio value
+        balance, portfolio_value = client.get_balance()
+
+        # Get yesterday's portfolio value to calculate winnings
+        yesterday = datetime.now() - timedelta(days=1)
+        yesterday_str = yesterday.strftime("%Y-%m-%d")
+
+        # Try to get yesterday's balance from saved data
+        yesterday_file = Path(f"data/portfolio/balance_{yesterday_str}.json")
+        yesterday_portfolio = None
+        if yesterday_file.exists():
+            with open(yesterday_file) as f:
+                data = json.load(f)
+                yesterday_portfolio = data.get("portfolio_value", portfolio_value)
+
+        # Calculate winnings
+        if yesterday_portfolio:
+            winnings = portfolio_value - yesterday_portfolio
+        else:
+            winnings = 0
+            print("⚠️  No yesterday data - cannot calculate winnings")
+
+        # Save today's balance
+        today_str = context["ds"]
+        balance_dir = Path("data/portfolio")
+        balance_dir.mkdir(parents=True, exist_ok=True)
+
+        balance_file = balance_dir / f"balance_{today_str}.json"
+        with open(balance_file, "w") as f:
+            json.dump(
+                {
+                    "date": today_str,
+                    "balance": balance,
+                    "portfolio_value": portfolio_value,
+                    "timestamp": datetime.now().isoformat(),
+                },
+                f,
+                indent=2,
+            )
+
+        # Get today's placed bets
+        placed_bets = []
+        for sport in ["nba", "ncaab", "tennis"]:
+            result_file = Path(f"data/{sport}/betting_results_{today_str}.json")
+            if result_file.exists():
+                with open(result_file) as f:
+                    results = json.load(f)
+                    placed_bets.extend(results.get("placed", []))
+
+        # Calculate total bet amount
+        total_bet = sum(bet.get("amount", 0) for bet in placed_bets)
+
+        print(f"\n💰 Balance: ${balance:.2f}")
+        print(f"📊 Portfolio Value: ${portfolio_value:.2f}")
+        print(f"{'📈' if winnings >= 0 else '📉'} Yesterday's P/L: ${winnings:+.2f}")
+        print(f"🎲 Bets Placed Today: {len(placed_bets)} (${total_bet:.2f})")
+
+        # Send summary in multiple SMS messages (160 char limit per message)
+
+        # Message 1: Summary stats
+        msg1 = f"DAILY SUMMARY {today_str}\n"
+        msg1 += f"Balance: ${balance:.2f}\n"
+        msg1 += f"Portfolio: ${portfolio_value:.2f}\n"
+        msg1 += f"Yesterday P/L: ${winnings:+.2f}"
+
+        if send_sms("7244959219", "Daily Summary (1/3)", msg1):
+            print("✓ Sent message 1/3")
+
+        time.sleep(2)  # Brief delay between messages
+
+        # Message 2: Bet summary
+        msg2 = f"BETS TODAY: {len(placed_bets)} placed\n"
+        msg2 += f"Total bet: ${total_bet:.2f}\n"
+
+        if placed_bets:
+            msg2 += f"\nTop bets:\n"
+            for i, bet in enumerate(placed_bets[:3], 1):
+                team = bet.get("player", bet.get("home_team", "Unknown"))[:12]
+                amt = bet.get("amount", 0)
+                msg2 += f"{i}. {team} ${amt:.0f}\n"
+        else:
+            msg2 += "No bets placed today"
+
+        if send_sms("7244959219", "Daily Summary (2/3)", msg2):
+            print("✓ Sent message 2/3")
+
+        time.sleep(2)
+
+        # Message 3: Additional bets if more than 3
+        if len(placed_bets) > 3:
+            msg3 = "More bets:\n"
+            for i, bet in enumerate(placed_bets[3:8], 4):  # Show bets 4-8
+                team = bet.get("player", bet.get("home_team", "Unknown"))[:12]
+                amt = bet.get("amount", 0)
+                msg3 += f"{i}. {team} ${amt:.0f}\n"
+
+            if len(placed_bets) > 8:
+                msg3 += f"\n+{len(placed_bets) - 8} more bets"
+
+            if send_sms("7244959219", "Daily Summary (3/3)", msg3):
+                print("✓ Sent message 3/3")
+        else:
+            # Message 3: Available balance for tomorrow
+            msg3 = f"AVAILABLE TOMORROW\n"
+            msg3 += f"Cash: ${balance:.2f}\n"
+            msg3 += f"Total value: ${portfolio_value:.2f}\n"
+            msg3 += f"\n{'💰 Win!' if winnings > 0 else '📉 Loss' if winnings < 0 else '➖ Flat'}"
+
+            if send_sms("7244959219", "Daily Summary (3/3)", msg3):
+                print("✓ Sent message 3/3")
+
+        print("✅ Daily summary sent successfully!")
+
+    except Exception as e:
+        print(f"❌ Failed to send daily summary: {e}")
+        import traceback
+
+        traceback.print_exc()
+
+
 # Create DAG
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
     "start_date": datetime(2026, 1, 1),
-    "email_on_failure": False,
+    "email": ["7244959219@vtext.com"],  # Verizon SMS gateway
+    "email_on_failure": True,
     "email_on_retry": False,
     "retries": 1,
     "retry_delay": timedelta(minutes=5),
@@ -1649,3 +1872,13 @@ all_bets_tasks = [
 
 # Portfolio betting runs after all bets are identified
 all_bets_tasks >> portfolio_betting_task
+
+# Add daily summary task (runs at the end)
+daily_summary_task = PythonOperator(
+    task_id="send_daily_summary",
+    python_callable=send_daily_summary,
+    dag=dag,
+)
+
+# Daily summary runs after portfolio betting
+portfolio_betting_task >> daily_summary_task
