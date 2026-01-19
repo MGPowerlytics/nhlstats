@@ -211,7 +211,11 @@ class PortfolioBettingManager:
                 )
             else:
                 order_result = self.kalshi_client.place_bet(
-                    ticker=opp.ticker, side=side, amount=alloc.bet_size, price=price
+                    ticker=opp.ticker,
+                    side=side,
+                    amount=alloc.bet_size,
+                    price=price,
+                    trade_date=date_str,
                 )
 
                 if order_result:

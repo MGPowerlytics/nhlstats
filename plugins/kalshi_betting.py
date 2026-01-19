@@ -8,19 +8,23 @@ CRITICAL VALIDATIONS:
 4. Order cost = contracts × price (not just contracts)
 """
 import json, uuid, base64, requests, time
+from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import padding
 
+from order_deduper import OrderDeduper
+
 class KalshiBetting:
     def __init__(self, api_key_id: str, private_key_path: str, max_bet_size: float = 5.0, 
-                 production: bool = True, odds_api_key: Optional[str] = None):
+                 production: bool = True, odds_api_key: Optional[str] = None, dedupe_dir: Optional[str] = None):
         self.api_key_id = api_key_id
         self.max_bet_size, self.min_bet_size, self.max_position_pct = max_bet_size, 2.0, 0.05
         self.base_url = "https://api.elections.kalshi.com" if production else "https://demo-api.kalshi.co"
         self.odds_api_key = odds_api_key
+        self._deduper = OrderDeduper(Path(dedupe_dir or "data/order_dedup"))
         print("🔐 Loading private key...")
         with open(private_key_path, "rb") as f:
             self.private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
@@ -135,7 +139,7 @@ class KalshiBetting:
         bet_size = balance * (edge / 4.0)
         return round(max(self.min_bet_size, min(self.max_bet_size, balance * self.max_position_pct, bet_size)), 2)
     
-    def place_bet(self, ticker: str, side: str, amount: float, price: Optional[int] = None) -> Optional[Dict]:
+    def place_bet(self, ticker: str, side: str, amount: float, price: Optional[int] = None, trade_date: Optional[str] = None) -> Optional[Dict]:
         """
         Place a limit order on Kalshi.
         
@@ -144,6 +148,15 @@ class KalshiBetting:
         - If price not provided, will fetch from market
         - Total cost = contracts × price (not just contracts)
         """
+        # Cross-process-safe dedupe: never place more than one order per ticker,
+        # and never place both YES/NO on the same ticker.
+        if trade_date is None:
+            trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        reservation = self._deduper.reserve(trade_date=trade_date, ticker=ticker, side=side)
+        if not reservation.reserved:
+            print(f"   ⚠️  Skipping duplicate/hedge order: {ticker} ({reservation.reason})")
+            return None
+
         # Get current market price if not provided
         if price is None:
             market = self.get_market_details(ticker)
@@ -182,8 +195,10 @@ class KalshiBetting:
             print(f"   ❌ Order failed: {e}")
             return None
     
-    def process_bet_recommendations(self, recommendations: List[Dict], sport_filter: Optional[List[str]] = None, min_confidence: float = 0.75, min_edge: float = 0.05, dry_run: bool = False) -> Dict:
+    def process_bet_recommendations(self, recommendations: List[Dict], sport_filter: Optional[List[str]] = None, min_confidence: float = 0.75, min_edge: float = 0.05, dry_run: bool = False, trade_date: Optional[str] = None) -> Dict:
         placed, skipped, errors = [], [], []
+        if trade_date is None:
+            trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
         balance, portfolio_value = self.get_balance()
         print(f"\n💰 Starting balance: ${balance:.2f}\n📊 Portfolio value: ${portfolio_value:.2f}\n")
         for rec in recommendations:
@@ -249,7 +264,7 @@ class KalshiBetting:
             
             print(f"🎯 {match_info}\n   Bet: {bet_player}, Side: {side.upper()}, Size: ${bet_size:.2f}, Confidence: {elo_prob:.1%}, Edge: {edge:.1%}")
             if not dry_run:
-                result = self.place_bet(ticker, side, bet_size)
+                result = self.place_bet(ticker, side, bet_size, trade_date=trade_date)
                 if result:
                     placed.append({'rec': rec, 'bet_size': bet_size, 'side': side, 'result': result}); balance -= bet_size
                 else:

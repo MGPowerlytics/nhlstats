@@ -31,6 +31,14 @@
 - Grouped by sport with status icons (✅/⚠️)
 - Identifies contradictory positions (e.g., NO on both players in same match)
 
+## 2026-01-19 - WNCAAB Opportunity Preview Tool
+
+### Added
+- **`plugins/preview_wncaab_bets.py`**: Airflow-independent verifier for WNCAAB opportunities
+  - Reads cached `data/wncaab/markets_YYYY-MM-DD.json` and `data/wncaab_current_elo_ratings.csv`
+  - Computes the same threshold/edge screening and shows top bets
+  - Optional `--diff` compares results to `data/wncaab/bets_YYYY-MM-DD.json`
+
 ## 2026-01-19 - Added Women's NCAAB Support
 
 ### Added
@@ -46,6 +54,12 @@
 
 ### Fixed
 - Fixed WNCAAB bet identification to correctly parse Kalshi "Winner?" market tickers/titles (previously WNCAAB markets were skipped due to empty `team_mapping` and 3-letter code parsing).
+
+## 2026-01-19 - Order Deduplication Safety
+
+### Fixed
+- Prevent automated bet placement from placing multiple orders for the same ticker (including blocking YES/NO hedges) using an atomic per-ticker lock.
+- Dedupe is global across reruns and days (same ticker cannot be bet twice).
 
 ### Documentation
 - Created `data/nba_team_mapping.json`: Kalshi city names → our DB nicknames
