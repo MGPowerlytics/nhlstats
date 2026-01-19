@@ -19,6 +19,7 @@ from datetime import datetime
 from collections import defaultdict
 
 
+
 # Sport configurations
 SPORT_CONFIG = {
     'nba': {
@@ -454,7 +455,155 @@ def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFram
     return df
 
 
-def calculate_lift_gain_by_decile(df: pd.DataFrame) -> pd.DataFrame:
+def calculate_elo_markov_predictions(
+    sport: str,
+    games_df: pd.DataFrame,
+    markov_alpha: float = 0.35,
+    markov_smoothing: float = 2.0,
+) -> pd.DataFrame:
+    """Calculate Elo and Elo+Markov predictions for all games.
+
+    This function is leakage-safe when called on chronologically ordered games:
+    it predicts a game before updating Elo/Markov state with the result.
+
+    Args:
+        sport: Sport key (e.g., 'nba', 'nhl').
+        games_df: Games dataframe.
+        markov_alpha: Strength of Markov momentum logit adjustment.
+        markov_smoothing: Prior strength for smoothing conditional probabilities.
+
+    Returns:
+        DataFrame with `elo_prob` and `elo_markov_prob` columns added.
+    """
+
+    from markov_momentum import MarkovMomentum
+
+    if games_df.empty:
+        return games_df
+
+    config = SPORT_CONFIG[sport]
+
+    # Import the Elo class dynamically
+    if sport == 'nba':
+        from nba_elo_rating import NBAEloRating
+
+        elo = NBAEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'nhl':
+        from nhl_elo_rating import NHLEloRating
+
+        elo = NHLEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'mlb':
+        from mlb_elo_rating import MLBEloRating
+
+        elo = MLBEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'nfl':
+        from nfl_elo_rating import NFLEloRating
+
+        elo = NFLEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'epl':
+        from epl_elo_rating import EPLEloRating
+
+        elo = EPLEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    elif sport == 'ncaab':
+        from ncaab_elo_rating import NCAABEloRating
+
+        elo = NCAABEloRating(k_factor=config['k_factor'], home_advantage=config['home_advantage'])
+    else:
+        raise ValueError(f"Unknown sport: {sport}")
+
+    markov = MarkovMomentum(alpha=markov_alpha, smoothing=markov_smoothing)
+
+    # Sort by date
+    df = games_df.sort_values(['game_date']).reset_index(drop=True)
+
+    # Drop rows with missing scores or teams
+    df = df.dropna(subset=['home_score', 'away_score', 'home_team', 'away_team'])
+
+    # Ensure home_win column exists and is valid
+    if 'home_win' not in df.columns:
+        if 'result' in df.columns:  # EPL style
+            df['home_win'] = df['result'].apply(lambda x: 1 if x == 'H' else 0)
+        else:
+            df['home_win'] = (df['home_score'] > df['away_score']).astype(int)
+    else:
+        df['home_win'] = df['home_win'].fillna(0).astype(int)
+
+    if df.empty or len(df) < 10:
+        print(f"⚠️  Not enough valid games for analysis (have {len(df)}, need at least 10)")
+        return df
+
+    predictions = []
+    markov_predictions = []
+
+    last_date = None
+
+    for _, game in df.iterrows():
+        # Detect season gaps and apply Elo season reversion where supported.
+        game_date_str = str(game['game_date'])[:10]
+        try:
+            current_date = datetime.strptime(game_date_str, '%Y-%m-%d').date()
+            if last_date:
+                days_diff = (current_date - last_date).days
+                if days_diff > 90:
+                    # Elo season reversion (NHL has explicit support)
+                    if sport == 'nhl':
+                        elo.apply_season_reversion(0.35)
+                    # Momentum state should not carry across long offseasons
+                    markov.last_outcome.clear()
+            last_date = current_date
+        except Exception:
+            pass
+
+        # Predict BEFORE updating
+        if sport == 'ncaab':
+            elo_prob = elo.predict(
+                game['home_team'],
+                game['away_team'],
+                is_neutral=game.get('neutral', False),
+            )
+        else:
+            elo_prob = elo.predict(game['home_team'], game['away_team'])
+
+        predictions.append(elo_prob)
+        markov_predictions.append(markov.apply(elo_prob, game['home_team'], game['away_team']))
+
+        # Update ratings
+        if sport in ['mlb', 'nfl']:
+            elo.update(
+                game['home_team'],
+                game['away_team'],
+                int(game['home_score']),
+                int(game['away_score']),
+            )
+        elif sport == 'epl':
+            result = game.get('result')
+            if not result:
+                if game['home_score'] > game['away_score']:
+                    result = 'H'
+                elif game['home_score'] == game['away_score']:
+                    result = 'D'
+                else:
+                    result = 'A'
+            elo.update(game['home_team'], game['away_team'], result)
+        elif sport == 'ncaab':
+            elo.update(
+                game['home_team'],
+                game['away_team'],
+                game['home_win'],
+                is_neutral=game.get('neutral', False),
+            )
+        else:
+            elo.update(game['home_team'], game['away_team'], game['home_win'])
+
+        # Update Markov with realized outcome
+        markov.update_game(game['home_team'], game['away_team'], bool(game['home_win']))
+
+    df['elo_prob'] = predictions
+    df['elo_markov_prob'] = markov_predictions
+    return df
+
+
+def calculate_lift_gain_by_decile(df: pd.DataFrame, prob_col: str = 'elo_prob') -> pd.DataFrame:
     """
     Calculate lift and gain statistics by probability decile.
     
@@ -469,7 +618,7 @@ def calculate_lift_gain_by_decile(df: pd.DataFrame) -> pd.DataFrame:
     - lift: win_rate / baseline
     - gain_pct: cumulative_wins / total_wins * 100
     """
-    if df.empty or 'elo_prob' not in df.columns:
+    if df.empty or prob_col not in df.columns:
         return pd.DataFrame()
     
     df = df.copy()
@@ -480,7 +629,7 @@ def calculate_lift_gain_by_decile(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
     
     # Create deciles (1=lowest, 10=highest)
-    df['decile'] = pd.qcut(df['elo_prob'], q=10, labels=False, duplicates='drop') + 1
+    df['decile'] = pd.qcut(df[prob_col], q=10, labels=False, duplicates='drop') + 1
     
     baseline = df['home_win'].mean()
     total_wins = int(df['home_win'].sum())
@@ -497,9 +646,9 @@ def calculate_lift_gain_by_decile(df: pd.DataFrame) -> pd.DataFrame:
         win_rate = n_wins / n_games if n_games > 0 else 0
         lift = win_rate / baseline if baseline > 0 else 0
         
-        avg_prob = decile_df['elo_prob'].mean()
-        min_prob = decile_df['elo_prob'].min()
-        max_prob = decile_df['elo_prob'].max()
+        avg_prob = decile_df[prob_col].mean()
+        min_prob = decile_df[prob_col].min()
+        max_prob = decile_df[prob_col].max()
         
         results.append({
             'decile': decile,
