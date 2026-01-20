@@ -1,0 +1,12 @@
+
+================================================================================
+🏀 BACKTESTING WNCAAB - 2024-11-01 to 2025-01-19
+================================================================================
+
+📥 Loading WNCAAB games...
+   Found 701 games
+📥 Loading Kalshi markets for KXNCAAWBGAME...
+⚠️  No Kalshi markets found.
+   Run: python -m plugins.kalshi_historical_data --mode markets \
+        --series-ticker KXNCAAWBGAME \
+        --start 2024-11-01 --end 2025-01-19

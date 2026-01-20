@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 from kalshi_betting import KalshiBetting
 
 
-def create_bets_table(conn):
+    def create_bets_table(conn):
     """Create bets tracking table if it doesn't exist."""
     conn.execute("""
         CREATE TABLE IF NOT EXISTS placed_bets (
@@ -31,11 +31,19 @@ def create_bets_table(conn):
             market_prob DOUBLE,
             edge DOUBLE,
             confidence VARCHAR,
+            
+            -- NEW: Closing Line Value (CLV) tracking
+            opening_line_prob DOUBLE,     -- Market probability when line first posted
+            bet_line_prob DOUBLE,          -- Market probability when we placed bet
+            closing_line_prob DOUBLE,      -- Market probability at game start
+            clv DOUBLE,                    -- CLV = bet_line_prob - closing_line_prob (positive is good)
+            
             status VARCHAR,  -- open, won, lost, settled
             settled_date DATE,
             payout_dollars DOUBLE,
             profit_dollars DOUBLE,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

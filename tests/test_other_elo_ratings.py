@@ -169,8 +169,10 @@ class TestTennisEloRating:
         elo = TennisEloRating()
         assert elo.k_factor == 32
         assert elo.initial_rating == 1500
-        assert elo.ratings == {}
-        assert elo.matches_played == {}
+        assert elo.atp_ratings == {}
+        assert elo.wta_ratings == {}
+        assert elo.atp_matches_played == {}
+        assert elo.wta_matches_played == {}
     
     def test_init_custom_values(self):
         """Test initialization with custom values."""
@@ -181,82 +183,82 @@ class TestTennisEloRating:
     def test_get_rating_new_player(self):
         """Test getting rating for a new player."""
         elo = TennisEloRating()
-        rating = elo.get_rating("Djokovic")
+        rating = elo.get_rating("Djokovic", tour="ATP")
         assert rating == 1500
-        assert "Djokovic" in elo.ratings
-        assert elo.matches_played["Djokovic"] == 0
+        assert "Djokovic" in elo.atp_ratings
+        assert elo.atp_matches_played["Djokovic"] == 0
     
     def test_get_rating_existing_player(self):
         """Test getting rating for an existing player."""
         elo = TennisEloRating()
-        elo.ratings["Djokovic"] = 1700
-        elo.matches_played["Djokovic"] = 50
-        rating = elo.get_rating("Djokovic")
+        elo.atp_ratings["Djokovic"] = 1700
+        elo.atp_matches_played["Djokovic"] = 50
+        rating = elo.get_rating("Djokovic", tour="ATP")
         assert rating == 1700
     
     def test_predict_equal_players(self):
         """Test prediction with equal players."""
         elo = TennisEloRating()
-        prob = elo.predict("Djokovic", "Nadal")
+        prob = elo.predict("Djokovic", "Nadal", tour="ATP")
         assert prob == pytest.approx(0.5, abs=0.001)
     
     def test_predict_stronger_player(self):
         """Test prediction with stronger player."""
         elo = TennisEloRating()
-        elo.ratings["Djokovic"] = 1700
-        elo.ratings["Nadal"] = 1500
-        prob = elo.predict("Djokovic", "Nadal")
+        elo.atp_ratings["Djokovic"] = 1700
+        elo.atp_ratings["Nadal"] = 1500
+        prob = elo.predict("Djokovic", "Nadal", tour="ATP")
         assert prob > 0.5
     
     def test_update_winner_rating_increases(self):
         """Test that winner's rating increases."""
         elo = TennisEloRating(k_factor=32)
-        elo.ratings["Djokovic"] = 1500
-        elo.ratings["Nadal"] = 1500
-        elo.matches_played["Djokovic"] = 50
-        elo.matches_played["Nadal"] = 50
+        elo.atp_ratings["Djokovic"] = 1500
+        elo.atp_ratings["Nadal"] = 1500
+        elo.atp_matches_played["Djokovic"] = 50
+        elo.atp_matches_played["Nadal"] = 50
         
-        elo.update("Djokovic", "Nadal")
+        elo.update("Djokovic", "Nadal", tour="ATP")
         
-        assert elo.ratings["Djokovic"] > 1500
-        assert elo.ratings["Nadal"] < 1500
+        assert elo.atp_ratings["Djokovic"] > 1500
+        assert elo.atp_ratings["Nadal"] < 1500
     
     def test_update_increments_matches_played(self):
         """Test that update increments matches played."""
         elo = TennisEloRating()
-        elo.update("Djokovic", "Nadal")
+        elo.update("Djokovic", "Nadal", tour="ATP")
         
-        assert elo.matches_played["Djokovic"] == 1
-        assert elo.matches_played["Nadal"] == 1
+        assert elo.atp_matches_played["Djokovic"] == 1
+        assert elo.atp_matches_played["Nadal"] == 1
     
     def test_update_new_player_higher_k_factor(self):
         """Test that new players have higher k-factor effect."""
         elo1 = TennisEloRating(k_factor=32)
-        elo1.ratings["Djokovic"] = 1500
-        elo1.ratings["Nadal"] = 1500
-        elo1.matches_played["Djokovic"] = 0  # New player
-        elo1.matches_played["Nadal"] = 0  # New player
+        elo1.atp_ratings["Djokovic"] = 1500
+        elo1.atp_ratings["Nadal"] = 1500
+        elo1.atp_matches_played["Djokovic"] = 0  # New player
+        elo1.atp_matches_played["Nadal"] = 0  # New player
         
         elo2 = TennisEloRating(k_factor=32)
-        elo2.ratings["Djokovic"] = 1500
-        elo2.ratings["Nadal"] = 1500
-        elo2.matches_played["Djokovic"] = 50  # Veteran
-        elo2.matches_played["Nadal"] = 50  # Veteran
+        elo2.atp_ratings["Djokovic"] = 1500
+        elo2.atp_ratings["Nadal"] = 1500
+        elo2.atp_matches_played["Djokovic"] = 50  # Veteran
+        elo2.atp_matches_played["Nadal"] = 50  # Veteran
         
-        elo1.update("Djokovic", "Nadal")
-        elo2.update("Djokovic", "Nadal")
+        elo1.update("Djokovic", "Nadal", tour="ATP")
+        elo2.update("Djokovic", "Nadal", tour="ATP")
         
         # New player should have larger rating change
-        change1 = abs(elo1.ratings["Djokovic"] - 1500)
-        change2 = abs(elo2.ratings["Djokovic"] - 1500)
+        change1 = abs(elo1.atp_ratings["Djokovic"] - 1500)
+        change2 = abs(elo2.atp_ratings["Djokovic"] - 1500)
         assert change1 > change2
     
     def test_get_rankings(self):
         """Test getting top rankings."""
         elo = TennisEloRating()
-        elo.ratings = {"Djokovic": 1700, "Nadal": 1650, "Federer": 1600, "Murray": 1550}
+        elo.atp_ratings = {"Djokovic": 1700, "Nadal": 1650, "Federer": 1600, "Murray": 1550}
         
-        rankings = elo.get_rankings(top_n=2)
+        rankings = elo.get_rankings(top_n=2, tour="ATP")
         
         assert len(rankings) == 2
         assert rankings[0] == ("Djokovic", 1700)

@@ -1,0 +1,23 @@
+
+================================================================================
+🏀 BACKTESTING NBA - 2024-11-01 to 2025-01-19
+================================================================================
+
+📥 Loading NBA games...
+Traceback (most recent call last):
+  File "/mnt/data2/nhlstats/backtest_basketball_kalshi.py", line 693, in <module>
+    main()
+  File "/mnt/data2/nhlstats/backtest_basketball_kalshi.py", line 659, in main
+    result = run_backtest(
+             ^^^^^^^^^^^^^
+  File "/mnt/data2/nhlstats/backtest_basketball_kalshi.py", line 345, in run_backtest
+    games = _load_games(db_path, sport, start, end)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/mnt/data2/nhlstats/backtest_basketball_kalshi.py", line 226, in _load_games
+    df = con.execute(config["db_query"], [start.date(), end.date()]).fetchdf()
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_duckdb.CatalogException: Catalog Error: Table with name nba_games does not exist!
+Did you mean "ncaab_games"?
+
+LINE 10:             FROM nba_games
+                          ^

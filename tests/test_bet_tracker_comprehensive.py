@@ -125,15 +125,19 @@ class TestSyncBetsToDatabase:
         from bet_tracker import sync_bets_to_database
         assert callable(sync_bets_to_database)
     
-    def test_with_missing_credentials(self):
+    @patch('bet_tracker.KalshiBetting')
+    def test_with_missing_credentials(self, mock_kalshi):
+        """Test sync_bets_to_database handles missing credentials"""
         from bet_tracker import sync_bets_to_database
+        import tempfile
+        
+        # Mock KalshiBetting to raise FileNotFoundError
+        mock_kalshi.side_effect = FileNotFoundError("Private key not found")
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            # No credentials file
-            try:
+            # Should raise the error since we're mocking Kal shiBetting to fail
+            with pytest.raises(FileNotFoundError):
                 sync_bets_to_database(db_path=f'{tmpdir}/test.duckdb')
-            except FileNotFoundError:
-                pass  # Expected
 
 
 class TestModuleImports:

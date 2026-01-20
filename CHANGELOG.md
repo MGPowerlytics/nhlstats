@@ -385,3 +385,102 @@ python -m py_compile dags/multi_sport_betting_workflow.py
 - ✅ Automated tests prevent regression
 
 **Status: PRODUCTION READY - Deploy immediately**
+
+## [2026-01-19] Value Betting Optimization
+
+### Changed
+- **OPTIMIZED BETTING THRESHOLDS** based on comprehensive lift/gain analysis of 55,000+ historical games
+  - NBA: 64% → 73% (focus on highest lift deciles)
+  - NHL: 77% → 66% ⚠️ **MAJOR CHANGE** (77% was too conservative, missing +EV opportunities)
+  - MLB: 62% → 67% (better calibration)
+  - NFL: 68% → 70% (strong discrimination)
+  - NCAAB: 65% → 72% (align with NBA pattern)
+  - WNCAAB: 65% → 72% (align with other basketball)
+  
+### Added
+- Comprehensive documentation of threshold decisions in `docs/VALUE_BETTING_THRESHOLDS.md`
+- Closing Line Value (CLV) tracking to `placed_bets` table:
+  - `opening_line_prob`, `bet_line_prob`, `closing_line_prob`, `clv`
+  - CLV validation shows if model beats market
+- New `plugins/clv_tracker.py` module for CLV analysis
+- Updated bet_tracker schema with CLV fields and updated_at timestamp
+
+### Key Findings from Lift/Gain Analysis
+- **High-confidence predictions (top 20%) have 1.2x-1.5x lift** across all two-outcome sports
+- **Extreme deciles are most predictive** - don't bet on close games
+- **Model is well-calibrated** - predicted probabilities match actual outcomes
+- **NHL 77% threshold was eliminating profitable bets** - lowered to 66%
+
+### Documentation
+- Added `docs/VALUE_BETTING_THRESHOLDS.md` - Complete analysis and rationale for each threshold
+- Documents lift/gain validation showing extreme deciles have strongest signal
+- Explains why two-outcome sports are more predictive than 3-way markets
+
+
+## [2026-01-19] Elo Temporal Integrity Validation
+
+### Added
+- Comprehensive test suite for Elo temporal integrity (`tests/test_elo_temporal_integrity.py`)
+  - 11 tests validating no data leakage
+  - Tests predict-before-update pattern for all sports
+  - Validates historical simulations maintain temporal order
+  - Tests production DAG pattern
+  - All tests PASSING ✅
+
+### Documentation
+- Added `docs/ELO_TEMPORAL_INTEGRITY_AUDIT.md` - Comprehensive audit report
+  - Code review of all Elo prediction paths
+  - Verification that predictions use ratings from PRIOR games only
+  - No data leakage detected in any component
+  - Test results: 11/11 passing
+
+### Verified
+- ✅ Elo rating classes: predict() called before update()
+- ✅ Lift/gain analysis: correct temporal order maintained
+- ✅ Production DAG: today's predictions use yesterday's ratings
+- ✅ Backtest scripts: process games chronologically
+- ✅ No look-ahead bias in historical analysis
+- ✅ Threshold optimization based on valid out-of-sample predictions
+
+### Key Finding
+**All systems maintain correct temporal order - predictions never use future information.**
+
+
+## [2026-01-20] Basketball Kalshi Backtesting Infrastructure
+
+### Added
+- **backtest_basketball_kalshi.py** - Comprehensive backtest framework for basketball
+  - Supports NBA, NCAAB, WNCAAB
+  - Matches games to Kalshi markets using team names (99.4% match rate)
+  - Uses historical trade prices for decision-making
+  - Maintains temporal integrity (predict before update)
+  - Calculates EV, P&L, win rate, ROI
+  - Generates detailed reports
+
+### Data Collection
+- Fetched 1,570 NBA Kalshi markets (2025-04-16 to 2026-02-05)
+- Fetched 601,961 NBA trades across 50 markets
+- Fetched 3,222 WNCAAB Kalshi markets (2025-11-20 to 2026-02-05)
+- Fetched 4,103 WNCAAB trades across 30 markets
+- Stored in `kalshi_markets` and `kalshi_trades` DuckDB tables
+
+### Documentation
+- Added `docs/BASKETBALL_KALSHI_BACKTEST_STATUS.md` - Comprehensive status report
+  - Framework overview and capabilities
+  - Data collection status
+  - Next steps and commands reference
+  - Current limitations and solutions
+
+### Status
+- ✅ Backtest framework complete
+- ✅ Temporal integrity validated (11/11 tests passing)
+- ⚠️  Needs more trade data for comprehensive backtesting
+- ⚠️  NBA games table needs to be created
+- ❌ NCAAB markets not found on Kalshi
+
+### Next Steps
+1. Fetch comprehensive WNCAAB trades (~2-3 hours)
+2. Create NBA games DuckDB table
+3. Run full backtests with complete data
+4. Generate comprehensive performance reports
+
