@@ -34,6 +34,56 @@ def logit(probs: np.ndarray, eps: float = 1e-6) -> np.ndarray:
     return np.log(p / (1.0 - p))
 
 
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    """Numerically stable-ish sigmoid for numpy arrays."""
+
+    x = np.asarray(x, dtype=float)
+    return 1.0 / (1.0 + np.exp(-x))
+
+
+@dataclass(frozen=True)
+class PlattParams:
+    """Serializable Platt scaling parameters.
+
+    Platt scaling here is defined as:
+
+        p' = sigmoid(alpha * logit(p) + beta)
+    """
+
+    alpha: float
+    beta: float
+
+
+def platt_params_from_model(model: object) -> PlattParams:
+    """Extract Platt parameters from a fitted sklearn LogisticRegression."""
+
+    alpha = float(getattr(model, "coef_")[0][0])
+    beta = float(getattr(model, "intercept_")[0])
+    return PlattParams(alpha=alpha, beta=beta)
+
+
+def apply_platt_params(params: PlattParams, probs: np.ndarray) -> np.ndarray:
+    """Apply Platt scaling parameters to probabilities."""
+
+    x = logit(np.asarray(probs, dtype=float))
+    return sigmoid(params.alpha * x + params.beta)
+
+
+def fit_platt_params(
+    *,
+    y: np.ndarray,
+    probs: np.ndarray,
+    c: float = 1.0,
+    max_iter: int = 1000,
+) -> Optional[PlattParams]:
+    """Fit Platt scaling and return serializable parameters."""
+
+    model = fit_platt_scaler(y=y, probs=probs, c=c, max_iter=max_iter)
+    if model is None:
+        return None
+    return platt_params_from_model(model)
+
+
 @dataclass(frozen=True)
 class BucketedPlattModel:
     """Bucketed Platt scaling models.

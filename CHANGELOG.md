@@ -6,7 +6,12 @@
 - **`plugins/probability_calibration.py`**: Reusable Platt scaling utilities (global + bucketed).
 - **`plugins/compare_tennis_calibrated.py`**: Leakage-safe tennis calibration runner (optional tour-bucketed Platt scaling).
 - **`plugins/compare_college_basketball_calibrated.py`**: Leakage-safe NCAAB/WNCAAB calibration runner (season-based split).
+- **`plugins/production_calibration.py`**: Production calibrator caching/loader for the Airflow DAG.
 - **`tests/test_probability_calibration.py`**: Unit tests for calibration utilities.
+
+### Changed
+- Airflow DAG now applies calibrated probabilities for Tennis, NCAAB, and WNCAAB bet identification.
+- Airflow Tennis Elo update now uses CSV history (avoids DuckDB locking) and writes `data/atp_current_elo_ratings.csv` + `data/wta_current_elo_ratings.csv`.
 
 ## 2026-01-19 - Position Analysis Script
 

@@ -121,7 +121,7 @@ SPORTS_CONFIG = {
         "elo_module": "nhl_elo_rating",
         "games_module": "nhl_game_events",
         "kalshi_function": "fetch_nhl_markets",
-                "elo_threshold": 0.66,  # Optimized from 0.77 - was too conservative (1.28x lift at 66%)
+        "elo_threshold": 0.66,  # Optimized from 0.77 - was too conservative (1.28x lift at 66%)
         "series_ticker": "KXNHLGAME",
         "team_mapping": {
             "ANA": "ANA",
@@ -517,24 +517,38 @@ def update_elo_ratings(sport, **context):
             )
 
     elif sport == "tennis":
-        # Tennis is unique, we compute globally usually
-        # But for DAG, let's just create a dummy object or compute current
-        # For now, let's calculate from scratch from DB
-        import duckdb
+        # Tennis: avoid DuckDB locking by using local CSV history.
         from tennis_elo_rating import TennisEloRating
+        from tennis_games import TennisGames
 
-        conn = duckdb.connect("data/nhlstats.duckdb", read_only=True)
-        games = conn.execute(
-            "SELECT winner, loser FROM tennis_games ORDER BY game_date"
-        ).fetchall()
-        conn.close()
+        tg = TennisGames()
+        df = tg.load_games()
+        if df.empty:
+            print("⚠️  No Tennis matches available")
+            return
 
-        elo = TennisEloRating()
-        for w, l in games:
-            elo.update(w, l)
+        df = df.sort_values("date")
+
+        elo = TennisEloRating(k_factor=32)
+        for _, row in df.iterrows():
+            try:
+                elo.update(str(row["winner"]), str(row["loser"]), tour=str(row["tour"]))
+            except Exception:
+                continue
 
     # Save ratings to CSV
-    if sport in ["nba", "nhl", "epl", "tennis", "ncaab", "wncaab"]:
+    if sport == "tennis":
+        Path("data").mkdir(parents=True, exist_ok=True)
+        with open("data/atp_current_elo_ratings.csv", "w") as f:
+            f.write("team,rating\n")
+            for player in sorted(elo.atp_ratings.keys()):
+                f.write(f"{player},{elo.atp_ratings[player]:.2f}\n")
+
+        with open("data/wta_current_elo_ratings.csv", "w") as f:
+            f.write("team,rating\n")
+            for player in sorted(elo.wta_ratings.keys()):
+                f.write(f"{player},{elo.wta_ratings[player]:.2f}\n")
+    elif sport in ["nba", "nhl", "epl", "ncaab", "wncaab"]:
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
@@ -544,7 +558,15 @@ def update_elo_ratings(sport, **context):
                 f.write(f"{team},{elo.ratings[team]:.2f}\n")
 
     # Push to XCom
-    context["task_instance"].xcom_push(key=f"{sport}_elo_ratings", value=elo.ratings)
+    if sport == "tennis":
+        context["task_instance"].xcom_push(
+            key=f"{sport}_elo_ratings",
+            value={"ATP": dict(elo.atp_ratings), "WTA": dict(elo.wta_ratings)},
+        )
+    else:
+        context["task_instance"].xcom_push(
+            key=f"{sport}_elo_ratings", value=elo.ratings
+        )
 
     print(f"✓ {sport.upper()} Elo ratings updated: {len(elo.ratings)} teams")
 
@@ -731,7 +753,36 @@ def identify_good_bets(sport, **context):
     class_name = class_mapping.get(sport, f"{sport.upper()}EloRating")
     elo_class = getattr(elo_module, class_name)
     elo_system = elo_class()
-    elo_system.ratings = elo_ratings
+
+    # Load sport-specific Elo ratings into the Elo system.
+    if sport == "tennis":
+        atp = (
+            (elo_ratings or {}).get("ATP", {}) if isinstance(elo_ratings, dict) else {}
+        )
+        wta = (
+            (elo_ratings or {}).get("WTA", {}) if isinstance(elo_ratings, dict) else {}
+        )
+        elo_system.atp_ratings = dict(atp)
+        elo_system.wta_ratings = dict(wta)
+    else:
+        elo_system.ratings = elo_ratings
+
+    # Load calibration models (safe fallback if unavailable).
+    college_calibrator = None
+    tennis_calibrators = {}
+    try:
+        from production_calibration import (
+            calibrate_probability,
+            get_college_platt_params,
+            get_tennis_bucketed_platt_params,
+        )
+
+        if sport in ["ncaab", "wncaab"]:
+            college_calibrator = get_college_platt_params(league=sport)
+        if sport == "tennis":
+            tennis_calibrators = get_tennis_bucketed_platt_params()
+    except Exception as e:
+        print(f"⚠️  Calibration disabled (load error): {e}")
 
     good_bets = []
 
@@ -802,9 +853,15 @@ def identify_good_bets(sport, **context):
 
             # Predict
             try:
-                prob = elo_system.predict(home_team, away_team)
+                prob_raw = elo_system.predict(home_team, away_team)
             except:
                 continue
+
+            # Calibrate home-win probability, then map to target side.
+            try:
+                prob = calibrate_probability(college_calibrator, float(prob_raw))
+            except Exception:
+                prob = float(prob_raw)
 
             # Market probability for this contract (YES = the team identified by ticker suffix wins)
             yes_ask = market.get("yes_ask", 0) / 100.0
@@ -817,7 +874,11 @@ def identify_good_bets(sport, **context):
             team_code = parts[-1]
 
             target_side = "away"
-            if isinstance(event_part, str) and isinstance(team_code, str) and event_part.endswith(team_code):
+            if (
+                isinstance(event_part, str)
+                and isinstance(team_code, str)
+                and event_part.endswith(team_code)
+            ):
                 target_side = "home"
 
             market_prob = yes_ask
@@ -1049,12 +1110,12 @@ def identify_good_bets(sport, **context):
 
                 # Match to Elo system using full names
                 # Build a more robust lookup: try full name match first, then lastname match
-                def find_elo_player(search_name, elo_ratings):
+                def find_elo_player(search_name, ratings_dict):
                     """Find player in Elo system by name."""
                     search_lower = search_name.lower()
 
                     # Try exact match
-                    for elo_name in elo_ratings.keys():
+                    for elo_name in ratings_dict.keys():
                         if elo_name.lower() == search_lower:
                             return elo_name
 
@@ -1065,7 +1126,7 @@ def identify_good_bets(sport, **context):
                         else search_name.lower()
                     )
                     candidates = []
-                    for elo_name in elo_ratings.keys():
+                    for elo_name in ratings_dict.keys():
                         elo_lastname = elo_name.split()[0].lower()
                         if elo_lastname == search_lastname:
                             candidates.append(elo_name)
@@ -1088,19 +1149,33 @@ def identify_good_bets(sport, **context):
 
                     return None
 
+                # Determine tour from ticker prefix
+                tour = None
+                if isinstance(ticker, str) and ticker.startswith("KXATPMATCH"):
+                    tour = "ATP"
+                elif isinstance(ticker, str) and ticker.startswith("KXWTAMATCH"):
+                    tour = "WTA"
+
+                if tour is None:
+                    continue
+
+                tour_ratings = (
+                    elo_system.atp_ratings if tour == "ATP" else elo_system.wta_ratings
+                )
+
                 # The YES side is the player mentioned in "Will X win"
-                yes_player_elo = find_elo_player(yes_player_full, elo_system.ratings)
+                yes_player_elo = find_elo_player(yes_player_full, tour_ratings)
 
                 # Determine NO player (the other one in the matchup)
                 # Check which short name matches the YES player
                 if player1_short.lower() in yes_player_full.lower():
-                    no_player_elo = find_elo_player(player2_short, elo_system.ratings)
+                    no_player_elo = find_elo_player(player2_short, tour_ratings)
                     player1_elo = yes_player_elo
                     player2_elo = no_player_elo
                     player1 = yes_player_full
                     player2 = player2_short
                 else:
-                    no_player_elo = find_elo_player(player1_short, elo_system.ratings)
+                    no_player_elo = find_elo_player(player1_short, tour_ratings)
                     player1_elo = no_player_elo
                     player2_elo = yes_player_elo
                     player1 = player1_short
@@ -1112,13 +1187,24 @@ def identify_good_bets(sport, **context):
 
                 # Get Elo predictions for YES player
                 # YES player is the one mentioned in "Will X win"
+                # Use a deterministic ordering for calibration consistency.
+                a, b = sorted([yes_player_elo, no_player_elo])
                 try:
-                    yes_player_win_prob = elo_system.predict(
-                        yes_player_elo, no_player_elo
-                    )
-                except:
-                    # Players not in Elo system yet - skip
+                    p_a_raw = float(elo_system.predict(a, b, tour=tour))
+                except Exception:
                     continue
+
+                # Apply tour-specific calibrator to P(a wins), then map back.
+                p_a_cal = p_a_raw
+                try:
+                    params = tennis_calibrators.get(tour)
+                    p_a_cal = calibrate_probability(params, p_a_raw)
+                except Exception:
+                    p_a_cal = p_a_raw
+
+                yes_player_win_prob = (
+                    p_a_cal if yes_player_elo == a else (1.0 - p_a_cal)
+                )
 
                 # Market probability for YES player winning
                 yes_ask = market.get("yes_ask", 0) / 100.0
@@ -1162,8 +1248,7 @@ def identify_good_bets(sport, **context):
                     )
 
                 # Check NO side (betting against YES player)
-                no_player_win_prob = 1 - yes_player_win_prob
-                market_prob_no = 1 - market_prob
+                no_player_win_prob = 1.0 - yes_player_win_prob
                 edge_no = no_player_win_prob - (market.get("no_ask", 0) / 100.0)
 
                 if no_player_win_prob > elo_threshold and edge_no > 0.05:
