@@ -38,7 +38,10 @@ except ImportError:
         calculate_elo_probabilities,
         calculate_trueskill_probabilities,
     )
-from .lift_gain_analysis import get_current_season_start
+try:
+    from lift_gain_analysis import get_current_season_start
+except ImportError:
+    from plugins.lift_gain_analysis import get_current_season_start
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:

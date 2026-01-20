@@ -1,0 +1,50 @@
+
+================================================================================
+🏀 BACKTESTING WNCAAB - 2025-11-20 to 2025-12-31
+================================================================================
+
+📥 Loading WNCAAB games...
+   Found 320 games
+📥 Loading Kalshi markets for KXNCAAWBGAME...
+   Found 2,800 markets
+🎯 Initializing Elo rating system...
+   K-factor: 20
+   Home advantage: 100
+   Betting threshold: 72.0%
+   Minimum edge: 5.0%
+
+📊 Running backtest...
+
+
+================================================================================
+📈 BACKTEST RESULTS - WNCAAB
+================================================================================
+
+📅 Date Range: 2025-11-20 to 2025-12-31
+🏀 Total Games: 320
+✅ Matched to Kalshi Markets: 318 (99.4%)
+
+🎲 BETTING PERFORMANCE:
+   Bets Placed: 1
+   Bets Won: 1
+   Bets Lost: 0
+   Win Rate: 100.0%
+
+💰 FINANCIAL PERFORMANCE:
+   Total EV: $+0.71 (per contract)
+   Total P&L: $+0.99 (per contract)
+   Avg EV per Bet: $+0.71
+   Avg P&L per Bet: $+0.99
+   ROI: +99.0%
+
+⚠️  SKIPPED GAMES:
+   No Market Match: 2
+   No Price Data: 39
+   Below Threshold/Edge: 278
+
+📋 SAMPLE BETS (first 10):
+      date                         game                        ticker side model_prob price  edge outcome    pnl
+2025-12-30 North_Carolina vs Florida_St KXNCAAWBGAME-25DEC18VTFSU-FSU  YES      72.3% $0.01 71.3%   ✅ WIN $+0.99
+
+================================================================================
+

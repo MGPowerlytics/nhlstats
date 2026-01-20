@@ -17,38 +17,42 @@ class BetLoader:
 
     def _ensure_table(self):
         """Create bet_recommendations table if it doesn't exist."""
-        conn = duckdb.connect(self.db_path)
+        # Use read_only=False to acquire write lock, but minimize lock time
+        conn = None
+        try:
+            conn = duckdb.connect(self.db_path, read_only=False)
 
-        conn.execute(
+            conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS bet_recommendations (
+                    bet_id VARCHAR PRIMARY KEY,
+                    sport VARCHAR NOT NULL,
+                    recommendation_date DATE NOT NULL,
+                    home_team VARCHAR NOT NULL,
+                    away_team VARCHAR NOT NULL,
+                    bet_on VARCHAR NOT NULL,
+                    elo_prob DOUBLE NOT NULL,
+                    market_prob DOUBLE NOT NULL,
+                    edge DOUBLE NOT NULL,
+                    confidence VARCHAR NOT NULL,
+                    yes_ask INTEGER,
+                    no_ask INTEGER,
+                    ticker VARCHAR,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
             """
-            CREATE TABLE IF NOT EXISTS bet_recommendations (
-                bet_id VARCHAR PRIMARY KEY,
-                sport VARCHAR NOT NULL,
-                recommendation_date DATE NOT NULL,
-                home_team VARCHAR NOT NULL,
-                away_team VARCHAR NOT NULL,
-                bet_on VARCHAR NOT NULL,
-                elo_prob DOUBLE NOT NULL,
-                market_prob DOUBLE NOT NULL,
-                edge DOUBLE NOT NULL,
-                confidence VARCHAR NOT NULL,
-                yes_ask INTEGER,
-                no_ask INTEGER,
-                ticker VARCHAR,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
-        """
-        )
 
-        # Create index for efficient querying
-        conn.execute(
+            # Create index for efficient querying
+            conn.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_bet_recs_date_sport 
+                ON bet_recommendations(recommendation_date, sport)
             """
-            CREATE INDEX IF NOT EXISTS idx_bet_recs_date_sport 
-            ON bet_recommendations(recommendation_date, sport)
-        """
-        )
-
-        conn.close()
+            )
+        finally:
+            if conn:
+                conn.close()
 
     def load_bets_for_date(self, sport: str, date_str: str) -> int:
         """
@@ -74,50 +78,53 @@ class BetLoader:
             print(f"ℹ️  No bets to load for {sport} on {date_str}")
             return 0
 
-        conn = duckdb.connect(self.db_path)
+        conn = None
+        try:
+            conn = duckdb.connect(self.db_path, read_only=False)
 
-        loaded = 0
-        for i, bet in enumerate(bets):
-            # Tennis bets use 'player' instead of 'home_team'/'away_team'
-            home_team = bet.get("home_team", bet.get("player", "Unknown"))
-            away_team = bet.get("away_team", bet.get("opponent", "Unknown"))
+            loaded = 0
+            for i, bet in enumerate(bets):
+                # Tennis bets use 'player' instead of 'home_team'/'away_team'
+                home_team = bet.get("home_team", bet.get("player", "Unknown"))
+                away_team = bet.get("away_team", bet.get("opponent", "Unknown"))
 
-            # Create unique bet ID
-            bet_id = f"{sport}_{date_str}_{i}_{home_team}_{away_team}"
+                # Create unique bet ID
+                bet_id = f"{sport}_{date_str}_{i}_{home_team}_{away_team}"
 
-            try:
-                conn.execute(
-                    """
-                    INSERT OR REPLACE INTO bet_recommendations 
-                    (bet_id, sport, recommendation_date, home_team, away_team, 
-                     bet_on, elo_prob, market_prob, edge, confidence, 
-                     yes_ask, no_ask, ticker)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                    (
-                        bet_id,
-                        sport,
-                        date_str,
-                        home_team,
-                        away_team,
-                        bet["bet_on"],
-                        bet["elo_prob"],
-                        bet["market_prob"],
-                        bet["edge"],
-                        bet["confidence"],
-                        bet.get("yes_ask"),
-                        bet.get("no_ask"),
-                        bet.get("ticker"),
-                    ),
-                )
-                loaded += 1
-            except Exception as e:
-                print(f"⚠️  Error loading bet {bet_id}: {e}")
+                try:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO bet_recommendations 
+                        (bet_id, sport, recommendation_date, home_team, away_team, 
+                         bet_on, elo_prob, market_prob, edge, confidence, 
+                         yes_ask, no_ask, ticker)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                        (
+                            bet_id,
+                            sport,
+                            date_str,
+                            home_team,
+                            away_team,
+                            bet["bet_on"],
+                            bet["elo_prob"],
+                            bet["market_prob"],
+                            bet["edge"],
+                            bet["confidence"],
+                            bet.get("yes_ask"),
+                            bet.get("no_ask"),
+                            bet.get("ticker"),
+                        ),
+                    )
+                    loaded += 1
+                except Exception as e:
+                    print(f"⚠️  Error loading bet {bet_id}: {e}")
 
-        conn.close()
-
-        print(f"✓ Loaded {loaded} {sport.upper()} bets for {date_str}")
-        return loaded
+            print(f"✓ Loaded {loaded} {sport.upper()} bets for {date_str}")
+            return loaded
+        finally:
+            if conn:
+                conn.close()
 
     def get_bets_summary(self, start_date=None, end_date=None):
         """Get summary of bet recommendations by sport and date."""

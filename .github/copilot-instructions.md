@@ -16,7 +16,8 @@ KEEP THIS PROJECT ORGANIZED, NEAT AND WELL-DOCUMENTED. FOLLOW THE CODING CONVENT
 7. Document all fixes in the CHANGELOG
 8. RUN TESTS AND DATA VALIDATION BEFORE COMMITTING
 9. Add tests if we drop below 85% coverage
-10. Don't ask if you can or should do something - just do it, following these instructions and best practices
+10. Data goes in the database. That's what it exists for. Do not create random CSVs or JSON files outside of the data/ directory unless absolutely necessary. JSON and CSV are considered RAW and UNCLEAN. THEY ARE NOT ACCEPTABLE FOR PRODUCTION USAGE. ALWAYS USE THE DATABASE FOR PRODUCTION DATA STORAGE.
+11. Don't ask if you can or should do something - just do it, following these instructions and best practices
 
 ## Technology Stack
 

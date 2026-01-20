@@ -57,8 +57,8 @@ SPORT_CONFIG = {
             SELECT 
                 game_id,
                 game_date,
-                home_team,
-                away_team,
+                home_team_name as home_team,
+                away_team_name as away_team,
                 home_score,
                 away_score,
                 (home_score > away_score) AS home_won

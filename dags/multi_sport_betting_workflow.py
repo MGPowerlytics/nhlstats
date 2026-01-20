@@ -563,12 +563,13 @@ def update_elo_ratings(sport, **context):
             key=f"{sport}_elo_ratings",
             value={"ATP": dict(elo.atp_ratings), "WTA": dict(elo.wta_ratings)},
         )
+        total_players = len(elo.atp_ratings) + len(elo.wta_ratings)
+        print(f"✓ {sport.upper()} Elo ratings updated: {total_players} players (ATP: {len(elo.atp_ratings)}, WTA: {len(elo.wta_ratings)})")
     else:
         context["task_instance"].xcom_push(
             key=f"{sport}_elo_ratings", value=elo.ratings
         )
-
-    print(f"✓ {sport.upper()} Elo ratings updated: {len(elo.ratings)} teams")
+        print(f"✓ {sport.upper()} Elo ratings updated: {len(elo.ratings)} teams")
 
 
 def fetch_prediction_markets(sport, **context):

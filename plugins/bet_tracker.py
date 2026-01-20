@@ -1,23 +1,88 @@
+"""Sync and track Kalshi fills in DuckDB.
+
+This script is invoked by the Streamlit dashboard to sync fills and market
+metadata (close time/title) into DuckDB so the UI can show "open bets" along
+with scheduled times in Eastern.
 """
-Track bet outcomes by querying Kalshi API for positions and market results.
-"""
-import duckdb
-from pathlib import Path
-from datetime import datetime, timedelta
-from typing import Dict, List
+
+from __future__ import annotations
+
 import sys
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+import duckdb
 
 sys.path.insert(0, str(Path(__file__).parent))
 from kalshi_betting import KalshiBetting
 
 
-    def create_bets_table(conn):
-    """Create bets tracking table if it doesn't exist."""
-    conn.execute("""
+def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
+    if not value:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+
+
+def _read_kalshkey() -> Tuple[str, Path]:
+    """Read Kalshi API key id and write a temp PEM file.
+
+    Returns:
+        (api_key_id, pem_path)
+    """
+
+    kalshkey_path = Path("kalshkey")
+    if not kalshkey_path.exists():
+        kalshkey_path = Path("/opt/airflow/kalshkey")
+    if not kalshkey_path.exists():
+        raise FileNotFoundError("kalshkey file not found")
+
+    content = kalshkey_path.read_text(encoding="utf-8")
+
+    api_key_id = None
+    for line in content.splitlines():
+        if "API key id:" in line:
+            api_key_id = line.split(":", 1)[1].strip()
+            break
+    if not api_key_id:
+        raise ValueError("Could not find API key ID in kalshkey file")
+
+    private_key_lines: List[str] = []
+    in_key = False
+    for line in content.splitlines():
+        if "-----BEGIN RSA PRIVATE KEY-----" in line:
+            in_key = True
+        if in_key:
+            private_key_lines.append(line)
+        if "-----END RSA PRIVATE KEY-----" in line:
+            break
+    if not private_key_lines:
+        raise ValueError("Could not extract RSA private key from kalshkey")
+
+    pem_path = Path("/tmp/kalshi_private_key.pem")
+    pem_path.write_text("\n".join(private_key_lines), encoding="utf-8")
+    return api_key_id, pem_path
+
+
+def create_bets_table(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create bets tracking table if it doesn't exist (and migrate schema)."""
+
+    conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS placed_bets (
             bet_id VARCHAR PRIMARY KEY,
             sport VARCHAR,
             placed_date DATE,
+            placed_time_utc TIMESTAMP,
             ticker VARCHAR,
             home_team VARCHAR,
             away_team VARCHAR,
@@ -31,13 +96,17 @@ from kalshi_betting import KalshiBetting
             market_prob DOUBLE,
             edge DOUBLE,
             confidence VARCHAR,
-            
-            -- NEW: Closing Line Value (CLV) tracking
-            opening_line_prob DOUBLE,     -- Market probability when line first posted
-            bet_line_prob DOUBLE,          -- Market probability when we placed bet
-            closing_line_prob DOUBLE,      -- Market probability at game start
-            clv DOUBLE,                    -- CLV = bet_line_prob - closing_line_prob (positive is good)
-            
+
+            -- Market metadata for UX
+            market_title VARCHAR,
+            market_close_time_utc TIMESTAMP,
+
+            -- CLV tracking (optional)
+            opening_line_prob DOUBLE,
+            bet_line_prob DOUBLE,
+            closing_line_prob DOUBLE,
+            clv DOUBLE,
+
             status VARCHAR,  -- open, won, lost, settled
             settled_date DATE,
             payout_dollars DOUBLE,
@@ -45,7 +114,13 @@ from kalshi_betting import KalshiBetting
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    """)
+        """
+    )
+
+    # Migrations for existing DBs.
+    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS placed_time_utc TIMESTAMP")
+    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS market_title VARCHAR")
+    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS market_close_time_utc TIMESTAMP")
 
 
 def load_fills_from_kalshi(client: KalshiBetting, days_back: int = 30) -> List[Dict]:
@@ -78,21 +153,14 @@ def get_market_status(client: KalshiBetting, ticker: str) -> Dict:
 
 def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
     """Sync all bets from Kalshi API to database."""
-    
-    # Load Kalshi credentials
-    kalshkey_file = Path('kalshkey')
-    with open(kalshkey_file, 'r') as f:
-        first_line = f.readline().strip()
-        api_key_id = first_line.split('API key id:')[1].strip()
-    
-    private_key_path = Path('kalshi_private_key.pem')
-    
-    # Initialize client
+
+    api_key_id, private_key_path = _read_kalshkey()
+
     client = KalshiBetting(
         api_key_id=api_key_id,
         private_key_path=str(private_key_path),
         max_bet_size=5.0,
-        production=True
+        production=True,
     )
     
     # Load fills from Kalshi
@@ -139,12 +207,15 @@ def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
         price = fill.get('yes_price', 0) if side == 'yes' else fill.get('no_price', 0)
         cost = count * price / 100
         created_time = fill.get('created_time', '')
-        placed_date = created_time.split('T')[0] if created_time else None
+        placed_time_utc = _parse_iso_utc(created_time)
+        placed_date = placed_time_utc.date().isoformat() if placed_time_utc else None
         
         # Get market status
         market_info = get_market_status(client, ticker)
         market_status = market_info.get('status', 'unknown')
         market_result = market_info.get('result', '')
+        market_title = market_info.get('title')
+        market_close_time_utc = _parse_iso_utc(market_info.get('close_time'))
         
         # Determine bet status
         if market_status in ['closed', 'finalized']:
@@ -171,21 +242,51 @@ def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
             # Update existing bet
             conn.execute("""
                 UPDATE placed_bets
-                SET status = ?, settled_date = ?, payout_dollars = ?, profit_dollars = ?
+                SET status = ?,
+                    settled_date = ?,
+                    payout_dollars = ?,
+                    profit_dollars = ?,
+                    placed_time_utc = COALESCE(placed_bets.placed_time_utc, ?),
+                    market_title = COALESCE(placed_bets.market_title, ?),
+                    market_close_time_utc = COALESCE(placed_bets.market_close_time_utc, ?),
+                    updated_at = CURRENT_TIMESTAMP
                 WHERE bet_id = ?
-            """, [status, settled_date, payout, profit, bet_id])
+            """, [
+                status,
+                settled_date,
+                payout,
+                profit,
+                placed_time_utc,
+                market_title,
+                market_close_time_utc,
+                bet_id,
+            ])
             updated_count += 1
         else:
             # Insert new bet
             conn.execute("""
                 INSERT INTO placed_bets (
-                    bet_id, sport, placed_date, ticker, side, contracts,
+                    bet_id, sport, placed_date, placed_time_utc, ticker, side, contracts,
                     price_cents, cost_dollars, fees_dollars, status,
-                    settled_date, payout_dollars, profit_dollars
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    settled_date, payout_dollars, profit_dollars, market_title, market_close_time_utc
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """, [
-                bet_id, sport, placed_date, ticker, side, count,
-                price, cost, 0, status, settled_date, payout, profit
+                bet_id,
+                sport,
+                placed_date,
+                placed_time_utc,
+                ticker,
+                side,
+                count,
+                price,
+                cost,
+                0,
+                status,
+                settled_date,
+                payout,
+                profit,
+                market_title,
+                market_close_time_utc,
             ])
             added_count += 1
     

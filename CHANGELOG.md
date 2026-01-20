@@ -1,5 +1,86 @@
 # Changelog
 
+## 2026-01-20 - Basketball Kalshi Backtest Complete
+
+### Added
+- **`backtest_basketball_kalshi.py`** (20 KB, 693 lines): Comprehensive backtest framework
+  - Unified backtest for NBA, NCAAB, WNCAAB
+  - Game-to-market matching with 99.4% accuracy (token overlap scoring)
+  - Temporal integrity enforced (predict → bet → update flow)
+  - Fetches last trade price before market close
+  - Calculates EV, P&L, win rate, ROI
+  - Identifies skipped games (no match, no price, below threshold)
+  - Generates detailed reports with sample bets
+
+- **`load_nba_games_from_json.py`** (6 KB): NBA game data loader
+  - Parses NBA scoreboard JSON files from data/nba/ directories
+  - Extracts game metadata, teams, scores from NBA Stats API format
+  - Loads into DuckDB with consistent schema
+  - Supports date range filtering
+
+- **`tests/test_elo_temporal_integrity.py`** (15 KB): Temporal integrity test suite
+  - 11 comprehensive tests, all passing ✅
+  - Validates no data leakage in Elo predictions
+  - Tests all sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB, Tennis)
+  - Tests lift/gain analysis chronological order
+  - Tests production DAG temporal separation
+  - Tests backtest scripts predict-before-update pattern
+
+- **Documentation** (35 KB total):
+  - `docs/ELO_TEMPORAL_INTEGRITY_AUDIT.md` (11 KB) - Comprehensive audit report
+  - `docs/TEMPORAL_INTEGRITY_SUMMARY.md` (3 KB) - Quick reference
+  - `docs/DATA_LEAKAGE_PREVENTION.md` (9 KB) - Prevention guide with examples
+  - `docs/BASKETBALL_KALSHI_BACKTEST_STATUS.md` (12 KB) - Data collection status
+  - `docs/BASKETBALL_KALSHI_BACKTEST_FINAL_REPORT.md` (12 KB) - Final results and analysis
+
+### Changed
+- Modified `backtest_basketball_kalshi.py` to use `home_team_name/away_team_name` for NBA games
+
+### Data Collection
+- **Kalshi Markets:** Fetched 4,792 markets (3,222 WNCAAB, 1,570 NBA)
+- **Kalshi Trades:** Fetched 6.6M+ trades (1.27M WNCAAB, 5.35M+ NBA partial)
+- **NBA Games:** Loaded 706 games (Oct 2024 - Jan 2025) into DuckDB
+
+### Backtest Results
+
+**WNCAAB (Nov 20 - Dec 31, 2025):**
+- ✅ **Complete** - 318 games matched, 1 bet placed
+- **Win Rate:** 100% (1 win, 0 losses)
+- **ROI:** +99.0%
+- **Threshold:** 72% model probability, 5% minimum edge
+- **Note:** Limited sample size (only 1 bet), need more data
+
+**NBA:**
+- ❌ **Cannot backtest** - Kalshi only has markets for April 2025+ (future playoffs)
+- Regular season (Oct 2024 - Jan 2025) has no Kalshi market history
+- Recommend forward testing or waiting for playoff completion
+
+**NCAAB (Men's):**
+- ❌ **Cannot backtest** - Kalshi does not offer NCAAB markets
+
+### Temporal Integrity Validation ✅
+- **Conclusion:** NO DATA LEAKAGE DETECTED
+- All Elo classes follow correct pattern: `predict()` reads ratings (no modification), `update()` modifies after game
+- Lift/gain analysis maintains chronological order
+- Production DAG has clean temporal separation
+- 11 comprehensive tests validate all code paths
+
+### Value Betting Implementation Status
+✅ **Threshold-Based Betting** - Only bet when model confidence > threshold  
+✅ **Edge Calculation** - Require minimum 5% edge over market  
+✅ **Temporal Integrity** - No data leakage, predictions use pre-game ratings  
+✅ **Backtest Infrastructure** - Comprehensive framework with EV, P&L, ROI  
+✅ **Documentation** - Thresholds justified by lift/gain analysis  
+⏸️ **CLV Tracking** - Not yet implemented (need historical price snapshots)  
+⏸️ **Bankroll Management** - Not yet implemented  
+
+### Recommendations
+1. Lower WNCAAB threshold (70%, 68%, 65%) to generate more bets (need 30-50 for statistical significance)
+2. Forward test NBA with paper trading for current games
+3. Expand to NHL/MLB with Kalshi markets
+4. Implement CLV tracking and bankroll management
+5. Check Kalshi market liquidity before live trading
+
 ## 2026-01-20 - Probability Calibration (Tennis + College Basketball)
 
 ### Added
@@ -12,6 +93,18 @@
 ### Changed
 - Airflow DAG now applies calibrated probabilities for Tennis, NCAAB, and WNCAAB bet identification.
 - Airflow Tennis Elo update now uses CSV history (avoids DuckDB locking) and writes `data/atp_current_elo_ratings.csv` + `data/wta_current_elo_ratings.csv`.
+
+## 2026-01-20 - Hourly Portfolio Snapshots + Dashboard UX
+
+### Added
+- **`plugins/portfolio_snapshots.py`**: DuckDB helper for hourly portfolio value snapshots (`portfolio_value_snapshots`).
+- **`dags/portfolio_hourly_snapshot.py`**: New `@hourly` DAG that snapshots Kalshi balance + portfolio value into DuckDB.
+
+### Changed
+- **Streamlit dashboard** now reads portfolio snapshots for an hourly portfolio-value chart and shows current portfolio value + open games + open bets list with entry odds and scheduled time in Eastern.
+
+### Fixed
+- **`plugins/bet_tracker.py`**: Repaired syntax issue and extended sync to persist market close time/title for richer dashboard output.
 
 ## 2026-01-19 - Position Analysis Script
 

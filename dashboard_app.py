@@ -891,43 +891,177 @@ def load_betting_results():
 
 
 def betting_performance_page_v2():
-    """Display betting performance metrics."""
+    """Enhanced betting performance page (DuckDB + portfolio snapshots)."""
+
+    from datetime import timedelta, timezone
+    from zoneinfo import ZoneInfo
+
     st.title("🎰 Betting Performance Tracker")
-    
-    # Load betting data
-    betting_df = load_betting_results()
-    
-    if betting_df.empty:
-        st.warning("No betting data available yet.")
-        return
-    
-    # Convert numeric columns
-    numeric_cols = ['elo_prob', 'market_prob', 'edge', 'bet_size', 'price', 'contracts']
-    for col in numeric_cols:
-        betting_df[col] = pd.to_numeric(betting_df[col], errors='coerce')
-    
-    betting_df['cost'] = pd.to_numeric(betting_df['cost'], errors='coerce')
-    betting_df['fees'] = pd.to_numeric(betting_df['fees'], errors='coerce')
-    
-    # Filter controls
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        sports = ['All'] + sorted(betting_df['sport'].unique().tolist())
-        selected_sport = st.selectbox('Sport', sports)
-    
+
+    eastern = ZoneInfo("America/New_York")
+
+    @st.cache_data
+    def _load_betting_results_from_db(db_path: str = "data/nhlstats.duckdb") -> pd.DataFrame:
+        if not os.path.exists(db_path):
+            return pd.DataFrame()
+        conn = duckdb.connect(db_path, read_only=True)
+        try:
+            tables = conn.execute("SHOW TABLES").fetchall()
+            if not any("placed_bets" in str(t) for t in tables):
+                return pd.DataFrame()
+            return conn.execute(
+                """
+                SELECT *
+                FROM placed_bets
+                ORDER BY placed_date DESC, created_at DESC
+                """
+            ).fetchdf()
+        finally:
+            conn.close()
+
+    @st.cache_data
+    def _load_portfolio_snapshots(hours_back: int = 7 * 24) -> pd.DataFrame:
+        try:
+            from portfolio_snapshots import load_snapshots_since
+        except Exception:
+            # In case import path resolution changes, fail closed.
+            return pd.DataFrame()
+
+        since_utc = datetime.now(tz=timezone.utc) - timedelta(hours=hours_back)
+        return load_snapshots_since(db_path="data/nhlstats.duckdb", since_utc=since_utc)
+
+    # Sync button
+    col1, col2 = st.columns([3, 1])
     with col2:
-        dates = ['All'] + sorted(betting_df['date'].unique().tolist(), reverse=True)
-        selected_date = st.selectbox('Date', dates)
-    
-    with col3:
-        statuses = ['All'] + sorted(betting_df['status'].unique().tolist())
-        selected_status = st.selectbox('Status', statuses)
-    
-    # Apply filters
+        if st.button("🔄 Sync from Kalshi"):
+            with st.spinner("Syncing bets from Kalshi API..."):
+                import subprocess
+
+                result = subprocess.run(
+                    ["python3", "plugins/bet_tracker.py"], capture_output=True, text=True
+                )
+                if result.returncode == 0:
+                    st.success("✅ Synced successfully!")
+                    st.cache_data.clear()
+                    st.rerun()
+                else:
+                    st.error(f"Error: {result.stderr}")
+
+    betting_df = _load_betting_results_from_db()
+    if betting_df.empty:
+        st.warning("No betting data available. Click 'Sync from Kalshi' to load your bets.")
+        return
+
+    # Portfolio value time series (hourly)
+    snapshots_df = _load_portfolio_snapshots()
+    latest_portfolio_value = None
+    latest_balance = None
+    latest_snapshot_time_et = None
+    if not snapshots_df.empty:
+        snapshots_df["snapshot_hour_utc"] = pd.to_datetime(snapshots_df["snapshot_hour_utc"], utc=True)
+        last_row = snapshots_df.iloc[-1]
+        latest_portfolio_value = float(last_row.get("portfolio_value_dollars", 0.0))
+        latest_balance = float(last_row.get("balance_dollars", 0.0))
+        latest_snapshot_time_et = last_row["snapshot_hour_utc"].tz_convert(eastern)
+
+    open_bets_df = betting_df[betting_df["status"] == "open"] if "status" in betting_df.columns else betting_df.iloc[0:0]
+    open_games = int(open_bets_df["ticker"].nunique()) if "ticker" in open_bets_df.columns else 0
+
+    # Requested top metrics
+    col1, col2 = st.columns(2)
+    with col1:
+        if latest_portfolio_value is None:
+            st.metric("Portfolio Value", "(no snapshots)")
+        else:
+            suffix = f"as of {latest_snapshot_time_et.strftime('%Y-%m-%d %I:%M %p ET')}" if latest_snapshot_time_et else ""
+            st.metric("Portfolio Value", f"${latest_portfolio_value:,.2f}", help=suffix)
+
+    with col2:
+        st.metric("Open Games", open_games)
+
+    if not snapshots_df.empty:
+        plot_df = snapshots_df.copy()
+        plot_df["snapshot_hour_et"] = plot_df["snapshot_hour_utc"].dt.tz_convert(eastern)
+        fig = px.line(
+            plot_df,
+            x="snapshot_hour_et",
+            y="portfolio_value_dollars",
+            title="Hourly Portfolio Value (ET)",
+            markers=False,
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Open bets table with scheduled time in Eastern
+    st.subheader("Open Bets")
+    if open_bets_df.empty:
+        st.info("No open bets.")
+    else:
+        display = open_bets_df.copy()
+        if "placed_time_utc" in display.columns:
+            display["placed_time_utc"] = pd.to_datetime(display["placed_time_utc"], utc=True, errors="coerce")
+            display["placed_time_et"] = display["placed_time_utc"].dt.tz_convert(eastern)
+
+        if "market_close_time_utc" in display.columns:
+            display["market_close_time_utc"] = pd.to_datetime(display["market_close_time_utc"], utc=True, errors="coerce")
+            display["scheduled_time_et"] = display["market_close_time_utc"].dt.tz_convert(eastern)
+
+        # Entry odds: price paid for the contract (cents).
+        if "price_cents" in display.columns:
+            display["entry_price_cents"] = pd.to_numeric(display["price_cents"], errors="coerce")
+            display["entry_contract_prob"] = (display["entry_price_cents"] / 100.0).round(3)
+
+        cols = []
+        for c in [
+            "ticker",
+            "side",
+            "contracts",
+            "entry_price_cents",
+            "scheduled_time_et",
+        ]:
+            if c in display.columns:
+                cols.append(c)
+
+        st.dataframe(display[cols].sort_values("placed_date", ascending=False), use_container_width=True)
+
+    # Existing filter + tabbed analysis (kept lightweight)
+    st.subheader("Filters")
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        sports = ["All"] + sorted(betting_df["sport"].dropna().unique().tolist())
+        selected_sport = st.selectbox("Sport", sports, key="sport_filter_v2_db")
+    with f2:
+        dates = ["All"] + sorted(betting_df["placed_date"].dropna().unique().tolist(), reverse=True)
+        selected_date = st.selectbox("Date", dates, key="date_filter_v2_db")
+    with f3:
+        statuses = ["All"] + sorted(betting_df["status"].dropna().unique().tolist())
+        selected_status = st.selectbox("Status", statuses, key="status_filter_v2_db")
+
     filtered_df = betting_df.copy()
-    if selected_sport != 'All':
-        filtered_df = filtered_df[filtered_df['sport'] == selected_sport]
+    if selected_sport != "All":
+        filtered_df = filtered_df[filtered_df["sport"] == selected_sport]
+    if selected_date != "All":
+        filtered_df = filtered_df[filtered_df["placed_date"] == selected_date]
+    if selected_status != "All":
+        filtered_df = filtered_df[filtered_df["status"] == selected_status]
+
+    tab1, tab2 = st.tabs(["📊 Overview", "📋 All Bets"])
+    with tab1:
+        wl_data = pd.DataFrame({
+            "Status": ["Won", "Lost", "Open"],
+            "Count": [wins, losses, open_bets],
+        })
+        fig = px.pie(
+            wl_data,
+            values="Count",
+            names="Status",
+            title="Bet Outcomes",
+            color="Status",
+            color_discrete_map={"Won": "green", "Lost": "red", "Open": "gray"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    with tab2:
+        st.dataframe(filtered_df.sort_values("placed_date", ascending=False), use_container_width=True, height=600)
     if selected_date != 'All':
         filtered_df = filtered_df[filtered_df['date'] == selected_date]
     if selected_status != 'All':
