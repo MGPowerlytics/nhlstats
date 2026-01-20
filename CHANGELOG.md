@@ -1,5 +1,55 @@
 # Changelog
 
+## 2026-01-20 - Documentation Consolidation (Major Reorganization)
+
+### Added
+- **[README.md](README.md)**: Comprehensive main documentation with project overview, quick start, architecture, and performance summary
+- **[docs/HISTORY.md](docs/HISTORY.md)**: Complete project timeline from 2018 to present, chronicling evolution from single sport to 9-sport platform
+- **[docs/EXPERIMENTS.md](docs/EXPERIMENTS.md)**: Consolidated all experimental results (Elo, TrueSkill, XGBoost, Markov, etc.) with detailed findings
+- **[docs/BACKTESTING.md](docs/BACKTESTING.md)**: Unified backtesting documentation across all 9 sports with lift/gain analysis
+- **[docs/GUIDES.md](docs/GUIDES.md)**: Complete documentation index organizing 100+ files by topic and purpose
+
+### Changed
+- **Documentation Structure**: Reorganized 35+ root-level files into logical directories:
+  - `docs/dashboard/` - All dashboard documentation (7 files)
+  - `docs/testing/` - Test reports and validation (3 files)
+  - `archive/completed_implementations/` - Historical implementation summaries (14 files)
+  - `archive/backtest_reports/` - Individual sport backtest reports (6 files)
+- **Root Directory**: Cleaned up to 6 essential files (README, CHANGELOG, guides for Kalshi, Portfolio, Position Analysis, System Overview)
+- **Cross-References**: Updated all internal links to reflect new structure
+- **Navigation**: Created README files in subdirectories for easy navigation
+
+### Consolidated
+- **Project History**: Multiple implementation summaries → single HISTORY.md timeline
+- **Experiments**: 7+ comparison documents → single EXPERIMENTS.md with all results
+- **Backtesting**: 6+ sport-specific reports → unified BACKTESTING.md
+- **Test Reports**: 7+ test fix summaries → organized in testing/ directory
+- **Dashboard Docs**: 6 scattered files → organized dashboard/ directory
+
+### Improved
+- **Discoverability**: New users can find documentation via README → GUIDES.md index
+- **Maintainability**: Related docs grouped together, easier to update
+- **Historical Context**: Clear separation between active docs and historical archives
+- **Cross-Linking**: Comprehensive linking between related documents
+- **Consolidation**: Reduced fragmentation while preserving detailed information
+
+### Statistics
+- **Total Files**: 101 markdown files (down from 35+ in root)
+- **Total Lines**: 14,138 lines of documentation
+- **Active Docs**: 43 files (root + docs/)
+- **Archived**: 58 files (archive/ subdirectories)
+- **Organization**: 9 logical categories (dashboard, testing, experiments, etc.)
+
+### Migration Guide
+Documents moved to new locations:
+- `ALL_*_TESTS_FIXED.md` → `archive/completed_implementations/`
+- `*_IMPLEMENTATION_SUMMARY.md` → `archive/completed_implementations/`
+- `*_BACKTEST_SUMMARY.md` → `archive/backtest_reports/`
+- `DASHBOARD_*.md` → `docs/dashboard/`
+- `FINAL_TEST_REPORT.md` → `docs/testing/`
+
+All information preserved, just better organized. Use [docs/GUIDES.md](docs/GUIDES.md) to find anything.
+
 ## 2026-01-20 - Probability Calibration (Tennis + College Basketball)
 
 ### Added
