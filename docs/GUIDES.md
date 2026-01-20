@@ -7,7 +7,7 @@ This index organizes all documentation for easy navigation. Start here to find w
 **New to the project?** Start here:
 
 1. **[README.md](../README.md)** - Project overview, quick start, architecture
-2. **[DASHBOARD_QUICKSTART.md](../DASHBOARD_QUICKSTART.md)** - Get the dashboard running in 5 minutes
+2. **[DASHBOARD_QUICKSTART.md](dashboard/DASHBOARD_QUICKSTART.md)** - Get the dashboard running in 5 minutes
 3. **[SYSTEM_OVERVIEW.md](../SYSTEM_OVERVIEW.md)** - High-level system description
 
 ## 📖 Core Documentation
@@ -19,7 +19,7 @@ This index organizes all documentation for easy navigation. Start here to find w
 - **[CHANGELOG.md](../CHANGELOG.md)** - Detailed change history (very long!)
 
 ### System Architecture
-- **[DASHBOARD_ARCHITECTURE.md](../DASHBOARD_ARCHITECTURE.md)** - Technical deep dive on dashboard
+- **[DASHBOARD_ARCHITECTURE.md](dashboard/DASHBOARD_ARCHITECTURE.md)** - Technical deep dive on dashboard
 - **[SYSTEM_OVERVIEW.md](../SYSTEM_OVERVIEW.md)** - Platform components and structure
 
 ## 🎯 User Guides
@@ -32,7 +32,7 @@ This index organizes all documentation for easy navigation. Start here to find w
 - **[Portfolio Betting Guide](../PORTFOLIO_BETTING.md)** - Kelly Criterion implementation
 
 **Monitoring & Analysis:**
-- **[Dashboard User Guide](../DASHBOARD_README.md)** - Using the Streamlit dashboard
+- **[Dashboard User Guide](dashboard/DASHBOARD_README.md)** - Using the Streamlit dashboard
 - **[Position Analysis Guide](POSITION_ANALYSIS.md)** - Reviewing open positions
 - **[Bet Tracking Guide](BET_TRACKING.md)** - Understanding bet tracking database
 
@@ -63,22 +63,23 @@ This index organizes all documentation for easy navigation. Start here to find w
 ### Testing & Validation
 
 **Test Reports:**
-- **[All Tests Fixed](../ALL_TESTS_FIXED.md)** - Complete test suite status
-- **[Final Test Report](../FINAL_TEST_REPORT.md)** - Comprehensive test results
-- **[Unit Tests Fixed](../UNIT_TESTS_FIXED.md)** - Unit test coverage
+- **[Testing Documentation](testing/README.md)** - All testing documentation
+- **[Final Test Report](testing/FINAL_TEST_REPORT.md)** - Comprehensive test results
+- **[Completed Test Fixes](../archive/completed_implementations/)** - Historical test fixes
 
 **Data Quality:**
-- **[NHL Data Validation Report](../NHL_DATA_VALIDATION_REPORT.md)** - Data quality checks
-- **[NHL Data Fixes Applied](../NHL_DATA_FIXES_APPLIED.md)** - Bug fixes
+- **[NHL Data Validation Report](testing/NHL_DATA_VALIDATION_REPORT.md)** - Data quality checks
+- **[Completed Data Fixes](../archive/completed_implementations/)** - Historical bug fixes
 
 ### Implementation Summaries
 
 **Recent Features:**
-- **[Tennis Betting Implementation](../TENNIS_BETTING_IMPLEMENTATION.md)** - Tennis system
-- **[Tennis Automation Summary](../TENNIS_AUTOMATION_SUMMARY.md)** - Tennis workflow
-- **[WNCAAB Implementation](../WNCAAB_IMPLEMENTATION_SUMMARY.md)** - Women's basketball
-- **[Ligue 1 Implementation](../LIGUE1_IMPLEMENTATION_SUMMARY.md)** - French soccer
-- **[Email Notifications](../EMAIL_NOTIFICATIONS_SUMMARY.md)** - SMS/email setup
+- **[Completed Implementations](../archive/completed_implementations/)** - All implementation summaries
+  - Tennis betting system
+  - WNCAAB (Women's basketball)
+  - Ligue 1 (French soccer)
+  - Email/SMS notifications
+  - And more...
 
 ## 🔬 Research & Experiments
 
@@ -86,8 +87,10 @@ This index organizes all documentation for easy navigation. Start here to find w
 
 **Rating Systems:**
 - **[Experiments Overview](EXPERIMENTS.md)** - Complete experiment summary
-- **[NHL System Comparison](../NHL_SYSTEM_COMPARISON_SUMMARY.md)** - Elo vs alternatives
-- **[NHL ELO Tuning Results](../NHL_ELO_TUNING_RESULTS.md)** - Parameter optimization
+- **[Archived Comparisons](../archive/backtest_reports/)** - Historical comparison reports
+  - NHL System Comparison
+  - NHL ELO Tuning Results
+  - And more...
 
 **Archived Experiments:**
 See [Archive Documentation](#archive-documentation) below.
@@ -96,9 +99,11 @@ See [Archive Documentation](#archive-documentation) below.
 
 **Backtesting:**
 - **[Backtesting Results](BACKTESTING.md)** - Consolidated backtest reports
-- **[Betting Backtest Summary](../BETTING_BACKTEST_SUMMARY.md)** - Original backtest
-- **[Multi-League Backtest](../MULTI_LEAGUE_BACKTEST_SUMMARY.md)** - Cross-sport analysis
-- **[NCAAB Backtest Summary](../NCAAB_BACKTEST_SUMMARY.md)** - College basketball
+- **[Historical Backtests](../archive/backtest_reports/)** - Individual sport reports
+  - Betting Backtest Summary
+  - Multi-League Backtest
+  - NCAAB Backtest Summary
+  - NHL System Comparison
 - **[Basketball Kalshi Backtest Status](BASKETBALL_KALSHI_BACKTEST_STATUS.md)** - Ongoing work
 
 **Threshold Optimization:**
@@ -110,13 +115,12 @@ See [Archive Documentation](#archive-documentation) below.
 ### System Status
 
 **Current State:**
-- **[Betting System Review](../BETTING_SYSTEM_REVIEW.md)** - System capabilities
-- **[Dashboard Summary](../DASHBOARD_SUMMARY.md)** - Dashboard features
-- **[Email Setup Complete](../EMAIL_SETUP_COMPLETE.md)** - Notification status
-
-**Recent Work:**
-- **[Job Complete](../JOB_COMPLETE.md)** - Recent milestones
-- **[Fixes Applied](../FIXES_APPLIED.md)** - Bug fixes implemented
+- **[README.md](../README.md)** - Complete system status
+- **[Dashboard Documentation](dashboard/README.md)** - Dashboard features and guides
+- **[Completed Work](../archive/completed_implementations/)** - Historical milestones
+  - Email Setup Complete
+  - Job Complete summaries
+  - Fixes Applied reports
 
 ## 🗃️ Archive Documentation
 
@@ -170,15 +174,15 @@ Legacy documentation (historical reference only):
 - Thresholds: [Value Betting Thresholds](VALUE_BETTING_THRESHOLDS.md)
 
 **Analytics:**
-- Dashboard: [Dashboard User Guide](../DASHBOARD_README.md)
+- Dashboard: [Dashboard User Guide](dashboard/DASHBOARD_README.md)
 - Positions: [Position Analysis Guide](POSITION_ANALYSIS.md)
 - Performance: [Backtesting Results](BACKTESTING.md)
 - Metrics: [AUC vs Accuracy](AUC_VS_ACCURACY_EXPLAINED.md)
 
 **Development:**
 - Setup: [README.md](../README.md)
-- Architecture: [Dashboard Architecture](../DASHBOARD_ARCHITECTURE.md)
-- Testing: [Final Test Report](../FINAL_TEST_REPORT.md)
+- Architecture: [Dashboard Architecture](dashboard/DASHBOARD_ARCHITECTURE.md)
+- Testing: [Testing Documentation](testing/README.md)
 - History: [Project History](HISTORY.md)
 
 **Research:**
@@ -188,31 +192,15 @@ Legacy documentation (historical reference only):
 
 ### By Sport
 
-**NHL (Hockey):**
-- [NHL System Comparison](../NHL_SYSTEM_COMPARISON_SUMMARY.md)
-- [NHL ELO Tuning Results](../NHL_ELO_TUNING_RESULTS.md)
-- [NHL Data Validation](../NHL_DATA_VALIDATION_REPORT.md)
+**All Sports:**
+- [Experiments Overview](EXPERIMENTS.md) - Cross-sport model comparisons
+- [Backtesting Results](BACKTESTING.md) - Performance by sport
+- [Project History](HISTORY.md) - Sport-by-sport implementation timeline
 
-**NBA (Basketball):**
-- [Basketball Kalshi Backtest](BASKETBALL_KALSHI_BACKTEST_STATUS.md)
-- Covered in [Experiments](EXPERIMENTS.md) and [Backtesting](BACKTESTING.md)
-
-**NCAAB (College Basketball):**
-- [NCAAB Backtest Summary](../NCAAB_BACKTEST_SUMMARY.md)
-- Covered in [Backtesting](BACKTESTING.md)
-
-**WNCAAB (Women's Basketball):**
-- [WNCAAB Implementation](../WNCAAB_IMPLEMENTATION_SUMMARY.md)
-- Covered in [Backtesting](BACKTESTING.md)
-
-**Tennis:**
-- [Tennis Betting Implementation](../TENNIS_BETTING_IMPLEMENTATION.md)
-- [Tennis Automation Summary](../TENNIS_AUTOMATION_SUMMARY.md)
-- [Tennis Bug Fix](../TENNIS_BUG_FIX.md)
-
-**Soccer:**
-- [Ligue 1 Implementation](../LIGUE1_IMPLEMENTATION_SUMMARY.md)
-- Covered in [Backtesting](BACKTESTING.md)
+**Sport-Specific Archives:**
+- [NHL Reports](../archive/backtest_reports/) - System comparison, tuning, validation
+- [Basketball Reports](../archive/backtest_reports/) - NBA, NCAAB backtests
+- [Implementation Summaries](../archive/completed_implementations/) - Tennis, WNCAAB, Ligue 1
 
 ## 📝 External Resources
 
@@ -250,27 +238,68 @@ Legacy documentation (historical reference only):
 ### Active Documents (Current System)
 ✅ Used in production or current operations
 
-- README.md
-- All docs/*.md files
-- KALSHI_BETTING_GUIDE.md
-- PORTFOLIO_BETTING.md
-- DASHBOARD_*.md files
-- CHANGELOG.md
+**Root Directory:**
+- README.md - Main documentation
+- CHANGELOG.md - Change history
+- KALSHI_BETTING_GUIDE.md - Betting guide
+- KALSHI_LESSONS_LEARNED.md - Critical lessons
+- PORTFOLIO_BETTING.md - Portfolio optimization
+- POSITION_ANALYSIS_README.md - Position analysis
+- SYSTEM_OVERVIEW.md - System overview
 
-### Archive Documents (Historical)
+**docs/ Directory:**
+- HISTORY.md - Project timeline
+- EXPERIMENTS.md - Model comparisons
+- BACKTESTING.md - Performance validation
+- GUIDES.md - This file
+- All other docs/*.md files
+
+**docs/dashboard/ Directory:**
+- All dashboard documentation (6 files)
+
+**docs/testing/ Directory:**
+- All testing documentation (3 files)
+
+### Archive Directories (Historical)
 📦 Historical reference only, not current state
 
-- All archive/*.md files
-- See [Archive Documentation](#archive-documentation)
+**archive/ Directory:**
+- Original archived experiments and docs (23 files)
 
-### Deprecated (Consolidated)
-⚠️ Information moved to consolidated documents
+**archive/completed_implementations/ Directory:**
+- Completed feature implementations (15 files)
+- Test fixes and bug reports
+- Email/notification setup docs
 
-The following have been consolidated into README, HISTORY, EXPERIMENTS, or BACKTESTING:
-- Multiple test fix reports (now in test reports)
-- Multiple implementation summaries (now in HISTORY)
-- Multiple backtest reports (now in BACKTESTING)
-- Multiple comparison documents (now in EXPERIMENTS)
+**archive/backtest_reports/ Directory:**
+- Individual sport backtest reports (6 files)
+- System comparison summaries
+- Betting system reviews
+
+### Consolidated Documents
+✅ Information from these historical docs is now in consolidated docs:
+
+**Consolidated into README.md:**
+- Project overview information
+- Quick start guides
+- Architecture summaries
+
+**Consolidated into HISTORY.md:**
+- Implementation summaries
+- Feature additions timeline
+- System evolution
+
+**Consolidated into EXPERIMENTS.md:**
+- Model training results (rounds 1-3)
+- Rating system comparisons
+- XGBoost experiments
+- TrueSkill analysis
+
+**Consolidated into BACKTESTING.md:**
+- Sport-specific backtest reports
+- Multi-league summaries
+- NHL/NBA/NCAAB results
+- System comparison summaries
 
 ## 🤝 Contributing to Documentation
 

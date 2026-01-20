@@ -188,22 +188,23 @@ Where:
 ## 📚 Documentation
 
 ### User Guides
-- **[Quick Start Guide](DASHBOARD_QUICKSTART.md)** - Get started in 5 minutes
-- **[Dashboard Guide](DASHBOARD_README.md)** - Using the analytics dashboard
+- **[Quick Start Guide](docs/dashboard/DASHBOARD_QUICKSTART.md)** - Get started in 5 minutes
+- **[Dashboard Guide](docs/dashboard/DASHBOARD_README.md)** - Using the analytics dashboard
 - **[Kalshi Betting Guide](KALSHI_BETTING_GUIDE.md)** - API integration and betting
 - **[Portfolio Betting](PORTFOLIO_BETTING.md)** - Kelly Criterion implementation
 - **[Position Analysis](docs/POSITION_ANALYSIS.md)** - Reviewing open positions
 
 ### Technical Documentation
+- **[Documentation Index](docs/GUIDES.md)** - Complete guide to all documentation
 - **[Project History](docs/HISTORY.md)** - Evolution from single sport to 9 sports
 - **[Experiment Results](docs/EXPERIMENTS.md)** - What worked and what didn't
 - **[Backtesting Reports](docs/BACKTESTING.md)** - Historical performance analysis
-- **[System Architecture](DASHBOARD_ARCHITECTURE.md)** - Technical deep dive
+- **[Dashboard Architecture](docs/dashboard/DASHBOARD_ARCHITECTURE.md)** - Technical deep dive
 - **[Value Betting Strategy](docs/VALUE_BETTING_THRESHOLDS.md)** - Threshold optimization
 
 ### Development
 - **[CHANGELOG.md](CHANGELOG.md)** - Detailed change history
-- **[Testing Guide](FINAL_TEST_REPORT.md)** - Running the test suite
+- **[Testing Guide](docs/testing/FINAL_TEST_REPORT.md)** - Running the test suite
 - **[Contributing](#)** - Code conventions and workflow
 
 ## 🔬 Why Elo? (Spoiler: It Beats Everything)
