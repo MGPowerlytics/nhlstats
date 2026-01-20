@@ -1,5 +1,13 @@
 # Changelog
 
+## 2026-01-20 - Probability Calibration (Tennis + College Basketball)
+
+### Added
+- **`plugins/probability_calibration.py`**: Reusable Platt scaling utilities (global + bucketed).
+- **`plugins/compare_tennis_calibrated.py`**: Leakage-safe tennis calibration runner (optional tour-bucketed Platt scaling).
+- **`plugins/compare_college_basketball_calibrated.py`**: Leakage-safe NCAAB/WNCAAB calibration runner (season-based split).
+- **`tests/test_probability_calibration.py`**: Unit tests for calibration utilities.
+
 ## 2026-01-19 - Position Analysis Script
 
 ### Added
@@ -60,6 +68,11 @@
 ### Fixed
 - Prevent automated bet placement from placing multiple orders for the same ticker (including blocking YES/NO hedges) using an atomic per-ticker lock.
 - Dedupe is global across reruns and days (same ticker cannot be bet twice).
+
+## 2026-01-19 - Tennis Recency Grid Search
+
+### Added
+- Added [plugins/compare_tennis_recency_models.py](plugins/compare_tennis_recency_models.py) grid-search mode to sweep recency half-life and momentum gamma for tennis model tuning.
 
 ### Documentation
 - Created `data/nba_team_mapping.json`: Kalshi city names → our DB nicknames
