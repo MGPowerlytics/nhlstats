@@ -1,3 +1,9 @@
+---
+name: testing-patterns
+description: Guidelines for testing the application, including directory structure, coverage requirements, mocking external APIs, and validation tests.
+version: 1.0.0
+---
+
 # Testing Patterns
 
 ## Test Directory Structure

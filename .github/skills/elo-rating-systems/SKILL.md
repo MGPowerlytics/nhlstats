@@ -1,3 +1,9 @@
+---
+name: elo-rating-systems
+description: Explains the implementation of Elo rating systems, including core formulas, sport-specific parameters (K-factor, home advantage), and update logic.
+version: 1.0.0
+---
+
 # Elo Rating Systems
 
 ## Core Formula

@@ -1,14 +1,4 @@
 """
-Load bet recommendations into DuckDB for historical analysis.
-"""
-
-import json
-from pathlib import Path
-from datetime import datetime
-import duckdb
-
-
-"""
 Load bet recommendations into PostgreSQL for historical analysis.
 """
 
@@ -90,27 +80,25 @@ class BetLoader:
                 'no_ask': bet.get("no_ask"), 'ticker': bet.get("ticker")
             }
 
-            try:
-                self.db.execute(
-                    """
-                    INSERT INTO bet_recommendations
-                    (bet_id, sport, recommendation_date, home_team, away_team,
-                     bet_on, elo_prob, market_prob, edge, confidence,
-                     yes_ask, no_ask, ticker)
-                    VALUES (:bet_id, :sport, :date_str, :home_team, :away_team,
-                           :bet_on, :elo_prob, :market_prob, :edge, :confidence,
-                           :yes_ask, :no_ask, :ticker)
-                    ON CONFLICT (bet_id) DO UPDATE SET
-                        elo_prob = EXCLUDED.elo_prob,
-                        market_prob = EXCLUDED.market_prob,
-                        edge = EXCLUDED.edge,
-                        confidence = EXCLUDED.confidence
-                    """,
-                    params
-                )
-                loaded += 1
-            except Exception as e:
-                print(f"⚠️  Error loading bet {bet_id}: {e}")
+            # Allow DB exceptions to bubble up (fail loud)
+            self.db.execute(
+                """
+                INSERT INTO bet_recommendations
+                (bet_id, sport, recommendation_date, home_team, away_team,
+                 bet_on, elo_prob, market_prob, edge, confidence,
+                 yes_ask, no_ask, ticker)
+                VALUES (:bet_id, :sport, :date_str, :home_team, :away_team,
+                       :bet_on, :elo_prob, :market_prob, :edge, :confidence,
+                       :yes_ask, :no_ask, :ticker)
+                ON CONFLICT (bet_id) DO UPDATE SET
+                    elo_prob = EXCLUDED.elo_prob,
+                    market_prob = EXCLUDED.market_prob,
+                    edge = EXCLUDED.edge,
+                    confidence = EXCLUDED.confidence
+                """,
+                params
+            )
+            loaded += 1
 
         print(f"✓ Loaded {loaded} {sport.upper()} bets for {date_str}")
         return loaded

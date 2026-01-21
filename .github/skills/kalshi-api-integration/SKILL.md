@@ -1,3 +1,9 @@
+---
+name: kalshi-api-integration
+description: Documentation for integrating with the Kalshi API, covering authentication, market fetching, ticker parsing, and bet placement.
+version: 1.0.0
+---
+
 # Kalshi API Integration
 
 ## Authentication

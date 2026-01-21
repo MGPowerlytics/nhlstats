@@ -1,3 +1,9 @@
+---
+name: troubleshooting
+description: Diagnosis and resolution guides for common issues in the system, including Airflow failures, database connection errors, API authentication, and data integrity problems.
+version: 1.0.0
+---
+
 # Troubleshooting
 
 ## Airflow DAG Parsing Errors

@@ -1,3 +1,9 @@
+---
+name: adding-new-sport
+description: Instructions and checklist for integrating a new sport into the betting system, including Elo ratings, game downloading, and DAG configuration.
+version: 1.0.0
+---
+
 # Adding a New Sport
 
 ## Required Files

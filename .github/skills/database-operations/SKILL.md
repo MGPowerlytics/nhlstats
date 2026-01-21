@@ -1,3 +1,9 @@
+---
+name: database-operations
+description: Guide for interacting with the system's PostgreSQL database using the DBManager interface, covering key tables and common patterns.
+version: 1.0.0
+---
+
 # Database Operations
 
 ## Golden Rule

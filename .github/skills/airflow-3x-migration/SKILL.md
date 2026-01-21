@@ -1,3 +1,9 @@
+---
+name: airflow-3x-migration
+description: Comprehensive guide and patterns for migrating Apache Airflow 2.x workflows to Airflow 3.x, covering import changes, deprecated features, and new paradigms like Asset scheduling and TaskFlow API.
+version: 1.0.0
+---
+
 # Airflow 3.x Skills
 
 ## Import Path Changes

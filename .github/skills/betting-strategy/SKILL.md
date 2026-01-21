@@ -1,3 +1,9 @@
+---
+name: betting-strategy
+description: Details the core betting strategy, including edge calculation, sport-specific thresholds, Kelly Criterion sizing, and portfolio optimization.
+version: 1.0.0
+---
+
 # Betting Strategy
 
 ## Edge Calculation

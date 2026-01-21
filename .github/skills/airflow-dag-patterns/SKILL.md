@@ -1,3 +1,9 @@
+---
+name: airflow-dag-patterns
+description: Best practices and conventions for creating and maintaining Airflow DAGs, including task naming, flow patterns, and error handling.
+version: 1.0.0
+---
+
 # Airflow DAG Patterns
 
 ## Main DAG Location
