@@ -10,7 +10,7 @@ from datetime import datetime, date, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 # Add plugins to path
-sys.path.append(os.path.join(os.path.dirname(__file__), 'plugins'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../plugins'))
 
 # Import Elo classes dynamically
 try:

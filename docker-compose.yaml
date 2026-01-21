@@ -376,7 +376,7 @@ services:
   dashboard:
     build: .
     entrypoint: /bin/bash
-    command: -c "streamlit run dashboard_app.py --server.address=0.0.0.0 --server.fileWatcherType=none"
+    command: -c "streamlit run dashboard/dashboard_app.py --server.address=0.0.0.0 --server.fileWatcherType=none"
     ports:
       - "8501:8501"
     volumes:

@@ -13,4 +13,4 @@ echo "Starting Streamlit dashboard with PostgreSQL connection..."
 echo "Database: postgresql://${POSTGRES_USER}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}"
 echo ""
 
-streamlit run dashboard_app.py "$@"
+streamlit run dashboard/dashboard_app.py "$@"
