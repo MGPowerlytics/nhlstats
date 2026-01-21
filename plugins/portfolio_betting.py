@@ -188,12 +188,14 @@ class PortfolioBettingManager:
                     pass
 
             # Determine side (yes/no)
-            if opp.bet_on == "home":
-                side = "yes"
-                price = opp.yes_ask
-            else:
-                side = "no"
-                price = opp.no_ask
+            # Since tickers are specific to the outcome (e.g. "...-BOS"), we always buy YES
+            side = "yes"
+            price = opp.yes_ask
+
+            # Calculate bet_line_prob (implied probability at time of bet placement)
+            # For Kalshi markets: probability = (100 - price) / 100 for the side we're betting on
+            # If we're betting YES at 30¢, implied prob of YES winning = 70%
+            bet_line_prob = (100 - price) / 100 if side == "yes" else price / 100
 
             # Place bet
             if self.dry_run:
@@ -206,6 +208,7 @@ class PortfolioBettingManager:
                         "side": side,
                         "amount": alloc.bet_size,
                         "price": price,
+                        "bet_line_prob": bet_line_prob,
                         "dry_run": True,
                     }
                 )
@@ -227,6 +230,7 @@ class PortfolioBettingManager:
                             "amount": alloc.bet_size,
                             "price": price,
                             "order_id": order_result.get("order_id"),
+                            "bet_line_prob": bet_line_prob,
                             "dry_run": False,
                         }
                     )

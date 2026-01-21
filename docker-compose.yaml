@@ -77,6 +77,12 @@ x-airflow-common:
     AIRFLOW__SMTP__SMTP_USER: ${GMAIL_USER}
     AIRFLOW__SMTP__SMTP_PASSWORD: ${GMAIL_APP_PASSWORD}
     AIRFLOW__SMTP__SMTP_MAIL_FROM: ${GMAIL_USER}
+    # PostgreSQL connection for app database
+    POSTGRES_HOST: 'postgres'
+    POSTGRES_PORT: '5432'
+    POSTGRES_DB: 'airflow'
+    POSTGRES_USER: 'airflow'
+    POSTGRES_PASSWORD: 'airflow'
     # WARNING: Use _PIP_ADDITIONAL_REQUIREMENTS option ONLY for a quick checks
     # for other purpose (development, test and especially production usage) build/extend Airflow image.
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
@@ -118,6 +124,8 @@ services:
       POSTGRES_DB: airflow
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}/postgres-data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
     healthcheck:
       test: ["CMD", "pg_isready", "-U", "airflow"]
       interval: 10s
@@ -376,6 +384,14 @@ services:
     working_dir: /opt/airflow
     environment:
       - PYTHONUNBUFFERED=1
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=airflow
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+    depends_on:
+      postgres:
+        condition: service_healthy
     restart: always
 
 # volumes:

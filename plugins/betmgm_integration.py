@@ -159,18 +159,19 @@ class TeamNameMapper:
         return None
 
 
+from db_manager import DBManager, default_db
+
+
 class BetMGMComparison:
     """Compare BetMGM odds with our Elo predictions."""
 
-    def __init__(self, db_path: str = "data/nhlstats.duckdb"):
-        self.db_path = db_path
+    def __init__(self, db_manager: DBManager = default_db):
+        self.db = db_manager
         self.odds_api = BetMGMOddsAPI()
         self.mapper = TeamNameMapper()
 
     def get_todays_schedule(self, sport: str) -> List[Dict]:
-        """Get today's game schedule from database."""
-        conn = duckdb.connect(self.db_path, read_only=True)
-
+        """Get today's game schedule from PostgreSQL."""
         # Map our sport names to table names
         table_map = {
             "nba": "nba_games",
@@ -189,33 +190,31 @@ class BetMGMComparison:
 
         try:
             query = f"""
-                SELECT 
+                SELECT
                     game_date,
                     home_team,
                     away_team,
                     home_score,
                     away_score
                 FROM {table}
-                WHERE game_date >= '{today}' 
-                  AND game_date < '{tomorrow}'
+                WHERE game_date >= :today
+                  AND game_date < :tomorrow
                 ORDER BY game_date
             """
-            result = conn.execute(query).fetchall()
-            conn.close()
+            result = self.db.fetch_df(query, {'today': today})
 
             games = []
-            for row in result:
+            for _, row in result.iterrows():
                 games.append({
-                    "date": row[0],
-                    "home_team": row[1],
-                    "away_team": row[2],
-                    "home_score": row[3],
-                    "away_score": row[4],
+                    "date": row['game_date'],
+                    "home_team": row['home_team'],
+                    "away_team": row['away_team'],
+                    "home_score": row['home_score'],
+                    "away_score": row['away_score'],
                 })
             return games
         except Exception as e:
             print(f"⚠️  Error querying {table}: {e}")
-            conn.close()
             return []
 
     def get_elo_ratings(self, sport: str) -> Dict[str, float]:
@@ -392,6 +391,111 @@ class BetMGMComparison:
 
         return opportunities
 
+    def _generate_game_id(self, sport: str, game_date: str, home_team: str, away_team: str) -> str:
+        """
+        Generates a consistent and unique game_id.
+        Format: SPORT_YYYYMMDD_HOMEABBREV_AWAYABBREV
+        """
+        try:
+            dt = datetime.fromisoformat(game_date.replace('Z', '+00:00'))
+            date_str = dt.strftime('%Y%m%d')
+        except:
+            try:
+                dt = datetime.strptime(game_date, '%Y-%m-%d')
+                date_str = dt.strftime('%Y%m%d')
+            except:
+                date_str = game_date.replace('-', '')
+
+        # Simple slugification for team names
+        home_slug = "".join(filter(str.isalnum, home_team)).upper()
+        away_slug = "".join(filter(str.isalnum, away_team)).upper()
+        return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
+
+    def save_to_db(self, opportunities: List[Dict]):
+        """
+        Save identified opportunities and their odds to the unified PostgreSQL database.
+        """
+        if not opportunities:
+            return 0
+
+        odds_count = 0
+        print(f"💾 Saving {len(opportunities)} BetMGM opportunities to PostgreSQL...")
+
+        try:
+            for opp in opportunities:
+                sport = opp['sport']
+                commence_time = opp['commence_time']
+                game_date = commence_time.split('T')[0]
+                home_team = opp['home_team']
+                away_team = opp['away_team']
+
+                game_id = self._generate_game_id(sport, game_date, home_team, away_team)
+
+                # 1. Upsert into unified_games
+                self.db.execute("""
+                    INSERT INTO unified_games (
+                        game_id, sport, game_date, home_team_id, home_team_name,
+                        away_team_id, away_team_name, commence_time, status
+                    ) VALUES (:game_id, :sport, :game_date, :home_team_id, :home_team_name,
+                             :away_team_id, :away_team_name, :commence_time, :status)
+                    ON CONFLICT (game_id) DO UPDATE SET
+                        commence_time = EXCLUDED.commence_time
+                """, {
+                    'game_id': game_id, 'sport': sport.upper(), 'game_date': game_date,
+                    'home_team_id': home_team, 'home_team_name': home_team,
+                    'away_team_id': away_team, 'away_team_name': away_team,
+                    'commence_time': commence_time, 'status': 'Scheduled'
+                })
+
+                # 2. Upsert into game_odds
+                def am_to_dec(am):
+                    if am > 0: return (am / 100) + 1
+                    else: return (100 / abs(am)) + 1
+
+                home_odds_dec = am_to_dec(opp['home_odds'])
+                away_odds_dec = am_to_dec(opp['away_odds'])
+
+                # Home odds
+                self.db.execute("""
+                    INSERT INTO game_odds (
+                        odds_id, game_id, bookmaker, market_name, outcome_name,
+                        price, last_update, is_pregame
+                    ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
+                             :price, :last_update, :is_pregame)
+                    ON CONFLICT (odds_id) DO UPDATE SET
+                        price = EXCLUDED.price,
+                        last_update = EXCLUDED.last_update
+                """, {
+                    'odds_id': f"{game_id}_betmgm_h2h_home", 'game_id': game_id,
+                    'bookmaker': 'BetMGM', 'market_name': 'moneyline', 'outcome_name': 'home',
+                    'price': home_odds_dec, 'last_update': datetime.now(), 'is_pregame': True
+                })
+
+                # Away odds
+                self.db.execute("""
+                    INSERT INTO game_odds (
+                        odds_id, game_id, bookmaker, market_name, outcome_name,
+                        price, last_update, is_pregame
+                    ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
+                             :price, :last_update, :is_pregame)
+                    ON CONFLICT (odds_id) DO UPDATE SET
+                        price = EXCLUDED.price,
+                        last_update = EXCLUDED.last_update
+                """, {
+                    'odds_id': f"{game_id}_betmgm_h2h_away", 'game_id': game_id,
+                    'bookmaker': 'BetMGM', 'market_name': 'moneyline', 'outcome_name': 'away',
+                    'price': away_odds_dec, 'last_update': datetime.now(), 'is_pregame': True
+                })
+
+                odds_count += 2
+
+            print(f"  ✓ Saved {odds_count} BetMGM odds records to PostgreSQL.")
+            return odds_count
+
+        except Exception as e:
+            print(f"❌ Error saving BetMGM to database: {e}")
+            return 0
+
     def print_opportunities(self, opportunities: List[Dict], min_edge: float = 0.05):
         """Print betting opportunities with edge >= min_edge."""
         # Filter by edge
@@ -441,6 +545,9 @@ def main():
     # Print all opportunities
     if all_opportunities:
         comparison.print_opportunities(all_opportunities, min_edge=0.05)
+
+        # Save to database
+        comparison.save_to_db(all_opportunities)
 
         # Save to file
         output_file = Path(f"data/betmgm_opportunities_{datetime.now().strftime('%Y-%m-%d')}.json")

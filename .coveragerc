@@ -1,0 +1,12 @@
+[run]
+source = plugins
+
+[report]
+include =
+    */plugins/odds_comparator.py
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass

@@ -1,323 +1,201 @@
 """
-Multi-platform odds comparison and arbitrage analysis.
+Compares Elo probabilities against unified market odds to find betting opportunities.
 """
 
-import json
 from pathlib import Path
-from typing import Dict, List, Tuple, Optional
 from datetime import datetime
-import duckdb
+from typing import List, Dict, Optional
+import pandas as pd
+
+from db_manager import DBManager, default_db
+from naming_resolver import NamingResolver
 
 
 class OddsComparator:
-    """Compare odds across multiple platforms and identify arbitrage opportunities."""
-    
-    def __init__(self):
-        self.platforms = ['kalshi', 'cloudbet', 'polymarket']
-    
-    def load_markets(self, sport: str, date_str: str, platform: str) -> List[Dict]:
-        """Load markets from JSON file for a platform."""
-        
-        # Different platforms have different filename patterns
-        filename_map = {
-            'kalshi': f'markets_{date_str}.json',
-            'cloudbet': f'cloudbet_markets_{date_str}.json',
-            'polymarket': f'polymarket_markets_{date_str}.json'
-        }
-        
-        market_file = Path(f'data/{sport}/{filename_map[platform]}')
-        
-        if not market_file.exists():
-            return []
-        
-        with open(market_file, 'r') as f:
-            return json.load(f)
-    
-    def normalize_team_name(self, team: str) -> str:
-        """Normalize team names for matching across platforms."""
-        # Remove common suffixes and normalize
-        team = team.lower().strip()
-        
-        # Remove location prefixes for matching
-        replacements = {
-            'boston celtics': 'celtics',
-            'miami heat': 'heat',
-            'los angeles lakers': 'lakers',
-            'golden state warriors': 'warriors',
-            # Add more as needed
-        }
-        
-        return replacements.get(team, team)
-    
-    def match_markets(self, sport: str, date_str: str) -> List[Dict]:
+    """
+    Compares internal Elo probabilities with best available market odds.
+    """
+
+    def __init__(self, db_manager: DBManager = default_db):
+        self.db = db_manager
+
+    def get_best_odds(self, game_id: str) -> Dict[str, Dict]:
         """
-        Match markets across platforms for the same game.
-        
-        Returns:
-            List of matched markets with odds from all available platforms
+        Retrieves the best available odds for a game from PostgreSQL.
+        Returns a dictionary with 'home', 'away', and 'draw' best odds.
         """
-        print(f"🔍 Matching {sport} markets across platforms...")
-        
-        # Load markets from all platforms
-        all_markets = {}
-        for platform in self.platforms:
-            markets = self.load_markets(sport, date_str, platform)
-            all_markets[platform] = markets
-            print(f"  {platform}: {len(markets)} markets")
-        
-        # Match markets by teams
-        matched = []
-        
-        kalshi_markets = all_markets.get('kalshi', [])
-        
-        for kalshi_market in kalshi_markets:
-            # Extract teams from Kalshi market
-            if 'title' in kalshi_market:
-                # Parse Kalshi title format
-                title = kalshi_market.get('title', '')
-                
-                # Try to extract home/away teams
-                # Kalshi format varies by sport
-                home_team = None
-                away_team = None
-                
-                # This needs sport-specific parsing logic
-                # For now, skip complex parsing
-                
-            match_entry = {
-                'sport': sport,
-                'date': date_str,
-                'home_team': kalshi_market.get('home_team'),
-                'away_team': kalshi_market.get('away_team'),
-                'platforms': {
-                    'kalshi': {
-                        'market_id': kalshi_market.get('ticker'),
-                        'home_prob': kalshi_market.get('yes_ask', 0) / 100.0,
-                        'away_prob': 1 - (kalshi_market.get('yes_ask', 0) / 100.0)
+        try:
+            result = {}
+            for side in ['home', 'away', 'draw']:
+                df = self.db.fetch_df("""
+                    SELECT bookmaker, price, last_update
+                    FROM game_odds
+                    WHERE game_id = :game_id AND outcome_name = :side
+                    ORDER BY price DESC
+                    LIMIT 1
+                """, {'game_id': game_id, 'side': side})
+
+                if not df.empty:
+                    row = df.iloc[0]
+                    result[side] = {
+                        'bookmaker': row['bookmaker'],
+                        'decimal_odds': float(row['price']),
+                        'last_update': row['last_update']
                     }
-                }
-            }
-            
-            # Try to match with Cloudbet
-            for cb_market in all_markets.get('cloudbet', []):
-                if self._teams_match(match_entry.get('home_team'), cb_market.get('home_team')) and \
-                   self._teams_match(match_entry.get('away_team'), cb_market.get('away_team')):
-                    match_entry['platforms']['cloudbet'] = {
-                        'market_id': cb_market.get('event_id'),
-                        'home_prob': cb_market.get('home_prob'),
-                        'away_prob': cb_market.get('away_prob'),
-                        'home_odds': cb_market.get('home_odds'),
-                        'away_odds': cb_market.get('away_odds')
-                    }
-                    break
-            
-            # Try to match with Polymarket
-            for pm_market in all_markets.get('polymarket', []):
-                if self._teams_match(match_entry.get('home_team'), pm_market.get('home_team')) and \
-                   self._teams_match(match_entry.get('away_team'), pm_market.get('away_team')):
-                    match_entry['platforms']['polymarket'] = {
-                        'market_id': pm_market.get('market_id'),
-                        'yes_prob': pm_market.get('yes_prob'),
-                        'volume': pm_market.get('volume')
-                    }
-                    break
-            
-            if len(match_entry['platforms']) > 1:
-                matched.append(match_entry)
-        
-        print(f"✓ Matched {len(matched)} markets across platforms")
-        return matched
-    
-    def _teams_match(self, team1: Optional[str], team2: Optional[str]) -> bool:
-        """Check if two team names match."""
-        if not team1 or not team2:
-            return False
-        
-        norm1 = self.normalize_team_name(team1)
-        norm2 = self.normalize_team_name(team2)
-        
-        return norm1 == norm2 or norm1 in norm2 or norm2 in norm1
-    
-    def find_arbitrage(self, matched_markets: List[Dict], elo_predictions: Optional[Dict] = None) -> List[Dict]:
+            return result
+        except Exception as e:
+            print(f"Error fetching best odds for {game_id}: {e}")
+            return {}
+
+    def get_all_odds(self, game_id: str) -> List[Dict]:
         """
-        Find arbitrage opportunities across platforms.
-        
-        Args:
-            matched_markets: Markets matched across platforms
-            elo_predictions: Optional Elo predictions to compare against
-            
-        Returns:
-            List of arbitrage opportunities
+        Retrieves all available odds for a game.
         """
-        print(f"💰 Analyzing arbitrage opportunities...")
-        
+        return self.db.fetch_df("""
+            SELECT bookmaker, outcome_name, price, last_update, external_id
+            FROM game_odds
+            WHERE game_id = :game_id
+        """, {'game_id': game_id}).to_dict('records')
+
+    def find_opportunities(self, sport: str, elo_ratings: Dict,
+                          elo_system, threshold: float = 0.65,
+                          min_edge: float = 0.05,
+                          use_sharp_confirmation: bool = False) -> List[Dict]:
+        """
+        Identifies betting opportunities by comparing Elo with market odds.
+
+        Bet Types:
+        - Elo-only: use_sharp_confirmation=False (pure Elo vs Kalshi)
+        - Sharp: use_sharp_confirmation=True (confirmed by sharp books)
+        """
         opportunities = []
-        
-        for match in matched_markets:
-            platforms = match['platforms']
-            
-            if len(platforms) < 2:
-                continue
-            
-            home_team = match['home_team']
-            away_team = match['away_team']
-            
-            # Find best odds for each outcome
-            best_home = {'platform': None, 'prob': 0, 'odds': None}
-            best_away = {'platform': None, 'prob': 0, 'odds': None}
-            
-            for platform, data in platforms.items():
-                home_prob = data.get('home_prob', 0)
-                away_prob = data.get('away_prob', 0)
-                
-                if home_prob > best_home['prob']:
-                    best_home = {
-                        'platform': platform,
-                        'prob': home_prob,
-                        'odds': data.get('home_odds')
-                    }
-                
-                if away_prob > best_away['prob']:
-                    best_away = {
-                        'platform': platform,
-                        'prob': away_prob,
-                        'odds': data.get('away_odds')
-                    }
-            
-            # Check for arbitrage (when you can bet both sides profitably)
-            total_prob = (1 / best_home['prob']) + (1 / best_away['prob']) if best_home['prob'] and best_away['prob'] else 2
-            
-            if total_prob < 1.0:
-                # Pure arbitrage opportunity!
-                profit_margin = 1.0 - total_prob
-                
-                opportunities.append({
-                    'type': 'arbitrage',
-                    'sport': match['sport'],
-                    'home_team': home_team,
-                    'away_team': away_team,
-                    'home_platform': best_home['platform'],
-                    'away_platform': best_away['platform'],
-                    'home_prob': best_home['prob'],
-                    'away_prob': best_away['prob'],
-                    'profit_margin': profit_margin,
-                    'risk_free': True
-                })
-            
-            # Check for value bets using Elo predictions
-            if elo_predictions:
-                elo_home_prob = elo_predictions.get(home_team, {}).get('win_prob', 0)
-                
-                if elo_home_prob:
-                    # Compare Elo prediction with best available odds
-                    for platform, data in platforms.items():
-                        market_prob = data.get('home_prob', 0)
-                        edge = elo_home_prob - market_prob
-                        
-                        if edge > 0.05:  # 5% edge threshold
-                            opportunities.append({
-                                'type': 'value_bet',
-                                'sport': match['sport'],
-                                'home_team': home_team,
-                                'away_team': away_team,
-                                'platform': platform,
-                                'side': 'home',
-                                'elo_prob': elo_home_prob,
-                                'market_prob': market_prob,
-                                'edge': edge,
-                                'odds': data.get('home_odds')
-                            })
-        
-        print(f"✓ Found {len(opportunities)} opportunities")
-        return opportunities
-    
-    def save_opportunities(self, opportunities: List[Dict], date_str: str):
-        """Save arbitrage opportunities to file and database."""
-        
-        # Save to JSON
-        output_file = Path(f'data/arbitrage_opportunities_{date_str}.json')
-        with open(output_file, 'w') as f:
-            json.dump(opportunities, f, indent=2)
-        
-        print(f"💾 Saved {len(opportunities)} opportunities to {output_file}")
-        
-        # Also save to database
-        self._save_to_database(opportunities, date_str)
-    
-    def _save_to_database(self, opportunities: List[Dict], date_str: str):
-        """Save opportunities to DuckDB."""
-        conn = duckdb.connect('data/nhlstats.duckdb')
-        
-        # Create table if it doesn't exist
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS arbitrage_opportunities (
-                opportunity_id VARCHAR PRIMARY KEY,
-                opportunity_date DATE NOT NULL,
-                sport VARCHAR NOT NULL,
-                opportunity_type VARCHAR NOT NULL,
-                home_team VARCHAR,
-                away_team VARCHAR,
-                platform VARCHAR,
-                home_platform VARCHAR,
-                away_platform VARCHAR,
-                edge DOUBLE,
-                profit_margin DOUBLE,
-                elo_prob DOUBLE,
-                market_prob DOUBLE,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        
-        # Insert opportunities
-        for i, opp in enumerate(opportunities):
-            opp_id = f"{opp['type']}_{date_str}_{i}_{opp['home_team']}_{opp['away_team']}"
-            
-            conn.execute("""
-                INSERT OR REPLACE INTO arbitrage_opportunities
-                (opportunity_id, opportunity_date, sport, opportunity_type, 
-                 home_team, away_team, platform, home_platform, away_platform,
-                 edge, profit_margin, elo_prob, market_prob)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                opp_id,
-                date_str,
-                opp['sport'],
-                opp['type'],
-                opp.get('home_team'),
-                opp.get('away_team'),
-                opp.get('platform'),
-                opp.get('home_platform'),
-                opp.get('away_platform'),
-                opp.get('edge'),
-                opp.get('profit_margin'),
-                opp.get('elo_prob'),
-                opp.get('market_prob')
-            ))
-        
-        conn.close()
-        print(f"✓ Saved {len(opportunities)} opportunities to database")
 
+        try:
+            today = datetime.now().strftime('%Y-%m-%d')
+            query = """
+                SELECT game_id, game_date, home_team_name, away_team_name, status
+                FROM unified_games
+                WHERE sport = :sport
+                  AND game_date >= :today
+                  AND status NOT IN ('Final', 'Finalized', 'OFF', 'Closed')
+                ORDER BY game_date
+            """
+            games_df = self.db.fetch_df(query, {'sport': sport.upper(), 'today': today})
 
-if __name__ == '__main__':
-    from datetime import date
-    
-    today = date.today().strftime('%Y-%m-%d')
-    
-    comparator = OddsComparator()
-    
-    # Test matching markets
-    for sport in ['nba', 'nhl', 'mlb', 'nfl']:
-        matched = comparator.match_markets(sport, today)
-        
-        if matched:
-            # Find arbitrage
-            opportunities = comparator.find_arbitrage(matched)
-            
-            if opportunities:
-                print(f"\n🎯 {sport.upper()} Opportunities:")
-                for opp in opportunities[:5]:
-                    print(f"  {opp['type']}: {opp['away_team']} @ {opp['home_team']}")
-                    if opp['type'] == 'arbitrage':
-                        print(f"    Profit margin: {opp['profit_margin']:.2%}")
+            print(f"🔍 Analyzing {len(games_df)} {sport.upper()} games for value bets...")
+
+            for _, row in games_df.iterrows():
+                game_id = row['game_id']
+
+                # 1. Resolve source
+                source = 'kalshi' # Unified games default
+                if 'odds_api' in game_id.lower(): source = 'the_odds_api'
+
+                # 2. Resolve Canonical Names
+                canon_home = NamingResolver.resolve(sport, source, row['home_team_name']) or row['home_team_name']
+                canon_away = NamingResolver.resolve(sport, source, row['away_team_name']) or row['away_team_name']
+
+                # 3. Resolve Elo Names
+                elo_home = NamingResolver.resolve(sport, 'elo', canon_home) or canon_home
+                elo_away = NamingResolver.resolve(sport, 'elo', canon_away) or canon_away
+
+                # 4. Get Odds
+                all_odds = self.get_all_odds(game_id)
+                if not all_odds: continue
+
+                odds_by_bm = {}
+                tickers_by_bm = {}
+                for o in all_odds:
+                    bm = o['bookmaker']
+                    outcome = o['outcome_name']
+
+                    # If outcome is a name, resolve it to 'home' or 'away'
+                    if outcome not in ['home', 'away', 'draw']:
+                        canon_outcome = NamingResolver.resolve(sport, 'the_odds_api', outcome) or outcome
+                        if canon_outcome == canon_home: outcome = 'home'
+                        elif canon_outcome == canon_away: outcome = 'away'
+                        elif 'draw' in outcome.lower(): outcome = 'draw'
+
+                    if bm not in odds_by_bm: odds_by_bm[bm] = {}
+                    odds_by_bm[bm][outcome] = float(o['price'])
+
+                    if bm not in tickers_by_bm: tickers_by_bm[bm] = {}
+                    tickers_by_bm[bm][outcome] = o.get('external_id')
+
+                kalshi_odds = odds_by_bm.get('Kalshi')
+                if not kalshi_odds: continue
+
+                sharp_bms = ['pinnacle', 'betmgm', 'draftkings', 'fanduel', 'williamhill']
+                sharp_odds = None
+                for sbm in sharp_bms:
+                    if sbm in odds_by_bm:
+                        sharp_odds = odds_by_bm[sbm]
+                        break
+
+                # 5. Predict
+                try:
+                    if sport.lower() == 'tennis':
+                        tour = 'atp' if 'KXATPMATCH' in game_id or 'ATP' in game_id else 'wta'
+                        home_win_prob = elo_system.predict(elo_home, elo_away, tour=tour)
+                    elif hasattr(elo_system, 'predict_3way') and sport.lower() in ['epl', 'ligue1']:
+                        probs = elo_system.predict_3way(elo_home, elo_away)
+                        home_win_prob, draw_prob, away_win_prob = probs['home'], probs['draw'], probs['away']
                     else:
-                        print(f"    Edge: {opp['edge']:.2%} on {opp['platform']}")
+                        home_win_prob = elo_system.predict(elo_home, elo_away)
+                except:
+                    continue
+
+                # 6. Evaluate Outcomes
+                if sport.lower() in ['epl', 'ligue1']:
+                    outcomes = [('home', row['home_team_name'], home_win_prob),
+                                ('draw', 'Draw', draw_prob),
+                                ('away', row['away_team_name'], away_win_prob)]
+                else:
+                    outcomes = [('home', row['home_team_name'], home_win_prob),
+                                ('away', row['away_team_name'], 1 - home_win_prob)]
+
+                for side, team_name, elo_prob in outcomes:
+                    if side in kalshi_odds:
+                        market_odds = kalshi_odds[side]
+                        if market_odds <= 1.0: continue # Invalid odds
+
+                        market_prob = 1 / market_odds
+                        if market_prob > 0.99: continue # Skip if effectively a 100% lock
+
+                        edge = elo_prob - market_prob
+
+                        # Volume-focused: Relax threshold if we have high edge OR meet confidence
+                        is_confident = (elo_prob > threshold) or (edge > 0.10)
+
+                        if is_confident and edge > min_edge:
+                            confirmed = True
+                            if use_sharp_confirmation and sharp_odds and side in sharp_odds:
+                                sharp_prob = 1 / sharp_odds[side]
+                                # confirmed = market_prob < sharp_prob (within 2% tolerance)
+                                if market_prob >= sharp_prob - 0.02:
+                                    confirmed = False
+
+                            if confirmed:
+                                opportunities.append({
+                                    'sport': sport,
+                                    'game_id': game_id,
+                                    'home_team': row['home_team_name'],
+                                    'away_team': row['away_team_name'],
+                                    'bet_on': team_name,
+                                    'side': side,
+                                    'elo_prob': elo_prob,
+                                    'market_prob': market_prob,
+                                    'market_odds': market_odds,
+                                    'bookmaker': 'Kalshi',
+                                    'ticker': tickers_by_bm.get('Kalshi', {}).get(side),
+                                    'edge': edge,
+                                    'sharp_confirmed': sharp_odds is not None and confirmed,
+                                    'confidence': 'HIGH' if elo_prob > (threshold + 0.1) else 'MEDIUM'
+                                })
+
+            return opportunities
+
+        except Exception as e:
+            print(f"Error finding opportunities: {e}")
+            import traceback; traceback.print_exc()
+            return []

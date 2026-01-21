@@ -12,11 +12,11 @@ Supports:
 
 import pandas as pd
 import numpy as np
-import duckdb
 import json
 from pathlib import Path
 from datetime import datetime
 from collections import defaultdict
+from db_manager import default_db
 
 
 # Sport configurations
@@ -91,96 +91,72 @@ def get_current_season_start(sport: str) -> str:
     return f"{year}-{season_start_month:02d}-01"
 
 
-def load_games_from_duckdb(sport: str, season_only: bool = False) -> pd.DataFrame:
-    """Load games from DuckDB database."""
-    db_path = Path("data/nhlstats.duckdb")
+def load_games_from_db(sport: str, season_only: bool = False) -> pd.DataFrame:
+    """Load games from PostgreSQL database."""
 
-    if not db_path.exists():
-        print(f"⚠️  Database not found: {db_path}")
+    # Build query based on sport
+    if sport == "nhl":
+        # NHL games from unified_games table
+        query = """
+            SELECT
+                game_id,
+                game_date,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM unified_games
+            WHERE sport = 'nhl'
+              AND status IN ('Final', 'Completed')
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
+        """
+    elif sport == "mlb":
+        query = """
+            SELECT
+                game_id,
+                game_date,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM unified_games
+            WHERE sport = 'mlb'
+              AND status = 'Final'
+        """
+    elif sport == "nfl":
+        query = """
+            SELECT
+                game_id,
+                game_date,
+                home_team,
+                away_team,
+                home_score,
+                away_score,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM unified_games
+            WHERE sport = 'nfl'
+              AND status = 'Final'
+        """
+    else:
         return pd.DataFrame()
 
-    # Use a temp file to avoid locking issues
-    import shutil
-    import tempfile
+    # Add season filter if needed
+    if season_only:
+        season_start = get_current_season_start(sport)
+        query += f" AND game_date >= '{season_start}'"
 
-    temp_db = (
-        Path(tempfile.gettempdir())
-        / f"nhlstats_temp_{datetime.now().timestamp()}.duckdb"
-    )
+    query += " ORDER BY game_date, game_id"
+
     try:
-        shutil.copy2(db_path, temp_db)
-        conn = duckdb.connect(str(temp_db), read_only=True)
+        df = default_db.fetch_df(query)
+    except Exception as e:
+        print(f"⚠️  Error loading {sport} games: {e}")
+        df = pd.DataFrame()
 
-        # Build query based on sport
-        if sport == "nhl":
-            # NHL API uses 'OFF' for completed games, 'FINAL' is also valid
-            query = """
-                SELECT 
-                    game_id,
-                    game_date,
-                    home_team_name as home_team,
-                    away_team_name as away_team,
-                    home_score,
-                    away_score,
-                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-                FROM games 
-                WHERE game_state IN ('OFF', 'FINAL') 
-                  AND home_score IS NOT NULL 
-                  AND away_score IS NOT NULL
-            """
-        elif sport == "mlb":
-            query = """
-                SELECT 
-                    game_id,
-                    game_date,
-                    home_team as home_team,
-                    away_team as away_team,
-                    home_score,
-                    away_score,
-                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-                FROM mlb_games 
-                WHERE status = 'Final'
-            """
-        elif sport == "nfl":
-            query = """
-                SELECT 
-                    game_id,
-                    game_date,
-                    home_team as home_team,
-                    away_team as away_team,
-                    home_score,
-                    away_score,
-                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-                FROM nfl_games 
-                WHERE status = 'Final'
-            """
-        else:
-            conn.close()
-            return pd.DataFrame()
-
-        # Add season filter if needed
-        if season_only:
-            season_start = get_current_season_start(sport)
-            query += f" AND game_date >= '{season_start}'"
-
-        query += " ORDER BY game_date, game_id"
-
-        try:
-            df = conn.execute(query).fetchdf()
-        except Exception as e:
-            print(f"⚠️  Error loading {sport} games: {e}")
-            df = pd.DataFrame()
-
-        conn.close()
-        return df
-
-    finally:
-        # Cleanup temp file
-        if temp_db.exists():
-            try:
-                temp_db.unlink()
-            except:
-                pass
+    return df
 
 
 def load_games_from_json(sport: str, season_only: bool = False) -> pd.DataFrame:
@@ -365,7 +341,7 @@ def load_games(sport: str, season_only: bool = False) -> pd.DataFrame:
     elif config["data_source"] == "csv_ncaab":
         return load_games_from_ncaab(sport, season_only)
     else:
-        return load_games_from_duckdb(sport, season_only)
+        return load_games_from_db(sport, season_only)
 
 
 def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFrame:

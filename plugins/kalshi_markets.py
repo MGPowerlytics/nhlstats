@@ -5,27 +5,29 @@ Fetch Kalshi markets for NHL/NBA games using official SDK.
 
 from kalshi_python import Configuration, ApiClient, MarketsApi
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 import requests
-
+import re
+from typing import Dict, List, Optional
+from db_manager import DBManager, default_db
 
 class KalshiAPI:
     """Kalshi API client using official SDK"""
-    
+
     def __init__(self, api_key_id, private_key_pem):
         self.api_key_id = api_key_id
         self.private_key_pem = private_key_pem
-        
+
         # Configure API client
         config = Configuration(host="https://api.elections.kalshi.com/trade-api/v2")
         config.api_key['api_key_id'] = api_key_id
         config.api_key['private_key'] = private_key_pem
-        
+
         # Create client
         self.api_client = ApiClient(configuration=config)
         self.markets_api = MarketsApi(self.api_client)
-    
+
     def get_markets(self, event_ticker=None, series_ticker=None, status='open', limit=100):
         """Get markets from Kalshi"""
         try:
@@ -39,448 +41,268 @@ class KalshiAPI:
         except Exception as e:
             print(f"✗ Failed to get markets: {e}")
             return None
-    
-    def search_markets(self, query, limit=200):
-        """Search for markets by title"""
-        try:
-            response = self.markets_api.get_markets(
-                limit=limit,
-                status='open'
-            )
-            
-            data = response.to_dict()
-            
-            # Filter markets by query
-            if 'markets' in data and query:
-                data['markets'] = [m for m in data['markets'] 
-                                   if query.upper() in m.get('title', '').upper()]
-            return data
-        except Exception as e:
-            print(f"✗ Failed to search markets: {e}")
-            return None
 
+def _generate_game_id(sport, game_date, home_team, away_team):
+    """
+    Generates a consistent and unique game_id.
+    Format: SPORT_YYYYMMDD_HOME_AWAY (cleaned)
+    """
+    date_str = game_date.replace('-', '')
+    home_slug = "".join(filter(str.isalnum, home_team)).upper()
+    away_slug = "".join(filter(str.isalnum, away_team)).upper()
+    return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
+
+def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
+    """
+    Save Kalshi markets to the unified_games and game_odds tables in PostgreSQL.
+    """
+    if not markets:
+        return 0
+
+    from naming_resolver import NamingResolver
+
+    odds_count = 0
+    print(f"💾 Saving {len(markets)} {sport.upper()} Kalshi markets to PostgreSQL...")
+
+    for market in markets:
+        ticker = market.get('ticker', '')
+        title = market.get('title', '')
+
+        home_team = None
+        away_team = None
+        game_date = None
+
+        # Standard Kalshi Ticker: SERIES-YYMMDD-AWAYHOME-OUTCOME
+        parts = ticker.split('-')
+        if len(parts) >= 3:
+            date_part = parts[1]
+            teams_part = parts[2]
+
+            try:
+                year = 2000 + int(date_part[0:2])
+                month = int(date_part[2:4])
+                day = int(date_part[4:6])
+                game_date = f"{year}-{month:02d}-{day:02d}"
+
+                if len(teams_part) == 6:
+                    away_team = teams_part[0:3]
+                    home_team = teams_part[3:6]
+            except:
+                pass
+
+        # Fallback for Tennis
+        if not home_team or not away_team or not game_date:
+            if sport.lower() == 'tennis':
+                match = re.search(r"win the (.*?) vs (.*?) (?:match|:)", title)
+                if not match: match = re.search(r"win the (.*?) vs (.*?) match", title)
+
+                if match:
+                    home_team = match.group(1).strip()
+                    away_team = match.group(2).strip()
+                    if away_team.endswith(' match'): away_team = away_team[:-6].strip()
+
+                    close_time = market.get('close_time')
+                    if close_time:
+                        if isinstance(close_time, str):
+                            game_date = close_time.split('T')[0]
+                        else:
+                            game_date = close_time.strftime('%Y-%m-%d')
+
+        if not home_team or not away_team or not game_date:
+            continue
+
+        # Resolve canonical names
+        canon_home = NamingResolver.resolve(sport, 'kalshi', home_team) or home_team
+        canon_away = NamingResolver.resolve(sport, 'kalshi', away_team) or away_team
+
+        game_id = _generate_game_id(sport, game_date, canon_home, canon_away)
+
+        # 1. Upsert into unified_games
+        db_manager.execute("""
+            INSERT INTO unified_games (
+                game_id, sport, game_date, home_team_id, home_team_name,
+                away_team_id, away_team_name, status
+            ) VALUES (:game_id, :sport, :game_date, :home_id, :home_name,
+                     :away_id, :away_name, :status)
+            ON CONFLICT (game_id) DO UPDATE SET
+                status = EXCLUDED.status
+        """, {
+            'game_id': game_id, 'sport': sport.upper(), 'game_date': game_date,
+            'home_id': home_team, 'home_name': canon_home,
+            'away_id': away_team, 'away_name': canon_away,
+            'status': 'Scheduled'
+        })
+
+        # 2. Upsert into game_odds for Kalshi
+        outcome_side = parts[-1] if len(parts) > 1 else None
+        yes_price_cents = market.get('yes_ask', 0)
+
+        if yes_price_cents > 0 and outcome_side:
+            decimal_odds = 100.0 / yes_price_cents
+
+            def get_last_name_code(name):
+                parts = name.split()
+                return parts[-1][:3].upper() if parts else name[:3].upper()
+
+            h_code = get_last_name_code(home_team)
+            a_code = get_last_name_code(away_team)
+
+            if outcome_side == h_code:
+                outcome_name = 'home'
+            elif outcome_side == a_code:
+                outcome_name = 'away'
+            else:
+                outcome_name = 'home' if outcome_side == home_team else 'away'
+
+            odds_id = f"{game_id}_kalshi_{outcome_name}"
+            db_manager.execute("""
+                INSERT INTO game_odds (
+                    odds_id, game_id, bookmaker, market_name, outcome_name, price, is_pregame, external_id
+                ) VALUES (:odds_id, :game_id, 'Kalshi', 'moneyline', :outcome_name, :price, True, :ticker)
+                ON CONFLICT (odds_id) DO UPDATE SET
+                    price = EXCLUDED.price,
+                    external_id = EXCLUDED.external_id
+            """, {
+                'odds_id': odds_id, 'game_id': game_id,
+                'outcome_name': outcome_name, 'price': decimal_odds,
+                'ticker': ticker
+            })
+            odds_count += 1
+    return odds_count
 
 def load_kalshi_credentials():
-    """Load Kalshi API credentials from kalshkey file"""
-    key_file = Path("kalshkey")
-    
+    """Load Kalshi credentials from standard files."""
+    key_file = Path('kalshkey')
+    if not key_file.exists(): key_file = Path('/opt/airflow/kalshkey')
+
     if not key_file.exists():
-        key_file = Path("/opt/airflow/kalshkey")
-    
-    if not key_file.exists():
-        raise FileNotFoundError("kalshkey file not found")
-    
+        raise FileNotFoundError(f"Kalshi credentials file not found")
+
     content = key_file.read_text()
-    
-    # Extract API key ID
+
+    # 1. Extract API Key ID
     api_key_id = None
     for line in content.split('\n'):
-        if 'API key id:' in line:
-            api_key_id = line.split(':', 1)[1].strip()
+        if "API key id:" in line:
+            api_key_id = line.split(': ')[1].strip()
             break
-    
-    # Extract private key
-    private_key_lines = []
-    in_key = False
-    for line in content.split('\n'):
-        if '-----BEGIN RSA PRIVATE KEY-----' in line:
-            in_key = True
-        if in_key:
-            private_key_lines.append(line)
-        if '-----END RSA PRIVATE KEY-----' in line:
-            break
-    
-    private_key = '\n'.join(private_key_lines)
-    
+
+    # 2. Extract Private Key
+    private_key = None
+    if "-----BEGIN RSA PRIVATE KEY-----" in content:
+        # Key is embedded in the kalshkey file
+        lines = content.split('\n')
+        in_key = False
+        key_lines = []
+        for line in lines:
+            if "-----BEGIN RSA PRIVATE KEY-----" in line:
+                in_key = True
+            if in_key:
+                key_lines.append(line)
+            if "-----END RSA PRIVATE KEY-----" in line:
+                break
+        private_key = '\n'.join(key_lines)
+    else:
+        # Look for external .pem file
+        pem_file = Path('kalshi_private_key.pem')
+        if not pem_file.exists(): pem_file = Path('/opt/airflow/kalshi_private_key.pem')
+        if not pem_file.exists(): pem_file = Path(__file__).parent.parent / 'kalshi_private_key.pem'
+
+        if pem_file.exists():
+            private_key = pem_file.read_text()
+
+    if not api_key_id or not private_key:
+        raise ValueError("Could not find both API Key ID and Private Key in credentials")
+
     return api_key_id, private_key
 
-
 def fetch_nba_markets(date_str=None):
-    """Fetch Kalshi markets for NBA games on a specific date.
-    
-    Args:
-        date_str: Date string in YYYY-MM-DD format (defaults to today)
-    
-    Returns:
-        List of market dictionaries
-    """
-    try:
-        import requests
-        
-        # Load credentials  
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request using requests library
-        # The kalshi_python SDK handles auth internally, so we use its session
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Call via the SDK's markets_api but catch the enum error
-        try:
-            # Try SDK first
-            result = api.get_markets(series_ticker='KXNBAGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NBA markets")
-                return active_markets
-        except:
-            # Fall back to basic auth request
-            url = 'https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXNBAGAME&limit=200'
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                markets = data.get('markets', [])
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NBA markets")
-                return active_markets
-        
-        print("⚠️ No NBA markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching NBA markets: {e}")
-        return []
-
-
-
-def fetch_epl_markets(date_str=None):
-    """Fetch Kalshi markets for EPL games."""
-    try:
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Try SDK first
-        try:
-            result = api.get_markets(series_ticker='KXEPLGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
-                print(f"✓ Found {len(active_markets)} EPL markets")
-                return active_markets
-        except Exception as e:
-            print(f"Error fetching EPL markets: {e}")
-            return []
-            
-        return []
-    except Exception as e:
-        print(f"Failed to fetch EPL markets: {e}")
-        return []
-
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXNBAGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('nba', markets)
+        return markets
+    return []
 
 def fetch_nhl_markets(date_str=None):
-    """Fetch Kalshi markets for NHL games on a specific date.
-    
-    Args:
-        date_str: Date string in YYYY-MM-DD format (defaults to today)
-    
-    Returns:
-        List of market dictionaries
-    """
-    try:
-        import requests
-        
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Try SDK first
-        try:
-            result = api.get_markets(series_ticker='KXNHLGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NHL markets")
-                return active_markets
-        except:
-            # Fall back to basic request
-            url = 'https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXNHLGAME&limit=200'
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                markets = data.get('markets', [])
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NHL markets")
-                return active_markets
-        
-        print("⚠️ No NHL markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching NHL markets: {e}")
-        return []
-
-
-def fetch_mlb_markets(date_str=None):
-    """Fetch Kalshi markets for MLB games on a specific date.
-    
-    Args:
-        date_str: Date string in YYYY-MM-DD format (defaults to today)
-    
-    Returns:
-        List of market dictionaries
-    """
-    try:
-        import requests
-        
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Try SDK first
-        try:
-            result = api.get_markets(series_ticker='KXMLBGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} MLB markets")
-                return active_markets
-        except:
-            # Fall back to basic request
-            url = 'https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXMLBGAME&limit=200'
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                markets = data.get('markets', [])
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} MLB markets")
-                return active_markets
-        
-        print("⚠️ No MLB markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching MLB markets: {e}")
-        return []
-
-
-def fetch_nfl_markets(date_str=None):
-    """Fetch Kalshi markets for NFL games on a specific date.
-    
-    Args:
-        date_str: Date string in YYYY-MM-DD format (defaults to today)
-    
-    Returns:
-        List of market dictionaries
-    """
-    try:
-        import requests
-        
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Try SDK first
-        try:
-            result = api.get_markets(series_ticker='KXNFLGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NFL markets")
-                return active_markets
-        except:
-            # Fall back to basic request
-            url = 'https://api.elections.kalshi.com/trade-api/v2/markets?series_ticker=KXNFLGAME&limit=200'
-            response = requests.get(url)
-            
-            if response.status_code == 200:
-                data = response.json()
-                markets = data.get('markets', [])
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NFL markets")
-                return active_markets
-        
-        print("⚠️ No NFL markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching NFL markets: {e}")
-        return []
-
-def fetch_ncaab_markets(date_str=None):
-    """Fetch Kalshi markets for NCAAB games."""
-    try:
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Call via SDK
-        try:
-            print("  Searching for KXNCAAMBGAME...")
-            result = api.get_markets(series_ticker='KXNCAAMBGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} NCAAB markets")
-                return active_markets
-        except Exception as e:
-            print(f"  SDK fetch failed: {e}")
-            
-        print("⚠️ No NCAAB markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching NCAAB markets: {e}")
-        return []
-
-def fetch_wncaab_markets(date_str=None):
-    """Fetch Kalshi markets for Women's NCAAB games."""
-    try:
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Call via SDK
-        try:
-            print("  Searching for KXNCAAWBGAME...")
-            result = api.get_markets(series_ticker='KXNCAAWBGAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized']]
-                print(f"✓ Found {len(active_markets)} WNCAAB markets")
-                return active_markets
-        except Exception as e:
-            print(f"  SDK fetch failed: {e}")
-            
-        print("⚠️ No WNCAAB markets found")
-        return []
-        
-    except Exception as e:
-        print(f"⚠️ Error fetching WNCAAB markets: {e}")
-        return []
-
-def fetch_tennis_markets(date_str=None):
-    """
-    Fetch Tennis markets from Kalshi.
-    
-    Uses KXATPMATCH (ATP) and KXWTAMATCH (WTA) series tickers.
-    """
-    try:
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Tennis series on Kalshi
-        tennis_series = ['KXATPMATCH', 'KXWTAMATCH']
-        
-        all_markets = []
-        for series in tennis_series:
-            try:
-                response = api.get_markets(series_ticker=series, status='open')
-                if response and 'markets' in response:
-                    markets = response['markets']
-                    print(f"  ✓ Found {len(markets)} {series} markets")
-                    all_markets.extend(markets)
-            except Exception as e:
-                print(f"  ⚠️  Error fetching {series}: {e}")
-                continue
-        
-        print(f"  ✓ Total: {len(all_markets)} tennis markets")
-        return all_markets
-            
-    except Exception as e:
-        print(f"❌ Error fetching Tennis markets: {e}")
-        return []
-
-def main():
-    print("🎲 Kalshi Markets Fetcher (SDK version)")
-    print("=" * 80)
-    
-    # Load credentials
-    try:
-        api_key_id, private_key = load_kalshi_credentials()
-        print(f"✓ Loaded API credentials (Key ID: {api_key_id[:8]}...)")
-    except Exception as e:
-        print(f"✗ Failed to load credentials: {e}")
-        return
-    
-    # Create API client
+    api_key_id, private_key = load_kalshi_credentials()
     api = KalshiAPI(api_key_id, private_key)
-    
-    print("\n📊 Searching for NBA markets...")
-    nba_markets = fetch_nba_markets()
-    
-    if nba_markets:
-        print(f"\n🏀 Found {len(nba_markets)} NBA markets:\n")
-        for i, market in enumerate(nba_markets[:10], 1):
-            print(f"{i:2}. [{market.get('ticker', 'N/A')[:30]}]")
-            print(f"    {market.get('title', 'N/A')[:80]}")
-            yes_ask = market.get('yes_ask', 0)
-            if yes_ask:
-                print(f"    YES: ${yes_ask/100:.2f} / NO: ${market.get('no_ask', 0)/100:.2f}")
-            print()
-    
-    print("\n📊 Searching for NHL markets...")
-    nhl_markets = fetch_nhl_markets()
-    
-    if nhl_markets:
-        print(f"\n🏒 Found {len(nhl_markets)} NHL markets:\n")
-        for i, market in enumerate(nhl_markets[:10], 1):
-            print(f"{i:2}. [{market.get('ticker', 'N/A')[:30]}]")
-            print(f"    {market.get('title', 'N/A')[:80]}")
-            yes_ask = market.get('yes_ask', 0)
-            if yes_ask:
-                print(f"    YES: ${yes_ask/100:.2f} / NO: ${market.get('no_ask', 0)/100:.2f}")
-            print()
+    result = api.get_markets(series_ticker='KXNHLGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('nhl', markets)
+        return markets
+    return []
 
-
-if __name__ == "__main__":
-    main()
-
+def fetch_epl_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXEPLGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('epl', markets)
+        return markets
+    return []
 
 def fetch_ligue1_markets(date_str=None):
-    """Fetch Kalshi markets for Ligue 1 games."""
-    try:
-        # Load credentials
-        api_key_id, private_key = load_kalshi_credentials()
-        
-        # Make authenticated request
-        api = KalshiAPI(api_key_id, private_key)
-        
-        # Try SDK first
-        try:
-            # Note: Actual series ticker may vary - check Kalshi docs
-            # Common formats: KXLIGUE1GAME, KXFRENCHLEAGUE, etc.
-            result = api.get_markets(series_ticker='KXLIGUE1GAME', limit=200)
-            if result and 'markets' in result:
-                markets = result['markets']
-                active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
-                print(f"✓ Found {len(active_markets)} Ligue 1 markets")
-                return active_markets
-        except Exception as e:
-            print(f"⚠️  Error fetching Ligue 1 markets: {e}")
-            # Try alternative ticker formats
-            for ticker in ['KXFRENCHLEAGUE', 'KXFRENCHFOOTBALL', 'KXLIGUE1']:
-                try:
-                    result = api.get_markets(series_ticker=ticker, limit=200)
-                    if result and 'markets' in result:
-                        markets = result['markets']
-                        active_markets = [m for m in markets if m.get('status') in ['active', 'initialized', 'open']]
-                        if active_markets:
-                            print(f"✓ Found {len(active_markets)} Ligue 1 markets using {ticker}")
-                            return active_markets
-                except:
-                    continue
-            return []
-            
-        return []
-    except Exception as e:
-        print(f"❌ Failed to fetch Ligue 1 markets: {e}")
-        return []
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXLIGUE1GAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('ligue1', markets)
+        return markets
+    return []
+
+def fetch_tennis_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    all_markets = []
+    for series in ['KXATPMATCH', 'KXWTAMATCH', 'KXATPCHALLENGERMATCH', 'KXWTACHALLENGERMATCH']:
+        res = api.get_markets(series_ticker=series, limit=200)
+        if res and 'markets' in res:
+            all_markets.extend([m for m in res['markets'] if m.get('status') in ['active', 'initialized', 'open']])
+    save_to_db('tennis', all_markets)
+    return all_markets
+
+def fetch_ncaab_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXNCAAMBGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('ncaab', markets)
+        return markets
+    return []
+
+def fetch_wncaab_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXNCAAWBGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('wncaab', markets)
+        return markets
+    return []
+
+def fetch_mlb_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXMLBGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('mlb', markets)
+        return markets
+    return []
+
+def fetch_nfl_markets(date_str=None):
+    api_key_id, private_key = load_kalshi_credentials()
+    api = KalshiAPI(api_key_id, private_key)
+    result = api.get_markets(series_ticker='KXNFLGAME', limit=200)
+    if result and 'markets' in result:
+        markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
+        save_to_db('nfl', markets)
+        return markets
+    return []

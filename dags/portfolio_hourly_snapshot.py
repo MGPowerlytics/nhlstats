@@ -1,10 +1,10 @@
 """Hourly Kalshi portfolio snapshot DAG.
 
-Writes portfolio value snapshots into DuckDB for the Streamlit dashboard.
+Writes portfolio value snapshots into PostgreSQL for the Streamlit dashboard.
 
 This DAG is intentionally small and safe:
 - Reads Kalshi auth from `kalshkey` (same pattern as other DAGs)
-- Upserts a single row per UTC hour into DuckDB
+- Upserts a single row per UTC hour into PostgreSQL
 - Does not trigger any downstream betting logic
 """
 
@@ -71,7 +71,6 @@ def snapshot_portfolio_value() -> None:
     balance, portfolio_value = client.get_balance()
 
     upsert_hourly_snapshot(
-        db_path="data/nhlstats.duckdb",
         observed_at_utc=datetime.now(tz=timezone.utc),
         balance_dollars=float(balance),
         portfolio_value_dollars=float(portfolio_value),
@@ -89,12 +88,12 @@ default_args = {
 with DAG(
     dag_id="portfolio_hourly_snapshot",
     default_args=default_args,
-    description="Hourly Kalshi portfolio value snapshot to DuckDB",
+    description="Hourly Kalshi portfolio value snapshot to PostgreSQL",
     schedule="@hourly",
     start_date=datetime(2026, 1, 20, tzinfo=timezone.utc),
     catchup=False,
     max_active_runs=1,
-    tags=["kalshi", "portfolio", "duckdb"],
+    tags=["kalshi", "portfolio", "postgres"],
 ) as dag:
     snapshot_task = PythonOperator(
         task_id="snapshot_portfolio_value",

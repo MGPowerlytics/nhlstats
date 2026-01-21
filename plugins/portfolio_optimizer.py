@@ -143,27 +143,37 @@ class PortfolioOptimizer:
                             # Tennis uses player1/player2 and bet_on is player name
                             team = bet.get("bet_on", bet.get("player1", ""))
                             opponent = bet.get("opponent", bet.get("player2", ""))
-                            bet_direction = "player1"  # Not used for tennis
+                            bet_direction = bet.get("side", "home")
 
                             # Market prob from yes_ask/no_ask
                             yes_ask = bet.get("yes_ask", 0)
                             no_ask = bet.get("no_ask", 0)
 
-                            # For tennis, need to figure out which side we're betting
-                            # If bet_on matches player1, use yes_ask, otherwise no_ask
-                            player1 = bet.get("player1", "")
-                            if (
-                                team
-                                and player1
-                                and (team in player1 or player1 in team)
-                            ):
-                                market_prob = yes_ask / 100
+                            # First try to use pre-calculated market_prob
+                            if "market_prob" in bet:
+                                market_prob = bet["market_prob"]
+                                # Estimate asks if missing so executing logic works later
+                                if yes_ask == 0 and market_prob > 0:
+                                    yes_ask = int(market_prob * 100)
+                                if no_ask == 0 and market_prob > 0:
+                                    # This is an estimate assuming balanced book, but we only need market_prob for kelly
+                                    no_ask = int((1 - market_prob) * 100)
                             else:
-                                market_prob = no_ask / 100
+                                # For tennis, need to figure out which side we're betting
+                                # If bet_on matches player1, use yes_ask, otherwise no_ask
+                                player1 = bet.get("player1", "")
+                                if (
+                                    team
+                                    and player1
+                                    and (team in player1 or player1 in team)
+                                ):
+                                    market_prob = yes_ask / 100
+                                else:
+                                    market_prob = no_ask / 100
 
                         elif sport == "ncaab":
                             # NCAAB has home/away but might be missing yes_ask/no_ask
-                            bet_direction = bet.get("bet_on", "home")
+                            bet_direction = bet.get("side", bet.get("bet_on", "home"))
 
                             if bet_direction == "home":
                                 team = bet.get("home_team", "")
@@ -197,19 +207,35 @@ class PortfolioOptimizer:
 
                         else:
                             # Traditional team sports (nba, nhl, mlb, nfl)
-                            bet_direction = bet.get("bet_on", "home")
+                            bet_direction = bet.get("side", bet.get("bet_on", "home"))
 
                             if bet_direction == "home":
                                 team = bet.get("home_team", "")
                                 opponent = bet.get("away_team", "")
-                                market_prob = bet.get("yes_ask", 0) / 100
                             else:
                                 team = bet.get("away_team", "")
                                 opponent = bet.get("home_team", "")
-                                market_prob = bet.get("no_ask", 0) / 100
 
                             yes_ask = bet.get("yes_ask", 0)
                             no_ask = bet.get("no_ask", 0)
+
+                            if yes_ask == 0 and "market_prob" in bet:
+                                mp = bet.get("market_prob", 0.5)
+                                yes_ask = int(mp * 100)
+                                no_ask = int((1 - mp) * 100)
+
+                            if bet_direction == "home":
+                                market_prob = (
+                                    yes_ask / 100
+                                    if yes_ask > 0
+                                    else bet.get("market_prob", 0.5)
+                                )
+                            else:
+                                market_prob = (
+                                    no_ask / 100
+                                    if no_ask > 0
+                                    else bet.get("market_prob", 0.5)
+                                )
 
                         # Skip if we couldn't determine market probability
                         if market_prob <= 0:

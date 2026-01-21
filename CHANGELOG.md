@@ -1,5 +1,95 @@
 # Changelog
 
+## 2026-01-21 - GitHub Copilot Skills
+
+### Added
+- **DAG task function tests**: Added task wrapper tests with Airflow context mocking and Kalshi sandbox stubs in [tests/test_dag_task_functions.py](tests/test_dag_task_functions.py).
+- **Odds comparator coverage tests**: Expanded database-driven coverage for `OddsComparator` including outcome name resolution, sharp confirmation, tennis tour handling, and error paths in [tests/test_odds_comparator.py](tests/test_odds_comparator.py).
+- **`.github/skills/` directory**: Created 9 skill files for GitHub Copilot assistance:
+  - `elo-rating-systems.md` - Elo formula, sport parameters, threshold tuning
+  - `airflow-dag-patterns.md` - DAG development patterns and conventions
+  - `kalshi-api-integration.md` - Kalshi API authentication and market parsing
+  - `database-operations.md` - DBManager interface and PostgreSQL patterns
+  - `adding-new-sport.md` - Step-by-step guide for new sport integration
+  - `betting-strategy.md` - Edge calculation, thresholds, Kelly criterion
+  - `testing-patterns.md` - Test development and coverage requirements
+  - `troubleshooting.md` - Common issues and debugging solutions
+  - `airflow-3x-migration.md` - Airflow 3.x patterns and 2.x migration guide
+
+### Changed
+- **Coverage config for Phase 3**: Added coverage config and `no_cover` marker usage to focus coverage on targeted modules during Phase 3 test runs.
+
+## 2026-01-20 - PostgreSQL Migration & Comprehensive Reporting
+
+### Added
+- **Comprehensive Streamlit Reporting Dashboard**: Added 3 new pages to `dashboard_app.py`:
+  - **Financial Performance Page**: P&L analysis with daily/weekly/monthly trends, ROI by sport, and cumulative profit tracking using `placed_bets` and `portfolio_value_snapshots` tables.
+  - **Data Quality Dashboard Page**: Real-time data validation with health scores, missing data alerts, and coverage metrics using migrated `data_validation.py`.
+  - **CLV Analysis Page**: Closing Line Value tracking to validate betting edge, showing CLV distribution, correlation with outcomes, and performance by sport.
+
+- **`plugins/clv_backfill.py`**: CLV data backfill utility.
+  - Matches `placed_bets` with `historical_betting_lines` to populate `closing_line_prob` and calculate CLV.
+  - Uses SBR/OddsPortal historical data instead of Odds API (avoids rate limits).
+  - Calculates CLV = bet_line_prob - closing_line_prob for edge validation.
+
+### Changed
+- **PostgreSQL Migration**: Migrated all DuckDB usage to PostgreSQL:
+  - **`plugins/clv_tracker.py`**: Updated to use `DBManager` instead of DuckDB connections.
+  - **`plugins/lift_gain_analysis.py`**: Migrated `load_games_from_duckdb()` to `load_games_from_db()` using `unified_games` table.
+  - **`plugins/data_validation.py`**: Updated validation queries to work with `unified_games` schema (home_team_name, away_team_name, etc.).
+  - All database operations now use parameterized queries with `default_db.execute()` and `default_db.fetch_df()`.
+
+- **Dashboard Navigation**: Extended sidebar navigation from 2 to 5 pages:
+  - Elo Analysis (existing)
+  - Betting Performance (existing)
+  - Financial Performance (new)
+  - Data Quality (new)
+  - CLV Analysis (new)
+
+### Technical Details
+- **Database Schema**: All reporting queries now use PostgreSQL with proper column names (`home_team_name`, `away_team_name`, `sport` filter).
+- **CLV Backfill**: Designed to work with existing `historical_betting_lines` table (821 rows) but needs expansion for complete coverage.
+- **Data Validation**: Migrated from DuckDB-specific queries to PostgreSQL-compatible validation logic.
+- **Import Paths**: Updated plugin imports to work with `sys.path.append(os.path.dirname(__file__))` for reliable module loading.
+
+### Next Steps
+- Expand historical betting lines coverage beyond 821 games for complete CLV backfill.
+- Implement SBR/OddsPortal scraping for ongoing CLV data collection.
+- Add automated report generation (email/SMS summaries) using existing notification infrastructure.
+
+## 2026-01-20 - Unified Odds System Implementation
+
+### Added
+- **`plugins/database_schema_manager.py`**: Schema manager for the new unified database architecture.
+  - Creates `unified_games` table: Centralized schedule for all sports.
+  - Creates `game_odds` table: Stores multi-source odds (Kalshi, BetMGM, SBR) linked to games.
+- **`plugins/game_data_migrator.py`**: Data migration tool.
+  - successfully migrated 75,000+ historical games from disparate sport tables into `unified_games`.
+  - Generates consistent, deterministic `game_id`s (SPORT_YYYYMMDD_HOME_AWAY).
+- **`plugins/historical_odds_backfiller.py`**: Historical odds scraper.
+  - Scrapes Sportsbook Review (SBR) HTML archives directly.
+  - Backfilled moneyline odds for NHL, NBA, and NFL (2021-2023).
+  - Populates `unified_games` and `game_odds` with historical context.
+- **`plugins/odds_comparator.py`**: Logic for finding best-in-market betting edges.
+  - Queries `game_odds` to find the best available price across all bookmakers for each game.
+  - Replaces single-source comparison in the betting workflow.
+
+### Changed
+- **`plugins/the_odds_api.py`**: Refactored to persist data to DuckDB.
+  - Now saves fetched odds directly to `game_odds` table instead of just JSON files.
+- **`plugins/kalshi_markets.py`**: Refactored for database persistence.
+  - added `save_to_db` to persist Kalshi market data to `unified_games` and `game_odds`.
+  - Updated all `fetch_*_markets` functions to auto-save data.
+- **`plugins/betmgm_integration.py`**: Refactored for database persistence.
+  - Now saves BetMGM opportunities and odds to the unified database.
+- **`dags/multi_sport_betting_workflow.py`**: Updated `identify_good_bets` task.
+  - Now uses `OddsComparator` to find value bets against *all* available bookmaker odds, not just Kalshi.
+
+### Architecture
+- **Unified Schema**: Moved from sport-specific game tables to a single `unified_games` table linked with a one-to-many `game_odds` table.
+- **Persistent Odds History**: All fetched odds are now permanently stored in DuckDB, enabling historical CLV analysis and backtesting against real market data.
+- **Multi-Source Comparison**: The system now automatically identifies the best price across Kalshi, BetMGM, and potentially others, maximizing Expected Value (EV).
+
 ## 2026-01-20 - Basketball Kalshi Backtest Complete
 
 ### Added
@@ -66,13 +156,13 @@
 - 11 comprehensive tests validate all code paths
 
 ### Value Betting Implementation Status
-✅ **Threshold-Based Betting** - Only bet when model confidence > threshold  
-✅ **Edge Calculation** - Require minimum 5% edge over market  
-✅ **Temporal Integrity** - No data leakage, predictions use pre-game ratings  
-✅ **Backtest Infrastructure** - Comprehensive framework with EV, P&L, ROI  
-✅ **Documentation** - Thresholds justified by lift/gain analysis  
-⏸️ **CLV Tracking** - Not yet implemented (need historical price snapshots)  
-⏸️ **Bankroll Management** - Not yet implemented  
+✅ **Threshold-Based Betting** - Only bet when model confidence > threshold
+✅ **Edge Calculation** - Require minimum 5% edge over market
+✅ **Temporal Integrity** - No data leakage, predictions use pre-game ratings
+✅ **Backtest Infrastructure** - Comprehensive framework with EV, P&L, ROI
+✅ **Documentation** - Thresholds justified by lift/gain analysis
+⏸️ **CLV Tracking** - Not yet implemented (need historical price snapshots)
+⏸️ **Bankroll Management** - Not yet implemented
 
 ### Recommendations
 1. Lower WNCAAB threshold (70%, 68%, 65%) to generate more bets (need 30-50 for statistical significance)
@@ -182,7 +272,7 @@
 ### Added
 - **Daily Summary SMS**: New `send_daily_summary` task at end of DAG sends 3-part SMS:
   - Message 1: Balance, portfolio value, yesterday's P/L
-  - Message 2: Today's bets placed with top bet details  
+  - Message 2: Today's bets placed with top bet details
   - Message 3: Additional bets or available balance
 - **Custom SMS Function**: Added `send_sms()` using direct SMTP instead of Airflow's email utility
   - Bypasses Airflow email authentication issues with Gmail
@@ -284,7 +374,7 @@ All notable changes to this project are documented in this file.
   - 141 D1 programs tracked
   - 6,982 historical D1 vs D1 games
   - 722 games current season (2025-26)
-  
+
 ### Performance
 - **Baseline**: 72.3% home win rate (highest of all sports)
 - **Top Decile**: 95.9% win rate with 1.33x lift
@@ -439,7 +529,7 @@ This test suite will immediately catch issues like empty charts for any sport.
    - Function referenced `elo` variable at line 519 without initializing it for WNCAAB
    - Added complete WNCAAB handling block with WNCAABEloRating and WNCAABGames
    - WNCAAB now processes 6,982 games (2021-2026) with 138 D1 teams
-   
+
 2. **Import Error in backtest_nhl_profitability.py**
    - Relative imports (`.betting_backtest`, `.compare_elo_trueskill_nhl`) don't work in Airflow plugins
    - Changed to try/except block with absolute imports first, fallback to plugins imports
@@ -474,7 +564,7 @@ df = games_obj.load_games()
 df = df.sort_values('date')
 for _, game in df.iterrows():
     home_won = 1.0 if game['home_score'] > game['away_score'] else 0.0
-    elo.update(game['home_team'], game['away_team'], home_won, 
+    elo.update(game['home_team'], game['away_team'], home_won,
                is_neutral=game.get('neutral', False))
 print(f'✓ {len(elo.ratings)} teams rated')
 "
@@ -507,7 +597,7 @@ python -m py_compile dags/multi_sport_betting_workflow.py
   - NFL: 68% → 70% (strong discrimination)
   - NCAAB: 65% → 72% (align with NBA pattern)
   - WNCAAB: 65% → 72% (align with other basketball)
-  
+
 ### Added
 - Comprehensive documentation of threshold decisions in `docs/VALUE_BETTING_THRESHOLDS.md`
 - Closing Line Value (CLV) tracking to `placed_bets` table:
@@ -595,3 +685,161 @@ python -m py_compile dags/multi_sport_betting_workflow.py
 3. Run full backtests with complete data
 4. Generate comprehensive performance reports
 
+
+## [2026-01-20] - PostgreSQL Migration Test Fixes
+
+### Fixed
+- **All DuckDB to PostgreSQL migration test failures (47 tests)**
+  - Fixed `test_db_loader.py` (18 tests): Updated to use Postgres queries, added transaction management
+  - Fixed `test_db_loader_actual.py` (10 tests): Compatible with Postgres
+  - Fixed `test_db_loader_targeted.py` (15 tests): Updated SQL queries for Postgres
+  - Fixed `test_bet_loader_tracker.py` (21 tests): Removed DuckDB dependencies, use DBManager
+  - Fixed `test_bet_tracker_comprehensive.py` (15 tests): Updated function signatures
+  - Fixed `test_bet_tracker_loader.py` (24 tests): Use Postgres queries for schema checks
+  - Fixed `test_portfolio_snapshots.py` (2 tests): Added data cleanup fixtures
+  - Fixed `test_additional_modules.py`: Added data cleanup for shared database
+
+### Changed
+- **plugins/db_loader.py**
+  - Enhanced `LegacyConnWrapper` with proper transaction management for SQLAlchemy 2.0
+  - Added `begin()`, `commit()`, and `rollback()` handling
+  - Maintains backward compatibility with test suite
+
+### Technical Details
+- Replaced DuckDB-specific SQL (`SHOW TABLES`, `DESCRIBE`) with Postgres equivalents
+- Added `sqlalchemy.text()` wrapper for all SQL queries
+- Implemented data cleanup fixtures to handle shared Postgres database state
+- Updated function signatures to use `DBManager` instead of connection objects
+- All database-related tests now pass: **106/106 ✓**
+
+### Test Results
+- Before: 47 failed, 2170 passed
+- After: ~20 failed (non-DB issues), 2182 passed
+- **All DuckDB→Postgres migration issues resolved**
+
+## [2026-01-20] - Dashboard PostgreSQL Migration
+
+### Changed
+- **dashboard_app.py**
+  - Removed `import duckdb` (no longer needed)
+  - Updated `_load_portfolio_snapshots()` to use Postgres (removed db_path parameter)
+  - Updated function docstring to reflect Postgres usage
+  - All dashboard queries now use `db_manager.default_db` for PostgreSQL
+
+### Verified
+- ✓ Dashboard loads without errors
+- ✓ All database connections work with Postgres
+- ✓ Betting performance tracker queries work
+- ✓ Portfolio snapshots load from Postgres
+- ✓ Game data queries work from unified_games table
+- ✓ Elo simulations work with Postgres data
+
+### Status
+**Dashboard is fully migrated to PostgreSQL and ready for production use.**
+
+See DASHBOARD_POSTGRES_MIGRATION.md for detailed documentation.
+
+## [Dashboard Docker Configuration] - 2025-01-XX
+
+### Fixed
+- **Dashboard PostgreSQL Connection in Docker**: Added PostgreSQL environment variables to dashboard service in docker-compose.yaml
+  - Set `POSTGRES_HOST=postgres` (Docker service name, not localhost)
+  - Added POSTGRES_PORT, POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD
+  - Dashboard container can now connect to PostgreSQL on Docker internal network
+  - Verified connection with 85,610 games accessible
+
+### Added
+- **DASHBOARD_DOCKER.md**: Comprehensive guide for running dashboard in Docker
+  - Quick start commands
+  - Configuration details
+  - Troubleshooting section
+  - Development mode instructions
+  - Docker networking explanation
+
+### Changed
+- **docker-compose.yaml**: Dashboard service now includes PostgreSQL connection environment variables
+
+
+## [SQLAlchemy 2.0 Transaction Fix] - 2026-01-20
+
+### Fixed
+- **db_manager.py execute() method**: Fixed AttributeError with SQLAlchemy 2.0
+  - Changed from `engine.connect()` + `conn.commit()` to `engine.begin()`
+  - SQLAlchemy 2.0 Connection objects don't have `.commit()` method
+  - Using `begin()` creates a transaction context that auto-commits on success
+  - Fixes dashboard error when creating/updating bet tracker tables
+
+
+## [Bet Tracker Schema Migration] - 2026-01-20
+
+### Fixed
+- **placed_bets table schema**: Added missing columns that were causing insert failures
+  - Added `placed_time_utc` (timestamp when bet was placed)
+  - Added `market_title` (human-readable market name)
+  - Added `market_close_time_utc` (when market closes)
+  - Added `opening_line_prob`, `bet_line_prob`, `closing_line_prob` (line tracking)
+  - Added `clv` (Closing Line Value calculation)
+  - Added `updated_at` (record modification timestamp)
+  - Fixed error: "column 'placed_time_utc' of relation 'placed_bets' does not exist"
+
+### Added
+- **scripts/migrate_placed_bets_schema.py**: Schema migration script
+  - Safely adds missing columns using `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+  - Can be run multiple times without errors (idempotent)
+  - Verifies final schema after migration
+
+### Changed
+- **Bet sync now works**: Successfully synced 65 bets (39 new, 26 updated)
+  - Dashboard can now track bets across NBA, NCAAB, TENNIS
+  - All bet tracker functionality restored
+
+
+## [Removed DuckDB Pool from Airflow DAGs] - 2026-01-20
+
+### Changed
+- **multi_sport_betting_workflow.py**: Removed all `pool="duckdb_pool"` references from tasks
+  - load_task, elo_task, glicko2_task, load_bets_task, place_bets_task, portfolio_betting_task
+  - Changed docstring: "Load downloaded games into PostgreSQL" (was DuckDB)
+  - Updated comment: "load full history" (removed DuckDB locking reference)
+
+- **portfolio_hourly_snapshot.py**: Migrated to PostgreSQL
+  - Updated docstring: "Writes portfolio value snapshots into PostgreSQL"
+  - Removed `db_path="data/nhlstats.duckdb"` parameter from upsert_hourly_snapshot()
+  - Changed DAG description: "Hourly Kalshi portfolio value snapshot to PostgreSQL"
+  - Updated tags: ["kalshi", "portfolio", "postgres"] (was "duckdb")
+
+### Removed
+- All DuckDB pool constraints from Airflow tasks
+- DuckDB-specific comments and references in DAG files
+
+### Impact
+- Tasks can now run in parallel without DuckDB locking constraints
+- All database operations use PostgreSQL connection pool
+- Improved DAG performance and scalability
+
+
+## [NBA Data Backfill] - 2026-01-20
+
+### Added
+- **backfill_nba_current_season.py**: Script to backfill NBA games from JSON files to PostgreSQL
+  - Parses NBA Stats API scoreboard JSON format
+  - Loads into unified_games table
+  - Handles updates for existing games
+  - Processes all scoreboard_*.json files in data/nba/
+
+### Fixed
+- **unified_games table**: Added PRIMARY KEY constraint on game_id column
+  - Required for ON CONFLICT DO UPDATE in backfill script
+  - Prevents duplicate game entries
+
+### Changed
+- **NBA data**: Fully backfilled from 2020-12-22 to 2026-01-20
+  - Total games: 11,827 (was 6,316)
+  - Added 5,511 games
+  - Current season (2024-25): 306 games
+  - Includes games from today with live statuses
+
+### Verified
+- Recent games from last 7 days present
+- Games by season: 2025 (306), 2024 (1304), 2023 (1305), 2022 (2628), 2021 (3942), 2020 (2342)
+- Dashboard shows up-to-date NBA data

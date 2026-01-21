@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import duckdb
+from db_manager import DBManager, default_db
 
 sys.path.insert(0, str(Path(__file__).parent))
 from kalshi_betting import KalshiBetting
@@ -34,12 +34,7 @@ def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
 
 
 def _read_kalshkey() -> Tuple[str, Path]:
-    """Read Kalshi API key id and write a temp PEM file.
-
-    Returns:
-        (api_key_id, pem_path)
-    """
-
+    """Read Kalshi API key id and write a temp PEM file."""
     kalshkey_path = Path("kalshkey")
     if not kalshkey_path.exists():
         kalshkey_path = Path("/opt/airflow/kalshkey")
@@ -73,10 +68,9 @@ def _read_kalshkey() -> Tuple[str, Path]:
     return api_key_id, pem_path
 
 
-def create_bets_table(conn: duckdb.DuckDBPyConnection) -> None:
-    """Create bets tracking table if it doesn't exist (and migrate schema)."""
-
-    conn.execute(
+def create_bets_table(db: DBManager = default_db) -> None:
+    """Create bets tracking table if it doesn't exist."""
+    db.execute(
         """
         CREATE TABLE IF NOT EXISTS placed_bets (
             bet_id VARCHAR PRIMARY KEY,
@@ -90,37 +84,27 @@ def create_bets_table(conn: duckdb.DuckDBPyConnection) -> None:
             side VARCHAR,
             contracts INTEGER,
             price_cents INTEGER,
-            cost_dollars DOUBLE,
-            fees_dollars DOUBLE,
-            elo_prob DOUBLE,
-            market_prob DOUBLE,
-            edge DOUBLE,
+            cost_dollars DOUBLE PRECISION,
+            fees_dollars DOUBLE PRECISION,
+            elo_prob DOUBLE PRECISION,
+            market_prob DOUBLE PRECISION,
+            edge DOUBLE PRECISION,
             confidence VARCHAR,
-
-            -- Market metadata for UX
             market_title VARCHAR,
             market_close_time_utc TIMESTAMP,
-
-            -- CLV tracking (optional)
-            opening_line_prob DOUBLE,
-            bet_line_prob DOUBLE,
-            closing_line_prob DOUBLE,
-            clv DOUBLE,
-
-            status VARCHAR,  -- open, won, lost, settled
+            opening_line_prob DOUBLE PRECISION,
+            bet_line_prob DOUBLE PRECISION,
+            closing_line_prob DOUBLE PRECISION,
+            clv DOUBLE PRECISION,
+            status VARCHAR,
             settled_date DATE,
-            payout_dollars DOUBLE,
-            profit_dollars DOUBLE,
+            payout_dollars DOUBLE PRECISION,
+            profit_dollars DOUBLE PRECISION,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
-
-    # Migrations for existing DBs.
-    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS placed_time_utc TIMESTAMP")
-    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS market_title VARCHAR")
-    conn.execute("ALTER TABLE placed_bets ADD COLUMN IF NOT EXISTS market_close_time_utc TIMESTAMP")
 
 
 def load_fills_from_kalshi(client: KalshiBetting, days_back: int = 30) -> List[Dict]:
@@ -151,9 +135,8 @@ def get_market_status(client: KalshiBetting, ticker: str) -> Dict:
     return {}
 
 
-def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
-    """Sync all bets from Kalshi API to database."""
-
+def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default_db):
+    """Sync all bets from Kalshi API to PostgreSQL database."""
     api_key_id, private_key_path = _read_kalshkey()
 
     client = KalshiBetting(
@@ -162,46 +145,33 @@ def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
         max_bet_size=5.0,
         production=True,
     )
-    
-    # Load fills from Kalshi
+
     fills = load_fills_from_kalshi(client)
-    
     if not fills:
         print("⚠️  No fills found")
         return
-    
-    # Connect to database
-    conn = duckdb.connect(db_path)
-    create_bets_table(conn)
-    
-    # Load existing bets to avoid duplicates
-    existing_bets = set(conn.execute("SELECT bet_id FROM placed_bets").fetchdf()['bet_id'].tolist())
-    
+
+    create_bets_table(db)
+    existing_bets_df = db.fetch_df("SELECT bet_id FROM placed_bets")
+    existing_bets = set(existing_bets_df['bet_id'].tolist()) if not existing_bets_df.empty else set()
+
     added_count = 0
     updated_count = 0
-    
+
     for fill in fills:
         ticker = fill.get('ticker', '')
         trade_id = fill.get('trade_id', '')
         bet_id = f"{ticker}_{trade_id}"
-        
-        # Parse ticker to determine sport
+
         sport = 'UNKNOWN'
-        if 'NBAGAME' in ticker:
-            sport = 'NBA'
-        elif 'NHLGAME' in ticker:
-            sport = 'NHL'
-        elif 'MLBGAME' in ticker:
-            sport = 'MLB'
-        elif 'NFLGAME' in ticker:
-            sport = 'NFL'
-        elif 'NCAAMBGAME' in ticker:
-            sport = 'NCAAB'
-        elif 'ATPMATCH' in ticker or 'WTAMATCH' in ticker:
-            sport = 'TENNIS'
-        elif 'EPLGAME' in ticker:
-            sport = 'EPL'
-        
+        if 'NBAGAME' in ticker: sport = 'NBA'
+        elif 'NHLGAME' in ticker: sport = 'NHL'
+        elif 'MLBGAME' in ticker: sport = 'MLB'
+        elif 'NFLGAME' in ticker: sport = 'NFL'
+        elif 'NCAAMBGAME' in ticker: sport = 'NCAAB'
+        elif 'ATPMATCH' in ticker or 'WTAMATCH' in ticker: sport = 'TENNIS'
+        elif 'EPLGAME' in ticker: sport = 'EPL'
+
         side = fill.get('side', '')
         count = fill.get('count', 0)
         price = fill.get('yes_price', 0) if side == 'yes' else fill.get('no_price', 0)
@@ -209,107 +179,107 @@ def sync_bets_to_database(db_path: str = 'data/nhlstats.duckdb'):
         created_time = fill.get('created_time', '')
         placed_time_utc = _parse_iso_utc(created_time)
         placed_date = placed_time_utc.date().isoformat() if placed_time_utc else None
-        
-        # Get market status
+
         market_info = get_market_status(client, ticker)
         market_status = market_info.get('status', 'unknown')
         market_result = market_info.get('result', '')
         market_title = market_info.get('title')
         market_close_time_utc = _parse_iso_utc(market_info.get('close_time'))
-        
-        # Determine bet status
+
+        # Calculate bet_line_prob from the price at time of fill
+        # For Kalshi: if betting YES at price P, bet_line_prob = (100 - P) / 100
+        # If betting NO at price P, bet_line_prob = P / 100
+        bet_line_prob = None
+        if side and price:
+            if side == 'yes':
+                bet_line_prob = (100 - price) / 100
+            elif side == 'no':
+                bet_line_prob = price / 100
+
+        # Calculate closing_line_prob if market is closed
+        closing_line_prob = None
+        if market_status in ['closed', 'finalized'] and market_result:
+            # For closed markets, the closing line is implied by the result
+            # If result is 'yes', closing prob of yes winning = 1.0
+            # If result is 'no', closing prob of yes winning = 0.0
+            if market_result == 'yes':
+                closing_line_prob = 1.0 if side == 'yes' else 0.0
+            elif market_result == 'no':
+                closing_line_prob = 0.0 if side == 'yes' else 1.0
+
+        # Calculate CLV if we have both probabilities
+        clv = None
+        if bet_line_prob is not None and closing_line_prob is not None:
+            clv = bet_line_prob - closing_line_prob
+
         if market_status in ['closed', 'finalized']:
             if market_result == side:
-                status = 'won'
-                payout = count * 1.0  # $1 per contract
+                status, payout = 'won', count * 1.0
                 profit = payout - cost
             elif market_result and market_result != side:
-                status = 'lost'
-                payout = 0
-                profit = -cost
+                status, payout, profit = 'lost', 0, -cost
             else:
-                status = 'settled'
-                payout = 0
-                profit = -cost
+                status, payout, profit = 'settled', 0, -cost
             settled_date = datetime.now().strftime('%Y-%m-%d')
         else:
-            status = 'open'
-            payout = None
-            profit = None
-            settled_date = None
-        
+            status, payout, profit, settled_date = 'open', None, None, None
+
         if bet_id in existing_bets:
-            # Update existing bet
-            conn.execute("""
+            db.execute("""
                 UPDATE placed_bets
-                SET status = ?,
-                    settled_date = ?,
-                    payout_dollars = ?,
-                    profit_dollars = ?,
-                    placed_time_utc = COALESCE(placed_bets.placed_time_utc, ?),
-                    market_title = COALESCE(placed_bets.market_title, ?),
-                    market_close_time_utc = COALESCE(placed_bets.market_close_time_utc, ?),
+                SET status = :status,
+                    settled_date = :settled_date,
+                    payout_dollars = :payout,
+                    profit_dollars = :profit,
+                    placed_time_utc = COALESCE(placed_bets.placed_time_utc, :placed_time_utc),
+                    market_title = COALESCE(placed_bets.market_title, :market_title),
+                    market_close_time_utc = COALESCE(placed_bets.market_close_time_utc, :market_close_time_utc),
+                    bet_line_prob = COALESCE(placed_bets.bet_line_prob, :bet_line_prob),
+                    closing_line_prob = COALESCE(placed_bets.closing_line_prob, :closing_line_prob),
+                    clv = COALESCE(placed_bets.clv, :clv),
                     updated_at = CURRENT_TIMESTAMP
-                WHERE bet_id = ?
-            """, [
-                status,
-                settled_date,
-                payout,
-                profit,
-                placed_time_utc,
-                market_title,
-                market_close_time_utc,
-                bet_id,
-            ])
+                WHERE bet_id = :bet_id
+            """, {
+                'status': status, 'settled_date': settled_date, 'payout': payout,
+                'profit': profit, 'placed_time_utc': placed_time_utc,
+                'market_title': market_title, 'market_close_time_utc': market_close_time_utc,
+                'bet_line_prob': bet_line_prob, 'closing_line_prob': closing_line_prob, 'clv': clv,
+                'bet_id': bet_id
+            })
             updated_count += 1
         else:
-            # Insert new bet
-            conn.execute("""
+            db.execute("""
                 INSERT INTO placed_bets (
                     bet_id, sport, placed_date, placed_time_utc, ticker, side, contracts,
                     price_cents, cost_dollars, fees_dollars, status,
-                    settled_date, payout_dollars, profit_dollars, market_title, market_close_time_utc
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, [
-                bet_id,
-                sport,
-                placed_date,
-                placed_time_utc,
-                ticker,
-                side,
-                count,
-                price,
-                cost,
-                0,
-                status,
-                settled_date,
-                payout,
-                profit,
-                market_title,
-                market_close_time_utc,
-            ])
+                    settled_date, payout_dollars, profit_dollars, market_title, market_close_time_utc,
+                    bet_line_prob, closing_line_prob, clv
+                ) VALUES (:bet_id, :sport, :placed_date, :placed_time_utc, :ticker, :side, :count,
+                         :price, :cost, 0, :status, :settled_date, :payout, :profit, :market_title, :market_close_time_utc,
+                         :bet_line_prob, :closing_line_prob, :clv)
+            """, {
+                'bet_id': bet_id, 'sport': sport, 'placed_date': placed_date,
+                'placed_time_utc': placed_time_utc, 'ticker': ticker, 'side': side,
+                'count': count, 'price': price, 'cost': cost, 'status': status,
+                'settled_date': settled_date, 'payout': payout, 'profit': profit,
+                'market_title': market_title, 'market_close_time_utc': market_close_time_utc,
+                'bet_line_prob': bet_line_prob, 'closing_line_prob': closing_line_prob, 'clv': clv
+            })
             added_count += 1
-    
-    conn.close()
-    
-    print(f"\n✓ Synced bets to database:")
+
+    print(f"\n✓ Synced bets to PostgreSQL:")
     print(f"  Added: {added_count}")
     print(f"  Updated: {updated_count}")
-    
     return added_count, updated_count
 
 
-def get_betting_summary(db_path: str = 'data/nhlstats.duckdb', date: str = None):
-    """Get summary of betting performance."""
-    conn = duckdb.connect(db_path, read_only=True)
-    
-    if date:
-        where_clause = f"WHERE placed_date = '{date}'"
-    else:
-        where_clause = ""
-    
-    summary = conn.execute(f"""
-        SELECT 
+def get_betting_summary(db_path: Optional[str] = None, db: DBManager = default_db, date: str = None):
+    """Get summary of betting performance from PostgreSQL."""
+    where_clause = f"WHERE placed_date = :date" if date else ""
+    params = {'date': date} if date else {}
+
+    query = f"""
+        SELECT
             COUNT(*) as total_bets,
             SUM(contracts) as total_contracts,
             SUM(cost_dollars) as total_cost,
@@ -320,20 +290,14 @@ def get_betting_summary(db_path: str = 'data/nhlstats.duckdb', date: str = None)
             AVG(CASE WHEN status IN ('won', 'lost') THEN profit_dollars ELSE NULL END) as avg_profit_per_bet
         FROM placed_bets
         {where_clause}
-    """).fetchdf()
-    
-    conn.close()
-    
-    return summary
+    """
+    return db.fetch_df(query, params)
+
 
 
 if __name__ == '__main__':
-    print("Syncing bets from Kalshi API to database...")
+    print("Syncing bets from Kalshi API to PostgreSQL...")
     sync_bets_to_database()
-    
-    print("\n" + "="*80)
-    print("BETTING SUMMARY")
-    print("="*80)
-    
+    print("\n" + "="*80 + "\nBETTING SUMMARY\n" + "="*80)
     summary = get_betting_summary()
     print(summary.to_string(index=False))

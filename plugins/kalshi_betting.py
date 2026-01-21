@@ -18,7 +18,7 @@ from cryptography.hazmat.primitives.asymmetric import padding
 from order_deduper import OrderDeduper
 
 class KalshiBetting:
-    def __init__(self, api_key_id: str, private_key_path: str, max_bet_size: float = 5.0, 
+    def __init__(self, api_key_id: str, private_key_path: str, max_bet_size: float = 5.0,
                  production: bool = True, odds_api_key: Optional[str] = None, dedupe_dir: Optional[str] = None):
         self.api_key_id = api_key_id
         self.max_bet_size, self.min_bet_size, self.max_position_pct = max_bet_size, 2.0, 0.05
@@ -29,27 +29,27 @@ class KalshiBetting:
         with open(private_key_path, "rb") as f:
             self.private_key = serialization.load_pem_private_key(f.read(), password=None, backend=default_backend())
         print(f"✅ Connected to {self.base_url}")
-    
+
     def _create_signature(self, timestamp: str, method: str, path: str) -> str:
         path_without_query = path.split('?')[0]
         message = f"{timestamp}{method}{path_without_query}".encode('utf-8')
         signature = self.private_key.sign(message, padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
         return base64.b64encode(signature).decode('utf-8')
-    
+
     def _get_headers(self, method: str, path: str) -> Dict[str, str]:
         timestamp = str(int(datetime.now().timestamp() * 1000))
         return {'KALSHI-ACCESS-KEY': self.api_key_id, 'KALSHI-ACCESS-SIGNATURE': self._create_signature(timestamp, method, path), 'KALSHI-ACCESS-TIMESTAMP': timestamp, 'Content-Type': 'application/json'}
-    
+
     def _get(self, path: str) -> Dict:
         response = requests.get(self.base_url + path, headers=self._get_headers('GET', path))
         response.raise_for_status()
         return response.json()
-    
+
     def _post(self, path: str, data: Dict) -> Dict:
         response = requests.post(self.base_url + path, headers=self._get_headers('POST', path), json=data)
         response.raise_for_status()
         return response.json()
-    
+
     def get_balance(self) -> Tuple[float, float]:
         try:
             response = self._get('/trade-api/v2/portfolio/balance')
@@ -57,14 +57,14 @@ class KalshiBetting:
         except Exception as e:
             print(f"⚠️  Failed to get balance: {e}")
             return 100.0, 100.0
-    
+
     def get_market_details(self, ticker: str) -> Optional[Dict]:
         try:
             return self._get(f'/trade-api/v2/markets/{ticker}').get('market')
         except Exception as e:
             print(f"⚠️  Failed to get market {ticker}: {e}")
             return None
-    
+
     def verify_game_not_started(self, home_team: str, away_team: str, sport: str) -> bool:
         """
         Verify game has not started using The Odds API.
@@ -74,7 +74,7 @@ class KalshiBetting:
         if not self.odds_api_key:
             print(f"   ⚠️  No Odds API key - cannot verify game start time (proceeding anyway)")
             return True
-        
+
         try:
             # Map sport to Odds API sport key
             sport_map = {
@@ -88,26 +88,26 @@ class KalshiBetting:
             if not sport_key:
                 print(f"   ⚠️  Unknown sport {sport} - cannot verify game start")
                 return True
-            
+
             # Get scores (includes in-progress and completed games)
             url = f'https://api.the-odds-api.com/v4/sports/{sport_key}/scores/'
             params = {'apiKey': self.odds_api_key, 'daysFrom': 1}
             response = requests.get(url, params=params, timeout=5)
-            
+
             if response.status_code != 200:
                 print(f"   ⚠️  Could not check game status: {response.status_code}")
                 return True
-            
+
             scores = response.json()
-            
+
             # Normalize team names for matching
             home_norm = home_team.lower().replace(' ', '')
             away_norm = away_team.lower().replace(' ', '')
-            
+
             for game in scores:
                 game_home = game.get('home_team', '').lower().replace(' ', '')
                 game_away = game.get('away_team', '').lower().replace(' ', '')
-                
+
                 # Check if this is our game
                 if (home_norm in game_home or game_home in home_norm) and \
                    (away_norm in game_away or game_away in away_norm):
@@ -115,14 +115,14 @@ class KalshiBetting:
                     if game.get('scores') or game.get('completed'):
                         print(f"   ❌ Game has STARTED/COMPLETED: {game.get('commence_time')}")
                         return False
-            
+
             # Game not found in started/completed games
             return True
-            
+
         except Exception as e:
             print(f"   ⚠️  Error checking game start: {e}")
             return True  # Fail open to avoid blocking valid bets
-    
+
     def is_game_started(self, market: Dict) -> bool:
         """Legacy check - only checks Kalshi market status (NOT RELIABLE)"""
         if market.get('status', '').lower() in ['closed', 'settled', 'finalized']:
@@ -134,28 +134,58 @@ class KalshiBetting:
             return datetime.now(timezone.utc) >= datetime.fromisoformat(close_time.replace('Z', '+00:00'))
         except:
             return False
-    
+
     def calculate_bet_size(self, confidence: float, edge: float, balance: float) -> float:
         bet_size = balance * (edge / 4.0)
         return round(max(self.min_bet_size, min(self.max_bet_size, balance * self.max_position_pct, bet_size)), 2)
-    
+
+    def get_open_positions(self) -> List[Dict]:
+        """Fetch all open positions from Kalshi API."""
+        try:
+            # The official endpoint for positions
+            response = self._get('/trade-api/v2/portfolio/positions')
+            return response.get('positions', [])
+        except Exception as e:
+            print(f"⚠️  Failed to get open positions: {e}")
+            return []
+
+    def get_match_prefix(self, ticker: str) -> str:
+        """Extract the match/event prefix from a ticker.
+        Example: KXATPMATCH-26JAN20ALCHAN-ALC -> KXATPMATCH-26JAN20ALCHAN
+        """
+        parts = ticker.split('-')
+        if len(parts) >= 2:
+            # Join all parts except the last one (the outcome code)
+            return "-".join(parts[:-1])
+        return ticker
+
     def place_bet(self, ticker: str, side: str, amount: float, price: Optional[int] = None, trade_date: Optional[str] = None) -> Optional[Dict]:
         """
-        Place a limit order on Kalshi.
-        
-        IMPORTANT:
-        - Must provide yes_price or no_price (no market orders allowed)
-        - If price not provided, will fetch from market
-        - Total cost = contracts × price (not just contracts)
+        Place a limit order on Kalshi with match-level locking.
         """
-        # Cross-process-safe dedupe: never place more than one order per ticker,
-        # and never place both YES/NO on the same ticker.
         if trade_date is None:
             trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+        # 1. Local Filesystem Lock (Deduper)
         reservation = self._deduper.reserve(trade_date=trade_date, ticker=ticker, side=side)
         if not reservation.reserved:
-            print(f"   ⚠️  Skipping duplicate/hedge order: {ticker} ({reservation.reason})")
+            print(f"   ⚠️  Skipping: {ticker} locally locked ({reservation.reason})")
             return None
+
+        # 2. Live API Lock (Check for open positions on this MATCH)
+        open_positions = self.get_open_positions()
+        match_prefix = self.get_match_prefix(ticker)
+
+        for pos in open_positions:
+            pos_ticker = pos.get('ticker', '')
+            if self.get_match_prefix(pos_ticker) == match_prefix:
+                print(f"   ❌ Skipping: Already have an open position on this match ([{pos_ticker}])")
+                # Release the local lock since we didn't actually bet
+                try:
+                    reservation.lock_path.unlink()
+                except:
+                    pass
+                return None
 
         # Get current market price if not provided
         if price is None:
@@ -167,16 +197,16 @@ class KalshiBetting:
             if not price:
                 print(f"   ❌ No {side}_ask price available")
                 return None
-        
+
         # Calculate contracts to buy (amount is in dollars)
         # Cost = contracts × price, so contracts = (amount * 100) / price
         contracts = int((amount * 100) / price)
         if contracts < 1:
             print(f"   ❌ Amount ${amount:.2f} too small for price {price}¢")
             return None
-        
+
         actual_cost = contracts * price / 100
-        
+
         order_data = {
             'ticker': ticker,
             'action': 'buy',
@@ -186,7 +216,7 @@ class KalshiBetting:
             f'{side}_price': price,
             'client_order_id': str(uuid.uuid4())
         }
-        
+
         try:
             response = self._post('/trade-api/v2/portfolio/orders', order_data)
             print(f"   ✅ Order placed: {ticker} {side.upper()} {contracts} contracts @ {price}¢ = ${actual_cost:.2f}")
@@ -194,7 +224,7 @@ class KalshiBetting:
         except Exception as e:
             print(f"   ❌ Order failed: {e}")
             return None
-    
+
     def process_bet_recommendations(self, recommendations: List[Dict], sport_filter: Optional[List[str]] = None, min_confidence: float = 0.75, min_edge: float = 0.05, dry_run: bool = False, trade_date: Optional[str] = None) -> Dict:
         placed, skipped, errors = [], [], []
         if trade_date is None:
@@ -216,19 +246,19 @@ class KalshiBetting:
             market = self.get_market_details(ticker)
             if not market:
                 errors.append(f"Market not found: {ticker}"); continue
-            
+
             # CRITICAL: Verify game has not started using The Odds API
             sport = rec.get('sport', 'NBA')
             if sport.lower() != 'tennis':
                 if not self.verify_game_not_started(rec['home_team'], rec['away_team'], sport):
                     skipped.append({'rec': rec, 'reason': 'Game already started'}); continue
-            
+
             if self.is_game_started(market):
                 skipped.append({'rec': rec, 'reason': 'Market closed'}); continue
             bet_size = self.calculate_bet_size(elo_prob, edge, balance)
             if bet_size < self.min_bet_size:
                 skipped.append({'rec': rec, 'reason': f'Insufficient balance'}); continue
-            
+
             # Determine side (YES or NO)
             if sport.lower() == 'tennis':
                 # For tennis: check if YES means the player we're betting on wins
@@ -253,7 +283,7 @@ class KalshiBetting:
             else:
                 # Team sports: home/away
                 side = 'yes' if rec['bet_on'] == 'home' else 'no'
-            
+
             # Format match info
             if sport.lower() == 'tennis':
                 match_info = rec.get('matchup', 'Unknown match')
@@ -261,7 +291,7 @@ class KalshiBetting:
             else:
                 match_info = f"{rec['away_team']} @ {rec['home_team']}"
                 bet_player = rec['bet_on']
-            
+
             print(f"🎯 {match_info}\n   Bet: {bet_player}, Side: {side.upper()}, Size: ${bet_size:.2f}, Confidence: {elo_prob:.1%}, Edge: {edge:.1%}")
             if not dry_run:
                 result = self.place_bet(ticker, side, bet_size, trade_date=trade_date)

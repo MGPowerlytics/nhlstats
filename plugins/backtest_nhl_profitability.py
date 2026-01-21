@@ -39,9 +39,9 @@ except ImportError:
         calculate_trueskill_probabilities,
     )
 try:
-    from lift_gain_analysis import get_current_season_start
-except ImportError:
     from plugins.lift_gain_analysis import get_current_season_start
+except ImportError:
+    from lift_gain_analysis import get_current_season_start
 
 
 def parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
