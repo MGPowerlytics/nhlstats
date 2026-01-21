@@ -2,37 +2,73 @@
 
 A production-grade, automated sports betting system powered by Airflow, PostgreSQL, and Kelly Criterion portfolio management.
 
-## 📂 Project Structure
+## 🚀 Getting Started
 
-- **`dags/`**: Airflow DAGs for automated workflows.
-- **`plugins/`**: Core logic (Elo ratings, Market fetching, Betting engines).
-- **`scripts/`**: Utility scripts for backfilling, analysis, and ad-hoc tasks.
-- **`docs/`**: Detailed system documentation and guides.
-- **`reports/`**: Historical analysis, backtest results, and fix logs.
-- **`data/`**: Local data storage (JSON/CSV archives).
-- **`dashboard_app.py`**: Streamlit dashboard for monitoring performance.
+### 1. Installation
+```bash
+# Clone the repository
+git clone https://github.com/your-org/nhlstats.git
+cd nhlstats
 
-## 🚀 Quick Start
+# Install dependencies
+pip install -r requirements.txt
+```
 
-### 1. Betting Strategy
-See [docs/BETTING_STRATEGY.md](docs/BETTING_STRATEGY.md) for the core methodology, including:
-- Sharp Odds Confirmation (Tennis, NHL, Ligue 1)
-- Elo Value Betting (NBA, NFL, MLB)
-- Portfolio Management (Quarter Kelly)
-
-### 2. Dashboard
+### 2. Run the Dashboard
+Visualize model performance and lift/gain analysis.
 ```bash
 ./run_dashboard.sh
 ```
-See [docs/DASHBOARD_QUICKSTART.md](docs/DASHBOARD_QUICKSTART.md) for more details.
+See [**Dashboard Guide**](docs/DASHBOARD_GUIDE.md) for details.
 
-### 3. Airflow Automation
-The system runs daily at 5:00 AM ET via the `multi_sport_betting_workflow` DAG.
-See [docs/SYSTEM_OVERVIEW.md](docs/SYSTEM_OVERVIEW.md) for architectural details.
+### 3. Run the Automation
+The system uses Airflow for daily data ingestion and betting.
+```bash
+docker compose up -d
+```
+See [**System Overview**](docs/SYSTEM_OVERVIEW.md) for architecture.
 
-## 🛠️ Key Components
+---
 
-- **Unified Database**: PostgreSQL (`unified_games`, `game_odds`, `placed_bets`).
-- **Naming Resolver**: `plugins/naming_resolver.py` handles entity resolution across data sources.
-- **Odds Comparator**: `plugins/odds_comparator.py` identifies value bets against sharp bookmakers.
-- **Kalshi Betting**: `plugins/kalshi_betting.py` handles execution with match-level locking.
+## 📚 Documentation
+
+### Core Guides
+- [**Betting Strategy**](docs/BETTING_STRATEGY.md): The math behind the money (Elo, Kelly, Sharp Confirmation).
+- [**Dashboard Guide**](docs/DASHBOARD_GUIDE.md): How to use the Streamlit interface.
+- [**System Overview**](docs/SYSTEM_OVERVIEW.md): Architecture, DAGs, and Data Flow.
+- [**Troubleshooting**](docs/TROUBLESHOOTING.md): Fix common issues.
+
+### Integration Guides
+- [**Kalshi Betting**](docs/KALSHI_BETTING_GUIDE.md)
+- [**BetMGM Integration**](docs/BETMGM_INTEGRATION_GUIDE.md)
+- [**Portfolio Management**](docs/PORTFOLIO_BETTING.md)
+
+### Developer Skills & SOPs
+*Located in `.github/skills/`*
+- [**Adding a New Sport**](.github/skills/adding-new-sport/SKILL.md)
+- [**Airflow DAG Patterns**](.github/skills/airflow-dag-patterns/SKILL.md)
+- [**Database Operations**](.github/skills/database-operations/SKILL.md)
+- [**Testing Patterns**](.github/skills/testing-patterns/SKILL.md)
+
+---
+
+## 🏗️ Repository Structure
+
+```plaintext
+├── dags/                  # Airflow workflows (DAGs)
+├── plugins/               # Core logic (Elo, Betting, API)
+├── scripts/               # Utility scripts (Backfills, Analysis)
+├── tests/                 # Unit and Integration tests
+├── docs/                  # Detailed documentation
+├── reports/               # Historical analysis and logs
+├── data/                  # Local data storage
+└── dashboard_app.py       # Streamlit entry point
+```
+
+## 🧪 Testing
+
+Run the full test suite (including documentation integrity):
+```bash
+pytest
+```
+See [**Testing Patterns**](.github/skills/testing-patterns/SKILL.md) for more.

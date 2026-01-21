@@ -29,19 +29,19 @@
 for game in historical_games_in_chronological_order:
     # 1. Predict using ratings from games 1 through N-1
     prediction = elo.predict(home, away)
-    
+
     # 2. Store prediction
     predictions.append(prediction)
-    
+
     # 3. Update ratings AFTER prediction
     elo.update(home, away, outcome)
 ```
 
 ## Key Validation Points
 
-✅ **Threshold Optimization** - Lift/gain analysis uses correct temporal order  
-✅ **Production Betting** - Today's bets use yesterday's ratings  
-✅ **Historical Analysis** - No look-ahead bias in backtests  
+✅ **Threshold Optimization** - Lift/gain analysis uses correct temporal order
+✅ **Production Betting** - Today's bets use yesterday's ratings
+✅ **Historical Analysis** - No look-ahead bias in backtests
 ✅ **Rating Updates** - Only happen AFTER predictions made
 
 ## Test Highlights

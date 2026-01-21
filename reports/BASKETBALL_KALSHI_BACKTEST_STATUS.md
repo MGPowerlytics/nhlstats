@@ -1,6 +1,6 @@
 # Basketball Kalshi Backtesting - Status Report
 
-**Date:** January 20, 2026  
+**Date:** January 20, 2026
 **Task:** Backtest NBA, NCAAB, and WNCAAB using historical Kalshi market data
 
 ---
@@ -164,11 +164,11 @@ Catalog Error: Table with name nba_games does not exist!
 for game in historical_games_in_order:
     # 1. Predict using current Elo
     prediction = elo.predict(home, away)
-    
+
     # 2. Determine bet
     if prediction > threshold and edge > min_edge:
         place_bet()
-    
+
     # 3. Update Elo AFTER prediction
     elo.update(home, away, outcome)
 ```
@@ -283,7 +283,7 @@ for game in historical_games_in_order:
 kalshi_markets       -- Market metadata (ticker, teams, results)
 kalshi_trades        -- Trade tape (price, volume, time)
 
--- Game data  
+-- Game data
 wncaab_games         -- Women's NCAA Basketball (6,982 games)
 ncaab_games          -- Men's NCAA Basketball (need to verify count)
 [nba_games]          -- NBA (NOT YET CREATED)
@@ -406,7 +406,7 @@ python -m plugins.kalshi_historical_data --mode trades \
 python -m plugins.kalshi_historical_data --mode markets \
     --series-ticker KXNBAGAME --start 2024-10-01 --end 2025-01-20
 
-# Fetch NBA trades  
+# Fetch NBA trades
 python -m plugins.kalshi_historical_data --mode trades \
     --series-ticker KXNBAGAME --start 2024-10-01 --end 2025-01-20
 ```
@@ -467,6 +467,6 @@ print(f'WNCAAB games: {result[0]:,}')
 
 ---
 
-**Created:** January 20, 2026  
-**Author:** Basketball Betting System  
+**Created:** January 20, 2026
+**Author:** Basketball Betting System
 **Status:** Awaiting trade data backfill

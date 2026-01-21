@@ -1,6 +1,6 @@
 # Elo Temporal Integrity Audit Report
 
-**Date:** January 19, 2026  
+**Date:** January 19, 2026
 **Status:** ✅ **VERIFIED - NO DATA LEAKAGE**
 
 ---
@@ -75,19 +75,19 @@ def update(self, home_team, away_team, outcome):
 ```python
 def calculate_elo_predictions(sport: str, games_df: pd.DataFrame):
     """Calculate Elo predictions for all games."""
-    
+
     # Initialize Elo with no history
     elo = EloClass()
     predictions = []
-    
+
     for game in games:
         # STEP 1: Predict using ratings from PREVIOUS games only
         prob = elo.predict(game["home_team"], game["away_team"])
         predictions.append(prob)
-        
+
         # STEP 2: Update ratings AFTER prediction
         elo.update(game["home_team"], game["away_team"], game["outcome"])
-    
+
     return predictions
 ```
 
@@ -114,14 +114,14 @@ def test_lift_gain_analysis_integrity(self):
 ```python
 def update_elo_ratings(sport, **context):
     """Update Elo ratings from all historical games."""
-    
+
     # Load ALL past games
     games_df = load_historical_games()
-    
+
     # Process in chronological order
     for game in games_df.sort_values('game_date'):
         elo.update(home_team, away_team, outcome)
-    
+
     # Save current ratings
     context["task_instance"].xcom_push(key=f"{sport}_elo_ratings", value=elo.ratings)
 ```
@@ -130,21 +130,21 @@ def update_elo_ratings(sport, **context):
 ```python
 def identify_good_bets(sport, **context):
     """Identify betting opportunities for TODAY'S games."""
-    
+
     # Pull ratings (from Step 1 - based on historical games)
     elo_ratings = context["task_instance"].xcom_pull(key=f"{sport}_elo_ratings")
-    
+
     # Load TODAY'S markets (games that haven't started)
     markets = context["task_instance"].xcom_pull(key=f"{sport}_markets")
-    
+
     # Create Elo system and restore ratings
     elo_system = EloClass()
     elo_system.ratings = elo_ratings  # Ratings from yesterday and before
-    
+
     for market in markets:
         # Predict TODAY'S game using YESTERDAY'S ratings
         prob = elo_system.predict(home_team, away_team)
-        
+
         # Do NOT update ratings (game hasn't happened yet)
         if prob > threshold:
             recommend_bet()
@@ -177,7 +177,7 @@ for game in historical_games_in_order:
     # 1. Predict BEFORE updating
     pred = elo.predict(game.home, game.away)
     predictions.append(pred)
-    
+
     # 2. Update AFTER prediction stored
     elo.update(game.home, game.away, game.outcome)
 
@@ -362,6 +362,6 @@ When adding new Elo-based predictions:
 
 ---
 
-*Generated: January 19, 2026*  
-*Last Verified: January 19, 2026*  
+*Generated: January 19, 2026*
+*Last Verified: January 19, 2026*
 *Next Audit: As needed when modifying prediction logic*
