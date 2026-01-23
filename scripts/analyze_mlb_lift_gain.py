@@ -13,7 +13,7 @@ from pathlib import Path
 
 # Add plugins to path
 sys.path.append('plugins')
-from mlb_elo_rating import MLBEloRating
+from plugins.elo import MLBEloRating
 
 def load_mlb_games():
     """Load MLB games from DuckDB."""

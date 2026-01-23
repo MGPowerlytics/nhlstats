@@ -89,35 +89,35 @@ def scrape_oddsportal_season(season='2023-2024'):
     Scrape NHL odds from Odds Portal for a specific season.
     """
     base_url = f"https://www.oddsportal.com/hockey/usa/nhl-{season}/results/"
-    
+
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
     }
-    
+
     all_games = []
     page = 1
-    
+
     while True:
         url = f"{base_url}#/page/{page}/"
         response = requests.get(url, headers=headers)
-        
+
         if response.status_code != 200:
             break
-        
+
         soup = BeautifulSoup(response.content, 'html.parser')
-        
+
         # Find game rows
         games = soup.find_all('tr', class_='odd') + soup.find_all('tr', class_='even')
-        
+
         if not games:
             break
-        
+
         for game in games:
             # Extract game data (simplified)
             date = game.find('td', class_='table-time').text.strip()
             teams = game.find('td', class_='name').text.strip().split(' - ')
             odds = game.find_all('td', class_='odds-nowrp')
-            
+
             game_data = {
                 'date': date,
                 'home_team': teams[0],
@@ -126,10 +126,10 @@ def scrape_oddsportal_season(season='2023-2024'):
                 'away_ml': odds[1].text if len(odds) > 1 else None
             }
             all_games.append(game_data)
-        
+
         page += 1
         time.sleep(2)  # Be polite, avoid rate limiting
-    
+
     return pd.DataFrame(all_games)
 ```
 
@@ -153,10 +153,10 @@ def download_sbr_odds(season):
     """
     url = seasons[season]
     df = pd.read_excel(url)
-    
+
     # Clean column names
     df.columns = ['date', 'rot', 'vh', 'team', 'final', 'open', 'close', 'ml']
-    
+
     return df
 ```
 
@@ -204,7 +204,7 @@ def load_historical_odds(csv_path, db_path='data/nhlstats.duckdb'):
     Load historical odds into database.
     """
     conn = duckdb.connect(db_path)
-    
+
     # Create table
     conn.execute("""
         CREATE TABLE IF NOT EXISTS historical_betting_lines (
@@ -221,13 +221,13 @@ def load_historical_odds(csv_path, db_path='data/nhlstats.duckdb'):
             PRIMARY KEY (game_date, home_team, away_team)
         )
     """)
-    
+
     # Load CSV
     df = pd.read_csv(csv_path)
-    
+
     # Insert
     conn.execute("INSERT INTO historical_betting_lines SELECT * FROM df")
-    
+
     print(f"✅ Loaded {len(df)} games with betting lines")
     conn.close()
 ```

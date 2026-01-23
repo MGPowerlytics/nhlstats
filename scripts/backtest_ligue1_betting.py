@@ -8,7 +8,7 @@ Tests Elo-based betting strategies for French Ligue 1 using simulated odds.
 import sys
 sys.path.insert(0, 'plugins')
 
-from ligue1_elo_rating import Ligue1EloRating
+from plugins.elo import Ligue1EloRating
 import duckdb
 import pandas as pd
 

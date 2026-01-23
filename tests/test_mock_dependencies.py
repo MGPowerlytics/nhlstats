@@ -4,7 +4,7 @@ import pytest
 import sys
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 import tempfile
 from datetime import datetime, timedelta
 import duckdb
@@ -313,7 +313,7 @@ class TestEloRatingFunctionCalls:
 
     def test_nba_elo_full_workflow(self):
         """Test full NBA Elo workflow."""
-        from nba_elo_rating import NBAEloRating
+        from plugins.elo import NBAEloRating
 
         elo = NBAEloRating(k_factor=20, home_advantage=100)
 
@@ -333,7 +333,7 @@ class TestEloRatingFunctionCalls:
 
     def test_mlb_elo_full_workflow(self):
         """Test full MLB Elo workflow."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
 
@@ -352,7 +352,7 @@ class TestEloRatingFunctionCalls:
 
     def test_nfl_elo_full_workflow(self):
         """Test full NFL Elo workflow."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
 
@@ -371,7 +371,7 @@ class TestEloRatingFunctionCalls:
 
     def test_ncaab_elo_full_workflow(self):
         """Test full NCAAB Elo workflow."""
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
 
@@ -387,7 +387,7 @@ class TestEloRatingFunctionCalls:
 
     def test_nhl_elo_full_workflow(self):
         """Test full NHL Elo workflow."""
-        from nhl_elo_rating import NHLEloRating
+        from plugins.elo import NHLEloRating
 
         elo = NHLEloRating(k_factor=10, home_advantage=50)
 
@@ -399,7 +399,7 @@ class TestEloRatingFunctionCalls:
 
     def test_epl_elo_full_workflow(self):
         """Test full EPL Elo workflow."""
-        from epl_elo_rating import EPLEloRating
+        from plugins.elo import EPLEloRating
 
         elo = EPLEloRating()
 
@@ -408,7 +408,7 @@ class TestEloRatingFunctionCalls:
 
     def test_ligue1_elo_full_workflow(self):
         """Test full Ligue1 Elo workflow."""
-        from ligue1_elo_rating import Ligue1EloRating
+        from plugins.elo import Ligue1EloRating
 
         elo = Ligue1EloRating()
 
@@ -417,7 +417,7 @@ class TestEloRatingFunctionCalls:
 
     def test_tennis_elo_full_workflow(self):
         """Test full Tennis Elo workflow."""
-        from tennis_elo_rating import TennisEloRating
+        from plugins.elo import TennisEloRating
 
         elo = TennisEloRating()
 

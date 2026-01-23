@@ -27,19 +27,17 @@ import duckdb
 import json
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
-import matplotlib.pyplot as plt
-import seaborn as sns
 
 # Import Elo rating classes
-from nba_elo_rating import NBAEloRating, load_nba_games_from_json
-from nhl_elo_rating import NHLEloRating
-from mlb_elo_rating import MLBEloRating
-from nfl_elo_rating import NFLEloRating
-from ncaab_elo_rating import NCAABEloRating
-from wncaab_elo_rating import WNCAABEloRating
-from tennis_elo_rating import TennisEloRating
-from epl_elo_rating import EPLEloRating
-from ligue1_elo_rating import Ligue1EloRating
+from plugins.elo import NBAEloRating, load_nba_games_from_json
+from plugins.elo import NHLEloRating
+from plugins.elo import MLBEloRating
+from plugins.elo import NFLEloRating
+from plugins.elo import NCAABEloRating
+from plugins.elo import WNCAABEloRating
+from plugins.elo import TennisEloRating
+from plugins.elo import EPLEloRating
+from plugins.elo import Ligue1EloRating
 
 
 class ThresholdOptimizer:

@@ -6,8 +6,8 @@ import sys
 
 # Add plugins to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
-from epl_elo_rating import EPLEloRating
-from ligue1_elo_rating import Ligue1EloRating
+from plugins.elo import EPLEloRating
+from plugins.elo import Ligue1EloRating
 
 def analyze_soccer_sharp_value(sport_code, league_name):
     print(f"\n⚽ Analyzing {league_name} Sharp Consensus Value...")

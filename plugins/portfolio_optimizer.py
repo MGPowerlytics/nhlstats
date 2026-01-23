@@ -133,8 +133,13 @@ class PortfolioOptimizer:
                     continue
 
                 for bet in bets_data:
-                    # Skip if missing required fields
+                    # Skip if missing required fields or invalid ticker
                     if "ticker" not in bet:
+                        continue
+
+                    ticker = bet.get("ticker")
+                    if not ticker or ticker is None:
+                        # Skip None, empty string, or other falsy tickers
                         continue
 
                     # Handle different sport structures
@@ -162,11 +167,7 @@ class PortfolioOptimizer:
                                 # For tennis, need to figure out which side we're betting
                                 # If bet_on matches player1, use yes_ask, otherwise no_ask
                                 player1 = bet.get("player1", "")
-                                if (
-                                    team
-                                    and player1
-                                    and (team in player1 or player1 in team)
-                                ):
+                                if team and player1 and (team in player1 or player1 in team):
                                     market_prob = yes_ask / 100
                                 else:
                                     market_prob = no_ask / 100
@@ -194,15 +195,11 @@ class PortfolioOptimizer:
 
                             if bet_direction == "home":
                                 market_prob = (
-                                    yes_ask / 100
-                                    if yes_ask > 0
-                                    else bet.get("market_prob", 0.5)
+                                    yes_ask / 100 if yes_ask > 0 else bet.get("market_prob", 0.5)
                                 )
                             else:
                                 market_prob = (
-                                    no_ask / 100
-                                    if no_ask > 0
-                                    else bet.get("market_prob", 0.5)
+                                    no_ask / 100 if no_ask > 0 else bet.get("market_prob", 0.5)
                                 )
 
                         else:
@@ -226,15 +223,11 @@ class PortfolioOptimizer:
 
                             if bet_direction == "home":
                                 market_prob = (
-                                    yes_ask / 100
-                                    if yes_ask > 0
-                                    else bet.get("market_prob", 0.5)
+                                    yes_ask / 100 if yes_ask > 0 else bet.get("market_prob", 0.5)
                                 )
                             else:
                                 market_prob = (
-                                    no_ask / 100
-                                    if no_ask > 0
-                                    else bet.get("market_prob", 0.5)
+                                    no_ask / 100 if no_ask > 0 else bet.get("market_prob", 0.5)
                                 )
 
                         # Skip if we couldn't determine market probability
@@ -267,9 +260,7 @@ class PortfolioOptimizer:
 
         return opportunities
 
-    def filter_opportunities(
-        self, opportunities: List[BetOpportunity]
-    ) -> List[BetOpportunity]:
+    def filter_opportunities(self, opportunities: List[BetOpportunity]) -> List[BetOpportunity]:
         """Filter opportunities based on minimum thresholds.
 
         Args:
@@ -314,9 +305,7 @@ class PortfolioOptimizer:
             return []
 
         # Sort by expected value (best opportunities first)
-        sorted_opps = sorted(
-            opportunities, key=lambda x: x.expected_value, reverse=True
-        )
+        sorted_opps = sorted(opportunities, key=lambda x: x.expected_value, reverse=True)
 
         allocations = []
         total_allocated = 0.0
@@ -330,9 +319,7 @@ class PortfolioOptimizer:
             bet_size = kelly_size
             bet_size = max(self.min_bet_size, bet_size)  # Minimum
             bet_size = min(self.max_bet_size, bet_size)  # Maximum
-            bet_size = min(
-                self.bankroll * self.max_single_bet_pct, bet_size
-            )  # Per-bet limit
+            bet_size = min(self.bankroll * self.max_single_bet_pct, bet_size)  # Per-bet limit
 
             # Check daily limit
             if total_allocated + bet_size > max_daily_allocation:
@@ -380,9 +367,7 @@ class PortfolioOptimizer:
 
         # Calculate summary statistics
         total_bet = sum(a.bet_size for a in allocations)
-        total_expected_profit = sum(
-            a.bet_size * a.opportunity.expected_value for a in allocations
-        )
+        total_expected_profit = sum(a.bet_size * a.opportunity.expected_value for a in allocations)
 
         summary = {
             "date": date_str,
@@ -393,16 +378,10 @@ class PortfolioOptimizer:
             "total_bet_amount": round(total_bet, 2),
             "total_bet_pct": round(total_bet / self.bankroll, 4),
             "expected_profit": round(total_expected_profit, 2),
-            "expected_roi": (
-                round(total_expected_profit / total_bet, 4) if total_bet > 0 else 0
-            ),
-            "avg_bet_size": (
-                round(total_bet / len(allocations), 2) if allocations else 0
-            ),
+            "expected_roi": (round(total_expected_profit / total_bet, 4) if total_bet > 0 else 0),
+            "avg_bet_size": (round(total_bet / len(allocations), 2) if allocations else 0),
             "avg_edge": (
-                round(
-                    sum(a.opportunity.edge for a in allocations) / len(allocations), 4
-                )
+                round(sum(a.opportunity.edge for a in allocations) / len(allocations), 4)
                 if allocations
                 else 0
             ),

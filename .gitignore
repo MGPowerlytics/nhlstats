@@ -33,3 +33,8 @@ data/
 .DS_Store
 Thumbs.db
 .env
+.aider*
+.env
+.env
+.env
+.env

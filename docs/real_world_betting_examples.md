@@ -600,7 +600,7 @@ Edge = 60% - 52.4% = 7.6% (+EV bet!)
 
 ---
 
-**Current Date**: January 16, 2026  
-**Data Sources**: ESPN, FanDuel, DraftKings, Covers, OddsShark  
-**Update Frequency**: Lines change constantly until game time  
+**Current Date**: January 16, 2026
+**Data Sources**: ESPN, FanDuel, DraftKings, Covers, OddsShark
+**Update Frequency**: Lines change constantly until game time
 **Note**: All odds shown are examples from real markets but subject to change

@@ -347,7 +347,7 @@ class TestNCAABEloDeep:
 
     @pytest.fixture
     def ncaab_elo(self):
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
         return NCAABEloRating()
 
     def test_init(self, ncaab_elo):
@@ -574,7 +574,7 @@ class TestMLBEloDeep:
 
     @pytest.fixture
     def mlb_elo(self):
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
         return MLBEloRating()
 
     def test_init(self, mlb_elo):
@@ -604,7 +604,7 @@ class TestNFLEloDeep:
 
     @pytest.fixture
     def nfl_elo(self):
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
         return NFLEloRating()
 
     def test_init(self, nfl_elo):
@@ -659,7 +659,7 @@ class TestEPLEloDeep:
 
     @pytest.fixture
     def epl_elo(self):
-        from epl_elo_rating import EPLEloRating
+        from plugins.elo import EPLEloRating
         return EPLEloRating()
 
     def test_predict_probs(self, epl_elo):

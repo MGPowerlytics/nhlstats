@@ -9,9 +9,9 @@ from datetime import datetime
 # Add plugins directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
 from kalshi_markets import fetch_tennis_markets, fetch_nhl_markets, fetch_ligue1_markets
-from tennis_elo_rating import TennisEloRating
-from nhl_elo_rating import NHLEloRating
-from ligue1_elo_rating import Ligue1EloRating
+from plugins.elo import TennisEloRating
+from plugins.elo import NHLEloRating
+from plugins.elo import Ligue1EloRating
 from the_odds_api import TheOddsAPI
 from odds_comparator import OddsComparator
 from naming_resolver import NamingResolver

@@ -17,6 +17,16 @@ from db_manager import DBManager, default_db
 sys.path.insert(0, str(Path(__file__).parent))
 from kalshi_betting import KalshiBetting
 
+def create_portfolio_value_snapshots_table(db):
+    """Create the portfolio_value_snapshots table if it does not exist."""
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
+            snapshot_hour_utc TEXT PRIMARY KEY,
+            balance_dollars REAL,
+            portfolio_value_dollars REAL
+        )
+    ''')
+
 
 def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
     if not value:
@@ -133,6 +143,48 @@ def get_market_status(client: KalshiBetting, ticker: str) -> Dict:
     except:
         pass
     return {}
+
+
+def backfill_bet_metrics(db: DBManager = default_db) -> None:
+    """Backfill missing validation metrics (elo_prob, edge, etc) from recommendations.
+
+    Links placed_bets to bet_recommendations via ticker.
+    """
+    try:
+        # Use latest recommendation for each ticker
+        # SQLite-compatible UPDATE using correlated subquery
+        query = """
+            UPDATE placed_bets
+            SET elo_prob = (
+                SELECT elo_prob FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                market_prob = (
+                SELECT market_prob FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                edge = (
+                SELECT edge FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                confidence = (
+                SELECT confidence FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            )
+            WHERE elo_prob IS NULL
+        """
+        db.execute(query)
+        print("✓ Backfilled missing bet metrics from recommendations")
+    except Exception as e:
+        print(f"⚠️  Error backfilling metrics: {e}")
 
 
 def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default_db):
@@ -270,6 +322,10 @@ def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default
     print(f"\n✓ Synced bets to PostgreSQL:")
     print(f"  Added: {added_count}")
     print(f"  Updated: {updated_count}")
+
+    # Backfill metrics for any new bets (or old ones)
+    backfill_bet_metrics(db)
+
     return added_count, updated_count
 
 

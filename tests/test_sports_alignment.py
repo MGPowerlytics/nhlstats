@@ -69,7 +69,7 @@ def _extract_dashboard_leagues(dashboard_path: Path) -> List[str]:
 def test_dag_and_dashboard_sports_aligned() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     dag_path = repo_root / "dags" / "multi_sport_betting_workflow.py"
-    dashboard_path = repo_root / "dashboard_app.py"
+    dashboard_path = repo_root / "dashboard" / "dashboard_app.py"
 
     dag_sports = _extract_sports_config_keys(dag_path)
     dashboard_leagues = _extract_dashboard_leagues(dashboard_path)

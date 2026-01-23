@@ -8,12 +8,12 @@ from datetime import datetime
 
 class TestDataValidationReport:
     """Test DataValidationReport class"""
-    
+
     def test_create_report(self):
         from data_validation import DataValidationReport
         report = DataValidationReport('test')
         assert report.sport == 'test'
-    
+
     def test_report_has_issues(self):
         from data_validation import DataValidationReport
         report = DataValidationReport('nba')
@@ -22,22 +22,22 @@ class TestDataValidationReport:
 
 class TestExpectedTeams:
     """Test EXPECTED_TEAMS constant"""
-    
+
     def test_nba_teams(self):
         from data_validation import EXPECTED_TEAMS
         assert 'nba' in EXPECTED_TEAMS
         assert len(EXPECTED_TEAMS['nba']) == 30
-    
+
     def test_nhl_teams(self):
         from data_validation import EXPECTED_TEAMS
         assert 'nhl' in EXPECTED_TEAMS
         assert len(EXPECTED_TEAMS['nhl']) >= 31
-    
+
     def test_mlb_teams(self):
         from data_validation import EXPECTED_TEAMS
         assert 'mlb' in EXPECTED_TEAMS
         assert len(EXPECTED_TEAMS['mlb']) == 30
-    
+
     def test_nfl_teams(self):
         from data_validation import EXPECTED_TEAMS
         assert 'nfl' in EXPECTED_TEAMS
@@ -46,17 +46,17 @@ class TestExpectedTeams:
 
 class TestSeasonInfo:
     """Test SEASON_INFO constant"""
-    
+
     def test_nba_season(self):
         from data_validation import SEASON_INFO
         assert 'nba' in SEASON_INFO
         assert SEASON_INFO['nba']['games_per_team'] == 82
-    
+
     def test_nhl_season(self):
         from data_validation import SEASON_INFO
         assert 'nhl' in SEASON_INFO
         assert SEASON_INFO['nhl']['games_per_team'] == 82
-    
+
     def test_mlb_season(self):
         from data_validation import SEASON_INFO
         assert 'mlb' in SEASON_INFO
@@ -65,10 +65,10 @@ class TestSeasonInfo:
 
 class TestValidateFunctions:
     """Test validation functions"""
-    
+
     def test_validate_nba_data_no_data(self):
         from data_validation import validate_nba_data
-        
+
         with patch('data_validation.Path') as mock_path:
             mock_path.return_value.glob.return_value = []
             try:
@@ -76,32 +76,32 @@ class TestValidateFunctions:
                 assert report is not None
             except Exception:
                 pass  # May fail without data
-    
+
     def test_validate_nhl_data_no_database(self):
         from data_validation import validate_nhl_data
-        
-        with patch('data_validation.duckdb') as mock_db:
-            mock_db.connect.side_effect = Exception('No database')
+
+        with patch('data_validation.default_db') as mock_db:
+            mock_db.fetch_df.side_effect = Exception('No database')
             try:
                 report = validate_nhl_data()
             except Exception:
                 pass  # Expected with no database
-    
+
     def test_validate_mlb_data_no_database(self):
         from data_validation import validate_mlb_data
-        
-        with patch('data_validation.duckdb') as mock_db:
-            mock_db.connect.side_effect = Exception('No database')
+
+        with patch('data_validation.default_db') as mock_db:
+            mock_db.fetch_df.side_effect = Exception('No database')
             try:
                 report = validate_mlb_data()
             except Exception:
                 pass
-    
+
     def test_validate_nfl_data_no_database(self):
         from data_validation import validate_nfl_data
-        
-        with patch('data_validation.duckdb') as mock_db:
-            mock_db.connect.side_effect = Exception('No database')
+
+        with patch('data_validation.default_db') as mock_db:
+            mock_db.fetch_df.side_effect = Exception('No database')
             try:
                 report = validate_nfl_data()
             except Exception:
@@ -110,7 +110,7 @@ class TestValidateFunctions:
 
 class TestValidateEloRatings:
     """Test validate_elo_ratings function"""
-    
+
     def test_validate_elo_ratings_exists(self):
         from data_validation import validate_elo_ratings
         assert callable(validate_elo_ratings)
@@ -118,7 +118,7 @@ class TestValidateEloRatings:
 
 class TestGenerateSummary:
     """Test generate_summary function"""
-    
+
     def test_generate_summary_exists(self):
         from data_validation import generate_summary
         assert callable(generate_summary)
@@ -126,7 +126,7 @@ class TestGenerateSummary:
 
 class TestMain:
     """Test main function"""
-    
+
     def test_main_exists(self):
         from data_validation import main
         assert callable(main)
@@ -134,7 +134,7 @@ class TestMain:
 
 class TestModuleImports:
     """Test module can be imported"""
-    
+
     def test_import(self):
         import data_validation
         assert hasattr(data_validation, 'EXPECTED_TEAMS')

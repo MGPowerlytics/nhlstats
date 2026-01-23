@@ -6,7 +6,7 @@ import sys
 
 # Add plugins to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
-from tennis_elo_rating import TennisEloRating
+from plugins.elo import TennisEloRating
 
 def analyze_value():
     print("🎾 Analyzing Historical Tennis Odds and Profitability...")

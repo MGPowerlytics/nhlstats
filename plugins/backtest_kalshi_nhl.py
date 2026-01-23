@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import duckdb
 import pandas as pd
 
-from nhl_elo_rating import NHLEloRating
+from plugins.elo import NHLEloRating
 
 
 def _parse_ymd(value: str) -> datetime:

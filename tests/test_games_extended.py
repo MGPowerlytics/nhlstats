@@ -4,7 +4,7 @@ import pytest
 import sys
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 import tempfile
 from datetime import datetime, date
 import pandas as pd
@@ -362,7 +362,7 @@ class TestMLBEloRatingExtended:
 
     def test_mlb_elo_expected_score(self):
         """Test expected score calculation."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
 
@@ -372,7 +372,7 @@ class TestMLBEloRatingExtended:
 
     def test_mlb_elo_predict(self):
         """Test prediction method."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
         prob = elo.predict("Yankees", "Red Sox")
@@ -381,7 +381,7 @@ class TestMLBEloRatingExtended:
 
     def test_mlb_elo_rating_after_game(self):
         """Test rating changes after game."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
         initial = elo.get_rating("Team A")
@@ -393,7 +393,7 @@ class TestMLBEloRatingExtended:
 
     def test_mlb_elo_blowout_effect(self):
         """Test blowout wins give more rating."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo1 = MLBEloRating()
         elo2 = MLBEloRating()
@@ -419,7 +419,7 @@ class TestNFLEloRatingExtended:
 
     def test_nfl_elo_expected_score(self):
         """Test expected score calculation."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
 
@@ -428,7 +428,7 @@ class TestNFLEloRatingExtended:
 
     def test_nfl_elo_predict(self):
         """Test prediction method."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
         prob = elo.predict("Chiefs", "Bills")
@@ -437,7 +437,7 @@ class TestNFLEloRatingExtended:
 
     def test_nfl_elo_home_advantage(self):
         """Test home advantage effect."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
 
@@ -448,7 +448,7 @@ class TestNFLEloRatingExtended:
 
     def test_nfl_elo_after_game(self):
         """Test rating changes after game."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
 
@@ -466,7 +466,7 @@ class TestNCAABEloRatingExtended:
 
     def test_ncaab_elo_init(self):
         """Test NCAAB Elo initialization."""
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
 
@@ -474,7 +474,7 @@ class TestNCAABEloRatingExtended:
 
     def test_ncaab_elo_neutral_site(self):
         """Test neutral site prediction."""
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
 
@@ -485,7 +485,7 @@ class TestNCAABEloRatingExtended:
 
     def test_ncaab_elo_home_vs_neutral(self):
         """Test home advantage vs neutral site."""
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
 
@@ -497,7 +497,7 @@ class TestNCAABEloRatingExtended:
 
     def test_ncaab_elo_update(self):
         """Test rating update."""
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
 

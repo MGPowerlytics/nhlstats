@@ -1,11 +1,21 @@
 """
 Tests for DBManager connection configuration.
 Ensures database host defaults to 'postgres' for Docker environments.
+
+NOTE: These tests verify PostgreSQL configuration behavior and must be run
+outside the pytest session that mocks DBManager to use SQLite.
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
 import os
+
+# Skip entire module when conftest mocks DBManager to SQLite
+pytestmark = pytest.mark.skipif(
+    os.environ.get("POSTGRES_HOST") != "postgres",
+    reason="DBManager connection tests require unmocked PostgreSQL environment"
+)
+
 from plugins.db_manager import DBManager
 
 

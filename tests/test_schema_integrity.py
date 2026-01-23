@@ -1,5 +1,17 @@
 import pytest
 from plugins.db_manager import default_db
+from plugins.database_schema_manager import DatabaseSchemaManager
+from plugins.bet_tracker import create_bets_table
+from plugins.bet_loader import BetLoader
+
+@pytest.fixture(scope="function", autouse=True)
+def setup_schema():
+    """Create schema for integrity tests."""
+    manager = DatabaseSchemaManager(default_db)
+    manager.create_unified_tables()
+    create_bets_table(default_db)
+    # Instantiate BetLoader to create bet_recommendations table
+    BetLoader(db_manager=default_db)
 
 def test_placed_bets_has_primary_key():
     """

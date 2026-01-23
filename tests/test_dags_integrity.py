@@ -25,11 +25,10 @@ def test_multi_sport_betting_workflow_structure(dag_bag):
     sports = ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "wncaab", "ligue1"]
     tasks = dag.task_ids
 
-    for sport in sports:
-        assert f"{sport}_download_games" in tasks
-        assert f"{sport}_load_db" in tasks
-        assert f"{sport}_update_elo" in tasks
-        assert f"{sport}_fetch_markets" in tasks
+            for sport in sports:
+                assert f"{sport}_download_games" in tasks
+                assert f"{sport}_load_bets_db" in tasks
+                assert f"{sport}_update_elo" in tasks        assert f"{sport}_fetch_markets" in tasks
         assert f"{sport}_identify_bets" in tasks
         assert f"{sport}_load_bets_db" in tasks
 

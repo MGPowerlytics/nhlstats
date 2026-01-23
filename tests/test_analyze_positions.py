@@ -7,8 +7,9 @@ from pathlib import Path
 import sys
 import json
 
-# Add project root to path
+# Add project root and scripts to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
+sys.path.insert(0, str(Path(__file__).parent.parent / "scripts"))
 
 from analyze_positions import PositionAnalyzer
 
@@ -166,7 +167,7 @@ class TestPositionAnalyzer(unittest.TestCase):
         self.assertIsNotNone(result["elo_analysis"])
         self.assertGreater(result["elo_probability"], 0.50)
         self.assertEqual(len(result["concerns"]), 0)
-    
+
     def test_analyze_tennis_underdog(self):
         """Test tennis analysis - betting on underdog."""
         analyzer = Mock()

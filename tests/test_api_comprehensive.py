@@ -4,7 +4,7 @@ import pytest
 import sys
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
+from unittest.mock import patch, MagicMock
 import tempfile
 from datetime import datetime
 import requests

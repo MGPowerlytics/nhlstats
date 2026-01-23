@@ -39,9 +39,9 @@ import pandas as pd
 # Add plugins to path
 sys.path.insert(0, str(Path(__file__).parent / "plugins"))
 
-from nba_elo_rating import NBAEloRating
-from ncaab_elo_rating import NCAABEloRating
-from wncaab_elo_rating import WNCAABEloRating
+from plugins.elo import NBAEloRating
+from plugins.elo import NCAABEloRating
+from plugins.elo import WNCAABEloRating
 
 
 # Sport configuration

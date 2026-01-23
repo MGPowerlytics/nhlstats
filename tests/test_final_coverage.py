@@ -233,7 +233,7 @@ class TestMLBEloComprehensive:
 
     @pytest.fixture
     def mlb_elo(self):
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
         return MLBEloRating()
 
     def test_expected_score(self, mlb_elo):
@@ -243,7 +243,7 @@ class TestMLBEloComprehensive:
 
     def test_predict_with_custom_k(self):
         """Test with custom K factor."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
         elo = MLBEloRating(k_factor=30)
 
         assert elo.k_factor == 30
@@ -266,7 +266,7 @@ class TestNFLEloComprehensive:
 
     @pytest.fixture
     def nfl_elo(self):
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
         return NFLEloRating()
 
     def test_expected_score(self, nfl_elo):
@@ -306,7 +306,7 @@ class TestNCAABEloComprehensive:
 
     @pytest.fixture
     def ncaab_elo(self):
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
         return NCAABEloRating()
 
     def test_predict_equal_teams(self, ncaab_elo):

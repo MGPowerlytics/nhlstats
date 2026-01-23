@@ -10,7 +10,7 @@ from datetime import datetime
 # Add plugins directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
 from kalshi_markets import fetch_tennis_markets
-from tennis_elo_rating import TennisEloRating
+from plugins.elo import TennisEloRating
 from the_odds_api import TheOddsAPI
 
 def normalize_name(name):

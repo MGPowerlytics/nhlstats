@@ -301,11 +301,11 @@ def _sequential_college_elo_probs(
 ) -> Tuple[np.ndarray, np.ndarray]:
     league = league.lower().strip()
     if league == "ncaab":
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating(k_factor=20, home_advantage=100)
     elif league == "wncaab":
-        from wncaab_elo_rating import WNCAABEloRating
+        from plugins.elo import WNCAABEloRating
 
         elo = WNCAABEloRating(k_factor=20, home_advantage=100)
     else:
@@ -384,7 +384,7 @@ def _load_tennis_matches_from_cache() -> pd.DataFrame:
 
 
 def _sequential_tennis_elo_probs(df: pd.DataFrame) -> Tuple[np.ndarray, np.ndarray]:
-    from tennis_elo_rating import TennisEloRating
+    from plugins.elo import TennisEloRating
 
     df = df.copy().sort_values("date")
     tour = str(df["tour"].iloc[0]).upper() if not df.empty else "ATP"

@@ -9,7 +9,6 @@ import pandas as pd
 from pathlib import Path
 import requests
 import time
-import io
 
 # D1 Women's Basketball Programs
 D1_PROGRAMS = {
@@ -21,7 +20,7 @@ D1_PROGRAMS = {
     'Pittsburgh', 'Georgia_Tech', 'Villanova', 'Creighton', 'Marquette', 'Butler', 'Xavier',
     'Providence', 'Seton_Hall', 'DePaul', 'St_John\'s', 'Gonzaga', 'BYU', 'Washington', 'Oregon',
     'Colorado', 'Utah', 'Arizona', 'Arizona_St', 'Oregon_St', 'Washington_St', 'Kansas', 'Kansas_St',
-    'Iowa_St', 'Oklahoma', 'Oklahoma_St', 'Texas_Tech', 'TCU', 'West_Virginia', 'Cincinnati', 
+    'Iowa_St', 'Oklahoma', 'Oklahoma_St', 'Texas_Tech', 'TCU', 'West_Virginia', 'Cincinnati',
     'Houston', 'UCF', 'Memphis', 'Purdue', 'Penn_St', 'Northwestern', 'Rutgers', 'Wisconsin',
     'Minnesota', 'Illinois', 'Michigan_St', 'Ole_Miss', 'Texas_A&M', 'Virginia', 'California',
     'NC_Central', 'Norfolk_St', 'Howard', 'Delaware_St', 'Morgan_St', 'Coppin_St', 'UMES',

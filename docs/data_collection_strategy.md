@@ -27,7 +27,7 @@
 **Timeline:**
 - Start now: January 2026
 - 1 year: ~200 race days, ~1,600 races
-- 2 years: ~400 race days, ~3,200 races  
+- 2 years: ~400 race days, ~3,200 races
 - 3 years: ~600 race days, ~4,800 races ✓ (Minimum for Benter-style model)
 
 ## Option 2: Use Existing GitHub Datasets

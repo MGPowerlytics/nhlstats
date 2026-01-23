@@ -27,7 +27,7 @@ Betting markets aggregate information from:
 
 2. Download Excel files for NHL seasons:
    - 2021-2022 NHL Season
-   - 2022-2023 NHL Season  
+   - 2022-2023 NHL Season
    - 2023-2024 NHL Season
    - 2024-2025 NHL Season (current)
 
@@ -58,7 +58,7 @@ CREATE TABLE historical_betting_lines (
     away_team VARCHAR,
     home_ml_open DECIMAL,      -- Opening moneyline
     away_ml_open DECIMAL,
-    home_ml_close DECIMAL,     -- Closing moneyline  
+    home_ml_close DECIMAL,     -- Closing moneyline
     away_ml_close DECIMAL,
     home_implied_prob_open DECIMAL,
     away_implied_prob_open DECIMAL,
@@ -168,7 +168,7 @@ conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
 
 # How many games have odds?
 result = conn.execute("""
-    SELECT 
+    SELECT
         COUNT(*) as total_games,
         COUNT(DISTINCT game_date) as days_covered,
         MIN(game_date) as first_date,
@@ -320,4 +320,3 @@ With odds features, the model should be **profitable for selective betting**.
 5. ⬜ Test live predictions with morning odds
 6. ⬜ Implement Kelly Criterion for bet sizing
 7. ⬜ Track performance vs market
-

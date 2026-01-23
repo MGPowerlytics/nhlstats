@@ -358,7 +358,7 @@ class TestMLBNFLEloExtended:
 
     def test_mlb_elo_load_save(self):
         """Test MLB Elo load/save methods."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
 
@@ -371,7 +371,7 @@ class TestMLBNFLEloExtended:
 
     def test_nfl_elo_load_save(self):
         """Test NFL Elo load/save methods."""
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
 
@@ -384,7 +384,7 @@ class TestMLBNFLEloExtended:
 
     def test_mlb_elo_multiple_games(self):
         """Test MLB Elo with multiple games."""
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
 

@@ -6,13 +6,21 @@ Tests to ensure:
 2. Shift data aligns with games and play-by-play events
 3. Database has complete shift data from 2021-2022 season onwards
 4. Data integrity and consistency
+
+NOTE: These are integration tests that require production PostgreSQL with NHL data.
 """
 
+import os
 import pytest
 from pathlib import Path
 from datetime import datetime, timedelta
 from sqlalchemy import create_engine, text
-import os
+
+# Skip these tests unless running against production database
+pytestmark = pytest.mark.skipif(
+    os.environ.get("POSTGRES_HOST") != "postgres",
+    reason="Integration tests require production PostgreSQL database with NHL data"
+)
 
 
 class TestNHLShiftDataCollection:

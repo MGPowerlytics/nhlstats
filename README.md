@@ -72,3 +72,4 @@ Run the full test suite (including documentation integrity):
 pytest
 ```
 See [**Testing Patterns**](.github/skills/testing-patterns/SKILL.md) for more.
+```

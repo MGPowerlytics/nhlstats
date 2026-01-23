@@ -77,7 +77,7 @@ When adding/modifying Elo predictions:
 
 ### 3. Audit Reports
 
-**Latest audit:** `docs/ELO_TEMPORAL_INTEGRITY_AUDIT.md`  
+**Latest audit:** `docs/ELO_TEMPORAL_INTEGRITY_AUDIT.md`
 **Quick summary:** `docs/TEMPORAL_INTEGRITY_SUMMARY.md`
 
 ---
@@ -89,21 +89,21 @@ When adding/modifying Elo predictions:
 ```python
 def backtest(games_df):
     """Backtest Elo predictions on historical data."""
-    
+
     # CRITICAL: Sort by date ascending
     games_df = games_df.sort_values('game_date')
-    
+
     elo = EloRating()
     predictions = []
-    
+
     for _, game in games_df.iterrows():
         # STEP 1: Predict using ratings from games 1 to N-1
         pred = elo.predict(game['home_team'], game['away_team'])
         predictions.append(pred)
-        
+
         # STEP 2: Update ratings AFTER prediction stored
         elo.update(game['home_team'], game['away_team'], game['home_won'])
-    
+
     # STEP 3: Analyze predictions vs actuals
     return analyze(predictions, games_df['home_won'])
 ```
@@ -118,35 +118,35 @@ def backtest(games_df):
 ```python
 def update_elo_ratings(sport):
     """Update Elo ratings from all completed games."""
-    
+
     # Load ALL historical games
     games_df = load_historical_games(sport)
     games_df = games_df.sort_values('game_date')
-    
+
     elo = EloRating()
-    
+
     # Process all completed games
     for _, game in games_df.iterrows():
         elo.update(game['home_team'], game['away_team'], game['outcome'])
-    
+
     # Save ratings for use in identify_good_bets()
     return elo.ratings
 
 
 def identify_good_bets(sport, elo_ratings):
     """Identify betting opportunities for UPCOMING games."""
-    
+
     # Restore ratings from historical games only
     elo = EloRating()
     elo.ratings = elo_ratings  # From update_elo_ratings()
-    
+
     # Load UPCOMING games (not yet started)
     upcoming_games = load_todays_markets(sport)
-    
+
     for game in upcoming_games:
         # Predict using historical ratings
         pred = elo.predict(game['home_team'], game['away_team'])
-        
+
         # Do NOT update (game hasn't happened yet)
         if pred > threshold:
             recommend_bet(game, pred)
@@ -162,31 +162,31 @@ def identify_good_bets(sport, elo_ratings):
 ```python
 class EloRating:
     """Elo rating system."""
-    
+
     def predict(self, home_team: str, away_team: str) -> float:
         """
         Predict home team win probability.
-        
+
         CRITICAL: This method must NOT modify self.ratings.
         """
         home_rating = self.get_rating(home_team)  # Read only
         away_rating = self.get_rating(away_team)  # Read only
-        
+
         # Calculate probability (no state changes)
         return 1 / (1 + 10 ** ((away_rating - home_rating) / 400))
-    
+
     def update(self, home_team: str, away_team: str, home_won: bool):
         """
         Update ratings after game result known.
-        
+
         This is the ONLY method that modifies self.ratings.
         """
         # Calculate expected
         expected = self.predict(home_team, away_team)
-        
+
         # Get actual
         actual = 1.0 if home_won else 0.0
-        
+
         # Update ratings (ONLY place self.ratings is modified)
         self.ratings[home_team] += K * (actual - expected)
         self.ratings[away_team] += K * ((1 - actual) - (1 - expected))
@@ -241,11 +241,11 @@ for game in games:
 def predict_today():
     games = load_all_games()  # Includes future games
     elo = EloRating()
-    
+
     # Process all games (including future!)
     for game in games:
         elo.update(game.home, game.away, game.outcome)
-    
+
     # Now predict today
     return elo.predict("Team A", "Team B")  # Ratings contaminated!
 ```
@@ -256,11 +256,11 @@ def predict_today():
 def predict_today():
     historical_games = load_games_before_today()  # Only past
     elo = EloRating()
-    
+
     # Process only completed games
     for game in historical_games:
         elo.update(game.home, game.away, game.outcome)
-    
+
     # Now predict today
     return elo.predict("Team A", "Team B")  # Clean ratings
 ```
@@ -346,9 +346,9 @@ When threshold optimization or backtests run:
 
 ### Current Status
 
-**Last Audit:** January 19, 2026  
-**Result:** ✅ **NO DATA LEAKAGE DETECTED**  
-**Tests:** 11/11 passing  
+**Last Audit:** January 19, 2026
+**Result:** ✅ **NO DATA LEAKAGE DETECTED**
+**Tests:** 11/11 passing
 **Confidence:** HIGH
 
 ---

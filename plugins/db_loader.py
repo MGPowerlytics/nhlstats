@@ -85,7 +85,7 @@ class NHLDatabaseLoader:
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *args):
         self.close()
         return False
 
@@ -138,6 +138,17 @@ class NHLDatabaseLoader:
                 except Exception as e:
                     print(f"  Error loading NHL game {game_id}: {e}")
 
+        # --- NBA Loading ---
+        nba_dir = data_dir / "nba" / date_str
+        nba_scoreboard = nba_dir / f"scoreboard_{date_str}.json"
+
+        if nba_scoreboard.exists():
+            try:
+                self._load_nba_scoreboard(nba_scoreboard)
+                print(f"  Loaded NBA scoreboard for {date_str}")
+            except Exception as e:
+                print(f"  Error loading NBA scoreboard for {date_str}: {e}")
+
         # --- MLB Loading ---
         mlb_dir = data_dir / "mlb"
         mlb_schedule = mlb_dir / date_str / f"schedule_{date_str}.json"
@@ -181,6 +192,117 @@ class NHLDatabaseLoader:
             print(f"  Error loading NCAAB daily: {e}")
 
         return games_loaded
+
+    def _load_nba_scoreboard(self, file_path: Path):
+        """Load NBA scoreboard JSON into PostgreSQL"""
+        with open(file_path) as f:
+            data = json.load(f)
+
+        if 'resultSets' not in data:
+            return
+
+        # Helper to get result set by name
+        def get_result_set(name):
+            for rs in data['resultSets']:
+                if rs['name'] == name:
+                    return rs
+            return None
+
+        header = get_result_set('GameHeader')
+        line_score = get_result_set('LineScore')
+
+        if not header:
+            return
+
+        # Map headers to indices
+        h_cols = {col: i for i, col in enumerate(header['headers'])}
+        l_cols = {col: i for i, col in enumerate(line_score['headers'])} if line_score else {}
+
+        # Create a map of game_id -> {team_id: score}
+        scores_map = {}
+        if line_score:
+            for row in line_score['rowSet']:
+                gid = row[l_cols['GAME_ID']]
+                tid = row[l_cols['TEAM_ID']]
+                pts = row[l_cols['PTS']]
+                if gid not in scores_map: scores_map[gid] = {}
+                scores_map[gid][tid] = pts
+
+        for row in header['rowSet']:
+            try:
+                game_id = row[h_cols['GAME_ID']]
+                game_date_str = row[h_cols['GAME_DATE_EST']].split('T')[0]
+                home_id = row[h_cols['HOME_TEAM_ID']]
+                visitor_id = row[h_cols['VISITOR_TEAM_ID']]
+                home_team_code = row[h_cols['GAMECODE']].split('/')[1][-3:] # CHAORL -> ORL? No, GAMECODE is 2026.../CHAORL. Usually VisitorHome?
+                # Let's trust IDs or lookup codes if needed.
+                # Actually, LineScore has TEAM_ABBREVIATION.
+
+                # Fetch team abbreviations from LineScore if possible
+                home_team = str(home_id)
+                away_team = str(visitor_id)
+
+                if line_score:
+                    # Find abbreviations
+                    # This is inefficient but safe
+                    for ls_row in line_score['rowSet']:
+                        if ls_row[l_cols['TEAM_ID']] == home_id:
+                            home_team = ls_row[l_cols['TEAM_ABBREVIATION']]
+                        elif ls_row[l_cols['TEAM_ID']] == visitor_id:
+                            away_team = ls_row[l_cols['TEAM_ABBREVIATION']]
+
+                home_score = scores_map.get(game_id, {}).get(home_id)
+                away_score = scores_map.get(game_id, {}).get(visitor_id)
+
+                status_text = row[h_cols['GAME_STATUS_TEXT']]
+                # Normalize status
+                if 'Final' in status_text:
+                    status = 'Final'
+                elif 'pm' in status_text or 'am' in status_text or 'ET' in status_text:
+                    status = 'Scheduled'
+                else:
+                    status = 'Live'
+
+                params = {
+                    'game_id': game_id,
+                    'game_date': game_date_str,
+                    'season': int(row[h_cols['SEASON']]),
+                    'game_type': 'Regular', # Simplification
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'home_score': home_score,
+                    'away_score': away_score,
+                    'status': status
+                }
+
+                # Ensure table exists (since it was missing in init)
+                self.db.execute("""
+                    CREATE TABLE IF NOT EXISTS nba_games (
+                        game_id VARCHAR PRIMARY KEY,
+                        game_date DATE,
+                        season INTEGER,
+                        game_type VARCHAR,
+                        home_team VARCHAR,
+                        away_team VARCHAR,
+                        home_score INTEGER,
+                        away_score INTEGER,
+                        status VARCHAR
+                    )
+                """)
+
+                self.db.execute("""
+                    INSERT INTO nba_games (
+                        game_id, game_date, season, game_type,
+                        home_team, away_team, home_score, away_score, status
+                    ) VALUES (:game_id, :game_date, :season, :game_type, :home_team, :away_team, :home_score, :away_score, :status)
+                    ON CONFLICT (game_id) DO UPDATE SET
+                        home_score = EXCLUDED.home_score,
+                        away_score = EXCLUDED.away_score,
+                        status = EXCLUDED.status,
+                        game_date = EXCLUDED.game_date
+                """, params)
+            except Exception as e:
+                print(f"    Error loading NBA game {game_id}: {e}")
 
     def _load_mlb_schedule(self, file_path: Path):
         """Load MLB schedule JSON into PostgreSQL"""

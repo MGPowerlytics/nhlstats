@@ -29,7 +29,7 @@ class GameDataMigrator:
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, *args):
         """
         Closes the database connection when exiting the context.
         """

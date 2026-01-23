@@ -72,7 +72,7 @@ Max probability           0.7319          0.7416          More confident highs
 
 **Example**:
 - Game A: Strong team vs weak team → 70% home win
-- Game B: Even matchup → 51% home win  
+- Game B: Even matchup → 51% home win
 - Game C: Weak home vs strong away → 40% home win
 
 If actual outcomes are: A wins, B wins, C loses, the model ranked them **perfectly** (70% > 51% > 40%), even though it got B wrong at 51%.
@@ -144,8 +144,8 @@ Imagine two sports analysts:
 ## 🎯 Practical Implications
 
 ### For Betting
-✅ **Use AUC as primary metric** - You care about ranking (which game has best edge?)  
-✅ **Adjust threshold** - Use 0.55 or 0.60 instead of 0.5  
+✅ **Use AUC as primary metric** - You care about ranking (which game has best edge?)
+✅ **Adjust threshold** - Use 0.55 or 0.60 instead of 0.5
 ✅ **Elo model is better** - Higher AUC = better at finding value
 
 ### Optimal Threshold

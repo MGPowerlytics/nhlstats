@@ -43,7 +43,6 @@ To design, implement, and maintain high-quality data models that ensure data int
 - **Volume Monitoring**: Alert if row counts deviate significantly from historical averages.
 
 ### Refactoring Logic
-- **Deprecation Policy**: When changing a model, provide a 30-day overlap period where the old and new versions coexist.
 - **Impact Analysis**: Use lineage tools to identify which downstream reports will be affected by a schema change.
 
 ## 📝 Quality Checklist

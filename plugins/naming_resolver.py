@@ -4,6 +4,17 @@ Centralized naming resolver using canonical_mappings table.
 from typing import Optional, Dict
 from db_manager import default_db
 
+def ensure_canonical_mappings_table(db=default_db):
+    db.execute('''
+        CREATE TABLE IF NOT EXISTS canonical_mappings (
+            sport VARCHAR,
+            source_system VARCHAR,
+            external_name VARCHAR,
+            canonical_name VARCHAR,
+            PRIMARY KEY (sport, source_system, external_name)
+        )
+    ''')
+
 class NamingResolver:
     _cache: Dict[str, str] = {}
 

@@ -159,6 +159,10 @@ def load_games_from_db(sport: str, season_only: bool = False) -> pd.DataFrame:
     return df
 
 
+# Alias for backward compatibility/testing
+load_games_from_duckdb = load_games_from_db
+
+
 def load_games_from_json(sport: str, season_only: bool = False) -> pd.DataFrame:
     """Load games from JSON files (for NBA)."""
     if sport != "nba":
@@ -357,37 +361,37 @@ def calculate_elo_predictions(sport: str, games_df: pd.DataFrame) -> pd.DataFram
 
     # Import the Elo class dynamically
     if sport == "nba":
-        from nba_elo_rating import NBAEloRating
+        from plugins.elo import NBAEloRating
 
         elo = NBAEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "nhl":
-        from nhl_elo_rating import NHLEloRating
+        from plugins.elo import NHLEloRating
 
         elo = NHLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "mlb":
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "nfl":
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "epl":
-        from epl_elo_rating import EPLEloRating
+        from plugins.elo import EPLEloRating
 
         elo = EPLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "ncaab":
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
@@ -513,37 +517,37 @@ def calculate_elo_markov_predictions(
 
     # Import the Elo class dynamically
     if sport == "nba":
-        from nba_elo_rating import NBAEloRating
+        from plugins.elo import NBAEloRating
 
         elo = NBAEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "nhl":
-        from nhl_elo_rating import NHLEloRating
+        from plugins.elo import NHLEloRating
 
         elo = NHLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "mlb":
-        from mlb_elo_rating import MLBEloRating
+        from plugins.elo import MLBEloRating
 
         elo = MLBEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "nfl":
-        from nfl_elo_rating import NFLEloRating
+        from plugins.elo import NFLEloRating
 
         elo = NFLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "epl":
-        from epl_elo_rating import EPLEloRating
+        from plugins.elo import EPLEloRating
 
         elo = EPLEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]
         )
     elif sport == "ncaab":
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating(
             k_factor=config["k_factor"], home_advantage=config["home_advantage"]

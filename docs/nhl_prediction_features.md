@@ -107,7 +107,7 @@ This document catalogs features commonly used to predict NHL game outcomes, orga
 | **3-in-4 nights** | 3 games in 4 days | **High** | Game schedule |
 | **Home/Road Streak** | Consecutive home or away games | **Medium** | Game schedule |
 
-**Why Critical**: 
+**Why Critical**:
 - Teams on 2nd night of back-to-back win ~42-45% (vs 50% baseline) ❌
 - Win rate drops 5-8% when fatigued ❌
 - Third period performance degrades significantly ❌
@@ -172,7 +172,7 @@ def calculate_travel_distance(game1_venue, game2_venue):
 - Lines shift significantly when backup confirmed ❌
 - Starter confirmation usually comes 1-3 hours before game ❌
 
-**Current Issue**: 
+**Current Issue**:
 - We collect goalie stats AFTER game ✅
 - We DON'T know who's starting BEFORE game ❌
 
@@ -344,7 +344,7 @@ def get_h2h_stats(team_a_id, team_b_id, games_df):
 
 def calculate_team_rest_days(games_df):
     """Calculate rest days for each team in each game"""
-    
+
     # Create team game history
     home_games = games_df[['game_date', 'home_team_id']].rename(
         columns={'home_team_id': 'team_id'}
@@ -353,18 +353,18 @@ def calculate_team_rest_days(games_df):
         columns={'away_team_id': 'team_id'}
     )
     all_team_games = pd.concat([home_games, away_games]).sort_values('game_date')
-    
+
     # Calculate days since last game
     all_team_games['prev_game_date'] = all_team_games.groupby('team_id')['game_date'].shift(1)
     all_team_games['rest_days'] = (
         all_team_games['game_date'] - all_team_games['prev_game_date']
     ).dt.days
-    
+
     return all_team_games
 
 # Add to feature query:
 """
-SELECT 
+SELECT
     ...existing features...,
     home_rest.rest_days as home_rest_days,
     away_rest.rest_days as away_rest_days,
@@ -390,7 +390,7 @@ def add_travel_distance(games_df):
     # Get previous game venue for each team
     games_df['home_prev_venue'] = games_df.groupby('home_team_id')['venue'].shift(1)
     games_df['away_prev_venue'] = games_df.groupby('away_team_id')['venue'].shift(1)
-    
+
     # Calculate distance
     def calc_dist(venue1, venue2):
         if pd.isna(venue1) or pd.isna(venue2):
@@ -400,14 +400,14 @@ def add_travel_distance(games_df):
         if not loc1 or not loc2:
             return None
         return geodesic(
-            (loc1['lat'], loc1['lon']), 
+            (loc1['lat'], loc1['lon']),
             (loc2['lat'], loc2['lon'])
         ).miles
-    
+
     games_df['away_travel_miles'] = games_df.apply(
         lambda x: calc_dist(x['away_prev_venue'], x['venue']), axis=1
     )
-    
+
     return games_df
 ```
 
@@ -422,15 +422,15 @@ def get_confirmed_starter(game_id, team_id, game_date):
     3. LeftWingLock.com
     4. DailyFaceoff.com
     """
-    
+
     # Check if game is within 4 hours
     time_to_game = (game_date - datetime.now()).total_seconds() / 3600
     if time_to_game > 4:
         return None  # Too early for confirmation
-    
+
     # Scrape lineup sources
     starter_id = scrape_lineup_sources(game_id, team_id)
-    
+
     # If confirmed, return goalie stats
     if starter_id:
         goalie_recent_stats = get_goalie_rolling_stats(starter_id)
@@ -439,7 +439,7 @@ def get_confirmed_starter(game_id, team_id, game_date):
             'starter_save_pct_l5': goalie_recent_stats['save_pct_l5'],
             'is_backup': goalie_recent_stats['is_backup']
         }
-    
+
     return None
 ```
 

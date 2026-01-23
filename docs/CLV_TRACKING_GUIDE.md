@@ -37,7 +37,7 @@ ALTER TABLE placed_bets ADD COLUMN updated_at TIMESTAMP;       -- Last update ti
 
 1. **When Bet is Placed:**
    - Record `bet_line_prob` (market probability at bet time)
-   
+
 2. **Before Game Starts:**
    - Fetch closing line from Kalshi or The Odds API
    - Calculate `clv = bet_line_prob - closing_line_prob`
@@ -94,7 +94,7 @@ By Sport:
 
 ### Bad CLV (Stop Betting)
 - **Average CLV:** Negative
-- **Positive CLV %:** < 50% of bets  
+- **Positive CLV %:** < 50% of bets
 - **Interpretation:** Model has NO edge, losing to the market
 
 ## Common CLV Patterns
@@ -156,11 +156,11 @@ If APIs don't provide closing lines, manually record from sportsbooks before gam
 1. **Every 15 minutes before game times:**
    - Fetch updated market probabilities
    - Update `bet_line_prob` for open bets
-   
+
 2. **5 minutes before game start:**
    - Fetch closing line
    - Calculate and store CLV
-   
+
 3. **Daily at midnight:**
    - Run CLV analysis report
    - Send alerts if CLV drops below 0%
@@ -172,13 +172,13 @@ Add to DAG:
 def track_closing_lines(**context):
     """Track closing lines for today's bets."""
     from clv_tracker import CLVTracker
-    
+
     tracker = CLVTracker()
     tracker.fetch_closing_lines_from_kalshi(days_back=1)
-    
+
     # Run analysis
     analysis = tracker.analyze_clv(days_back=30)
-    
+
     if analysis['avg_clv'] < 0:
         send_alert(f"⚠️ CLV is negative: {analysis['avg_clv']:.2%}")
 

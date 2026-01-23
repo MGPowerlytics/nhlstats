@@ -48,7 +48,7 @@ Each position shows:
 - **Title**: Human-readable market name
 - **Position**: Side (YES/NO) and contract count
 - **Elo Analysis**: Current ratings and win probability
-- **Status Icon**: 
+- **Status Icon**:
   - ✅ Position aligns with Elo
   - ⚠️ Position has concerns (below threshold, betting underdog, etc.)
 
@@ -65,7 +65,7 @@ Recent settled markets with final analysis
 ### Basketball (NBA, NCAAB, WNCAAB)
 
 - **Home Advantage**: +100 Elo points
-- **Thresholds**: 
+- **Thresholds**:
   - NBA: 64% win probability
   - NCAAB/WNCAAB: 65% win probability
 - **Concerns Flagged**:
@@ -208,6 +208,6 @@ For issues or questions:
 
 ---
 
-**Last Updated:** January 19, 2026  
-**Version:** 1.0.0  
+**Last Updated:** January 19, 2026
+**Version:** 1.0.0
 **Test Coverage:** 85%+

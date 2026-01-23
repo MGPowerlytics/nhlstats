@@ -216,7 +216,7 @@ python3 -c "
 import duckdb
 conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
 result = conn.execute('''
-    SELECT 
+    SELECT
         sport,
         COUNT(*) as opportunities,
         AVG(profit_margin) as avg_profit

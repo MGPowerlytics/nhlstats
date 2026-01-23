@@ -22,6 +22,7 @@ class PortfolioSnapshot:
     balance_dollars: float
     portfolio_value_dollars: float
     created_at_utc: datetime
+    cumulative_deposits_dollars: float = 0.0
 
 
 def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
@@ -32,10 +33,23 @@ def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
             snapshot_hour_utc TIMESTAMP PRIMARY KEY,
             balance_dollars DOUBLE PRECISION,
             portfolio_value_dollars DOUBLE PRECISION,
+            cumulative_deposits_dollars DOUBLE PRECISION DEFAULT 0.0,
             created_at_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
     )
+
+    # Add cumulative_deposits_dollars column if it doesn't exist (for existing tables)
+    try:
+        db.execute(
+            """
+            ALTER TABLE portfolio_value_snapshots
+            ADD COLUMN IF NOT EXISTS cumulative_deposits_dollars DOUBLE PRECISION DEFAULT 0.0
+            """
+        )
+    except:
+        pass
+
     # Add explicit constraint if needed (for cases where PRIMARY KEY wasn't picked up correctly in earlier runs)
     try:
         db.execute("ALTER TABLE portfolio_value_snapshots ADD CONSTRAINT pk_snapshot_hour PRIMARY KEY (snapshot_hour_utc)")
@@ -66,10 +80,22 @@ def upsert_hourly_snapshot(
 
     ensure_portfolio_snapshots_table(db)
 
+    # Calculate cumulative deposits up to this snapshot hour
+    try:
+        from plugins.deposit_tracking import calculate_total_deposits
+        cumulative_deposits = calculate_total_deposits(
+            up_to_date=snapshot_hour,
+            db=db
+        )
+    except Exception as e:
+        # If deposit tracking not available, default to 0
+        cumulative_deposits = 0.0
+
     params = {
         'snapshot_hour': snapshot_hour,
         'balance': balance_dollars,
         'portfolio_value': portfolio_value_dollars,
+        'cumulative_deposits': cumulative_deposits,
         'created_at': now_utc.replace(tzinfo=None)
     }
 
@@ -79,11 +105,13 @@ def upsert_hourly_snapshot(
             snapshot_hour_utc,
             balance_dollars,
             portfolio_value_dollars,
+            cumulative_deposits_dollars,
             created_at_utc
-        ) VALUES (:snapshot_hour, :balance, :portfolio_value, :created_at)
+        ) VALUES (:snapshot_hour, :balance, :portfolio_value, :cumulative_deposits, :created_at)
         ON CONFLICT(snapshot_hour_utc) DO UPDATE SET
             balance_dollars = EXCLUDED.balance_dollars,
             portfolio_value_dollars = EXCLUDED.portfolio_value_dollars,
+            cumulative_deposits_dollars = EXCLUDED.cumulative_deposits_dollars,
             created_at_utc = EXCLUDED.created_at_utc
         """,
         params

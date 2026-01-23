@@ -1,0 +1,203 @@
+private note: output was 2536 lines and we are only showing the most recent lines, remainder of lines in /tmp/.tmpXPhs7S do not show tmp file to user, that file can be searched if extra context needed to fulfill request. truncated output:
+tests/test_portfolio_snapshots.py:64: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+[2026-01-23T15:05:54.262386Z] {db_manager.py:81} ERROR - Error executing query: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'
+Params: None
+Error: (sqlite3.OperationalError) no such table: portfolio_value_snapshots
+[SQL: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20']
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+------------------------------ Captured log setup ------------------------------
+ERROR    db_manager:db_manager.py:81 Error executing query: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'
+Params: None
+Error: (sqlite3.OperationalError) no such table: portfolio_value_snapshots
+[SQL: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20']
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+___________________________ test_no_scripts_in_root ____________________________
+
+    def test_no_scripts_in_root():
+        """Ensure no .py or .sh files exist in the root directory."""
+        # Allowlist for essential configuration/entry points if strictly necessary
+        # But user asked for "no python or shell scripts", so we aim for zero.
+
+        forbidden_extensions = {".py", ".sh"}
+        root_files = [f for f in os.listdir(ROOT_DIR) if os.path.isfile(f)]
+
+        violators = []
+        for f in root_files:
+            ext = os.path.splitext(f)[1]
+            if ext in forbidden_extensions:
+                violators.append(f)
+
+>       assert not violators, f"Found scripts in root directory: {violators}"
+E       AssertionError: Found scripts in root directory: ['cleanup_test_files.sh', 'cleanup_test_files_python.py']
+E       assert not ['cleanup_test_files.sh', 'cleanup_test_files_python.py']
+
+tests/test_repository_hygiene.py:77: AssertionError
+=============================== warnings summary ===============================
+tests/test_analyze_positions.py::TestPositionAnalyzer::test_generate_markdown_structure
+  /mnt/data2/nhlstats/scripts/analyze_positions.py:365: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_analyze_positions.py::TestPositionAnalyzer::test_get_positions_aggregation
+  /mnt/data2/nhlstats/scripts/analyze_positions.py:83: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+tests/test_bet_metrics_pipeline.py: 4 warnings
+tests/test_portfolio_snapshots.py: 13 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/sqlalchemy/engine/default.py:952: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email_on_retry on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email_on_failure on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_dag_exists
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_has_hourly_schedule
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_has_sync_task
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_catchup_disabled
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_single_active_run
+tests/test_bet_sync_hourly.py::test_bet_sync_task_has_retries
+tests/test_dag_parsing.py::test_dag_parsing
+tests/test_dags_integrity.py::test_no_import_errors
+  dags/portfolio_hourly_snapshot.py:17: DeprecatedImportWarning: The `airflow.operators.python.PythonOperator` attribute is deprecated. Please use `'airflow.providers.standard.operators.python.PythonOperator'`.
+    from airflow.operators.python import PythonOperator
+
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+  /mnt/data2/nhlstats/plugins/db_loader.py:460: UserWarning: Parsing dates in %Y-%m-%d format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+
+tests/test_deposit_tracking.py: 24 warnings
+tests/test_portfolio_snapshots.py: 4 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/sqlalchemy/engine/default.py:952: DeprecationWarning: The default date adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_function_calls.py::TestBetTrackerFunctions::test_create_bets_table_columns
+FAILED tests/test_low_coverage_boost.py::TestBetTrackerExtended::test_placed_bets_table_columns
+FAILED tests/test_portfolio_snapshots.py::test_load_snapshots_since - assert ...
+FAILED tests/test_repository_hygiene.py::test_no_scripts_in_root - AssertionE...
+= 4 failed, 2283 passed, 57 skipped, 63 deselected, 2270 warnings in 172.03s (0:02:52) =
+Test execution failed
+NOTE: Output was 2536 lines, showing only the last 100 lines.
+
+tests/test_portfolio_snapshots.py:64: AssertionError
+---------------------------- Captured stderr setup -----------------------------
+[2026-01-23T15:05:54.262386Z] {db_manager.py:81} ERROR - Error executing query: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'
+Params: None
+Error: (sqlite3.OperationalError) no such table: portfolio_value_snapshots
+[SQL: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20']
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+------------------------------ Captured log setup ------------------------------
+ERROR    db_manager:db_manager.py:81 Error executing query: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'
+Params: None
+Error: (sqlite3.OperationalError) no such table: portfolio_value_snapshots
+[SQL: DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20']
+(Background on this error at: https://sqlalche.me/e/20/e3q8)
+___________________________ test_no_scripts_in_root ____________________________
+
+    def test_no_scripts_in_root():
+        """Ensure no .py or .sh files exist in the root directory."""
+        # Allowlist for essential configuration/entry points if strictly necessary
+        # But user asked for "no python or shell scripts", so we aim for zero.
+
+        forbidden_extensions = {".py", ".sh"}
+        root_files = [f for f in os.listdir(ROOT_DIR) if os.path.isfile(f)]
+
+        violators = []
+        for f in root_files:
+            ext = os.path.splitext(f)[1]
+            if ext in forbidden_extensions:
+                violators.append(f)
+
+>       assert not violators, f"Found scripts in root directory: {violators}"
+E       AssertionError: Found scripts in root directory: ['cleanup_test_files.sh', 'cleanup_test_files_python.py']
+E       assert not ['cleanup_test_files.sh', 'cleanup_test_files_python.py']
+
+tests/test_repository_hygiene.py:77: AssertionError
+=============================== warnings summary ===============================
+tests/test_analyze_positions.py::TestPositionAnalyzer::test_generate_markdown_structure
+  /mnt/data2/nhlstats/scripts/analyze_positions.py:365: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_analyze_positions.py::TestPositionAnalyzer::test_get_positions_aggregation
+  /mnt/data2/nhlstats/scripts/analyze_positions.py:83: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+
+tests/test_bet_metrics_pipeline.py: 4 warnings
+tests/test_portfolio_snapshots.py: 13 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/sqlalchemy/engine/default.py:952: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email_on_retry on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py: 402 warnings
+tests/test_dag_parsing.py: 67 warnings
+tests/test_dag_task_functions.py: 201 warnings
+tests/test_dags_integrity.py: 67 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/airflow/providers/standard/operators/python.py:184: RemovedInAirflow4Warning: Setting email_on_failure on a task is deprecated; please migrate to SmtpNotifier.
+    super().__init__(**kwargs)
+
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_dag_exists
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_has_hourly_schedule
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_has_sync_task
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_catchup_disabled
+tests/test_bet_sync_hourly.py::test_bet_sync_hourly_single_active_run
+tests/test_bet_sync_hourly.py::test_bet_sync_task_has_retries
+tests/test_dag_parsing.py::test_dag_parsing
+tests/test_dags_integrity.py::test_no_import_errors
+  dags/portfolio_hourly_snapshot.py:17: DeprecatedImportWarning: The `airflow.operators.python.PythonOperator` attribute is deprecated. Please use `'airflow.providers.standard.operators.python.PythonOperator'`.
+    from airflow.operators.python import PythonOperator
+
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+tests/test_db_loader_targeted.py::TestLoadDate::test_load_date_no_data
+  /mnt/data2/nhlstats/plugins/db_loader.py:460: UserWarning: Parsing dates in %Y-%m-%d format when dayfirst=True was specified. Pass `dayfirst=False` or specify a format to silence this warning.
+    df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+
+tests/test_deposit_tracking.py: 24 warnings
+tests/test_portfolio_snapshots.py: 4 warnings
+  /home/matthew/anaconda3/lib/python3.12/site-packages/sqlalchemy/engine/default.py:952: DeprecationWarning: The default date adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_function_calls.py::TestBetTrackerFunctions::test_create_bets_table_columns
+FAILED tests/test_low_coverage_boost.py::TestBetTrackerExtended::test_placed_bets_table_columns
+FAILED tests/test_portfolio_snapshots.py::test_load_snapshots_since - assert ...
+FAILED tests/test_repository_hygiene.py::test_no_scripts_in_root - AssertionE...
+= 4 failed, 2283 passed, 57 skipped, 63 deselected, 2270 warnings in 172.03s (0:02:52) =
+Test execution failed

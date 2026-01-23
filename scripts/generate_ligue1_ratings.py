@@ -5,7 +5,7 @@ Generate Ligue 1 Elo ratings from historical game data.
 import sys
 sys.path.insert(0, 'plugins')
 
-from ligue1_elo_rating import Ligue1EloRating
+from plugins.elo import Ligue1EloRating
 from ligue1_games import download_ligue1_history
 import csv
 

@@ -17,7 +17,7 @@
 Total Games: 6,264 | Total Home Wins: 3,314 | Baseline Win Rate: 52.9%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.084-0.371      627      162         25.8%    0.49x  6264         3314         100.0%     100.0% 🔴
 2        0.371-0.471      626      221         35.3%    0.67x  5637         3152          95.1%      90.0% 🔴
@@ -43,7 +43,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 694 | Total Home Wins: 361 | Baseline Win Rate: 52.0%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.259-0.463      70       24          34.3%    0.66x  694          361          100.0%     100.0% 🔴
 2        0.464-0.547      69       25          36.2%    0.70x  624          337           93.4%      89.9% 🔴
@@ -76,7 +76,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 6,232 | Total Home Wins: 3,377 | Baseline Win Rate: 54.2%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.198-0.426      624      233         37.3%    0.69x  6232         3377         100.0%     100.0% 🔴
 2        0.427-0.483      623      272         43.7%    0.81x  5608         3144          93.1%      90.0% 🟠
@@ -102,7 +102,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 794 | Total Home Wins: 416 | Baseline Win Rate: 52.4%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.435-0.519      80       42          52.5%    1.00x  794          416          100.0%     100.0% 🟡
 2        0.521-0.538      79       44          55.7%    1.06x  714          374           89.9%      89.9% 🟡
@@ -133,7 +133,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 14,462 | Total Home Wins: 7,651 | Baseline Win Rate: 52.9%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.186-0.414      1447     610         42.2%    0.80x  14462        7651         100.0%     100.0% 🔴
 2        0.414-0.472      1446     685         47.4%    0.90x  13015        7041          92.0%      90.0% 🟠
@@ -159,7 +159,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 2,837 | Total Home Wins: 1,532 | Baseline Win Rate: 54.0%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.227-0.437      284      135         47.5%    0.88x  2837         1532         100.0%     100.0% 🟠
 2        0.437-0.485      284      138         48.6%    0.90x  2553         1397          91.2%      90.0% 🟠
@@ -190,7 +190,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 1,417 | Total Home Wins: 772 | Baseline Win Rate: 54.5%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.156-0.416      142      55          38.7%    0.71x  1417         772          100.0%     100.0% 🔴
 2        0.418-0.491      142      53          37.3%    0.69x  1275         717           92.9%      90.0% 🔴
@@ -216,7 +216,7 @@ Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum
 Total Games: 278 | Total Home Wins: 148 | Baseline Win Rate: 53.2%
 ==============================================================================================================
 
-Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage% 
+Decile   Prob Range       Games    Wins     Win%       Lift     Cum Games    Cum Wins   Gain%      Coverage%
 --------------------------------------------------------------------------------------------------------------
 1        0.385-0.504      28       7           25.0%    0.47x  278          148          100.0%     100.0% 🔴
 2        0.504-0.541      28       11          39.3%    0.74x  250          141           95.3%      89.9% 🔴

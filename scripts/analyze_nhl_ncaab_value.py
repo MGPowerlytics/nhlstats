@@ -5,9 +5,9 @@ from pathlib import Path
 
 # Add plugins to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
-from nhl_elo_rating import NHLEloRating
-from ncaab_elo_rating import NCAABEloRating
-from wncaab_elo_rating import WNCAABEloRating
+from plugins.elo import NHLEloRating
+from plugins.elo import NCAABEloRating
+from plugins.elo import WNCAABEloRating
 from db_manager import default_db
 
 def analyze_nhl_sharp_value():

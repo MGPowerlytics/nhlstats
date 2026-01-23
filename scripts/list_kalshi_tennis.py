@@ -2,7 +2,7 @@
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
-from kalshi_markets import load_kalshi_credentials, KalshiAPI
+from kalshi_markets import load_kalshi_credentials
 import requests
 
 def list_all_series():

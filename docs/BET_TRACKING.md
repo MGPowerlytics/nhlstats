@@ -84,7 +84,7 @@ result = conn.execute("""
 
 # Get sport performance summary
 result = conn.execute("""
-    SELECT 
+    SELECT
         sport,
         COUNT(*) as total_bets,
         AVG(edge) as avg_edge,
@@ -102,7 +102,7 @@ conn.close()
 ### Best Opportunities by Edge
 
 ```sql
-SELECT 
+SELECT
     recommendation_date,
     sport,
     away_team || ' @ ' || home_team as matchup,
@@ -120,7 +120,7 @@ LIMIT 20;
 ### Performance by Sport
 
 ```sql
-SELECT 
+SELECT
     sport,
     COUNT(*) as num_bets,
     AVG(edge) as avg_edge,
@@ -136,7 +136,7 @@ ORDER BY num_bets DESC;
 ### Daily Activity
 
 ```sql
-SELECT 
+SELECT
     recommendation_date,
     COUNT(*) as total_bets,
     COUNT(DISTINCT sport) as sports_active,
@@ -150,8 +150,8 @@ ORDER BY recommendation_date DESC;
 ### Edge Distribution
 
 ```sql
-SELECT 
-    CASE 
+SELECT
+    CASE
         WHEN edge < 0.05 THEN '< 5%'
         WHEN edge < 0.10 THEN '5-10%'
         WHEN edge < 0.15 THEN '10-15%'

@@ -1,6 +1,6 @@
 # Betting Threshold Optimization & Value Betting Strategy
 
-**Date:** January 19, 2026  
+**Date:** January 19, 2026
 **Analysis Period:** 2018-2026 (55,000+ games across 6 sports)
 
 ---
@@ -38,7 +38,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### NBA (Basketball)
 
-**Historical Data:** 6,264 games (2021-2026)  
+**Historical Data:** 6,264 games (2021-2026)
 **Baseline Win Rate:** 52.9% (home team)
 
 **Lift/Gain Results:**
@@ -58,7 +58,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### NHL (Hockey)
 
-**Historical Data:** 6,233 games (2018-2026)  
+**Historical Data:** 6,233 games (2018-2026)
 **Baseline Win Rate:** 54.2% (home team)
 
 **Lift/Gain Results:**
@@ -81,7 +81,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### MLB (Baseball)
 
-**Historical Data:** 14,462 games (2018-2026)  
+**Historical Data:** 14,462 games (2018-2026)
 **Baseline Win Rate:** 52.9% (home team)
 
 **Lift/Gain Results:**
@@ -101,7 +101,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### NFL (Football)
 
-**Historical Data:** 1,417 games (2018-2026)  
+**Historical Data:** 1,417 games (2018-2026)
 **Baseline Win Rate:** 54.5% (home team)
 
 **Lift/Gain Results:**
@@ -121,7 +121,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### NCAAB (College Basketball - Men)
 
-**Historical Data:** 25,773 games (2018-2026)  
+**Historical Data:** 25,773 games (2018-2026)
 **Baseline Win Rate:** Similar to NBA (~53%)
 
 **Lift/Gain Pattern:** Similar to NBA (extreme deciles show strong lift)
@@ -135,7 +135,7 @@ For all two-outcome sports (NBA, NHL, MLB, NFL, NCAAB, WNCAAB), we found:
 
 ### WNCAAB (College Basketball - Women)
 
-**Historical Data:** 6,982 games (2018-2026)  
+**Historical Data:** 6,982 games (2018-2026)
 **Baseline Win Rate:** Similar to NCAAB (~53%)
 
 **Lift/Gain Pattern:** Similar to other basketball (extreme deciles show strong lift)

@@ -7,8 +7,7 @@ import os
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import create_engine, text
-from contextlib import contextmanager
-from typing import Optional, Union, List, Any, Dict
+from typing import Optional, List, Any, Dict
 import logging
 
 # Configure logging

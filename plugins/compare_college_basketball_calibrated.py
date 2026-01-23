@@ -78,11 +78,11 @@ def _load_games(league: str) -> pd.DataFrame:
 def _make_elo(league: str):
     league = league.lower().strip()
     if league == "ncaab":
-        from ncaab_elo_rating import NCAABEloRating
+        from plugins.elo import NCAABEloRating
 
         return NCAABEloRating()
     if league == "wncaab":
-        from wncaab_elo_rating import WNCAABEloRating
+        from plugins.elo import WNCAABEloRating
 
         return WNCAABEloRating()
     raise ValueError(f"Unsupported league: {league}")

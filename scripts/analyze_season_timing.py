@@ -14,11 +14,11 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'plugins'))
 
 # Import Elo classes
 try:
-    from mlb_elo_rating import MLBEloRating
-    from nhl_elo_rating import NHLEloRating
-    from nfl_elo_rating import NFLEloRating
-    from epl_elo_rating import EPLEloRating
-    from ncaab_elo_rating import NCAABEloRating
+    from plugins.elo import MLBEloRating
+    from plugins.elo import NHLEloRating
+    from plugins.elo import NFLEloRating
+    from plugins.elo import EPLEloRating
+    from plugins.elo import NCAABEloRating
 except ImportError as e:
     print(f"Error importing Elo classes: {e}")
 

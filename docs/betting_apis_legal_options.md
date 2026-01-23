@@ -61,18 +61,18 @@
 - **GitHub Examples**: https://github.com/betfair-datascientists/API
 
 #### Advantages
-✅ Official API support  
-✅ Well-documented  
-✅ Active developer community  
-✅ Exchange model (bet against other users, not house)  
-✅ No restrictions on bot trading  
-✅ Historical data available  
+✅ Official API support
+✅ Well-documented
+✅ Active developer community
+✅ Exchange model (bet against other users, not house)
+✅ No restrictions on bot trading
+✅ Historical data available
 
 #### Disadvantages
-❌ Limited US availability (NJ only)  
-❌ Exchange markets less liquid than traditional sportsbooks  
-❌ Requires technical knowledge  
-❌ Subject to commission charges  
+❌ Limited US availability (NJ only)
+❌ Exchange markets less liquid than traditional sportsbooks
+❌ Requires technical knowledge
+❌ Subject to commission charges
 
 ---
 
@@ -118,8 +118,8 @@ const contract = new web3.eth.Contract(ABI, CONTRACT_ADDRESS);
 
 // Place bet via smart contract
 await contract.methods.placeBet(
-    gameId, 
-    betAmount, 
+    gameId,
+    betAmount,
     outcomeId
 ).send({ from: userAddress, value: betAmount });
 ```
@@ -132,21 +132,21 @@ await contract.methods.placeBet(
 - 99.99% uptime SLA
 
 #### Advantages
-✅ True automation via smart contracts  
-✅ Anonymous (no KYC)  
-✅ Instant payouts  
-✅ Transparent (on-chain verification)  
-✅ Global access  
-✅ Lower fees (no intermediary)  
-✅ Censorship-resistant  
+✅ True automation via smart contracts
+✅ Anonymous (no KYC)
+✅ Instant payouts
+✅ Transparent (on-chain verification)
+✅ Global access
+✅ Lower fees (no intermediary)
+✅ Censorship-resistant
 
 #### Disadvantages
-❌ Regulatory uncertainty in many jurisdictions  
-❌ Requires crypto wallet knowledge  
-❌ Smaller betting pools  
-❌ Limited sports coverage vs traditional books  
-❌ Smart contract risk  
-❌ Cryptocurrency volatility  
+❌ Regulatory uncertainty in many jurisdictions
+❌ Requires crypto wallet knowledge
+❌ Smaller betting pools
+❌ Limited sports coverage vs traditional books
+❌ Smart contract risk
+❌ Cryptocurrency volatility
 
 ---
 
@@ -214,17 +214,17 @@ These services provide odds data but **do not** allow automated bet placement:
 ## 🚫 What Does NOT Work
 
 ### US Sportsbooks (Illegal/Prohibited)
-❌ DraftKings - No public API, TOS violations  
-❌ FanDuel - No public API, TOS violations  
-❌ BetMGM - No public API, TOS violations  
-❌ Caesars - No public API, TOS violations  
-❌ BetRivers - No public API, TOS violations  
+❌ DraftKings - No public API, TOS violations
+❌ FanDuel - No public API, TOS violations
+❌ BetMGM - No public API, TOS violations
+❌ Caesars - No public API, TOS violations
+❌ BetRivers - No public API, TOS violations
 
 ### Attempts to Circumvent
-❌ Reverse engineering mobile apps - TOS violation  
-❌ Web scraping for automation - Detectable, bannable  
-❌ Third-party "unofficial" APIs - Unreliable, illegal  
-❌ VPN to access restricted markets - Fraud, illegal  
+❌ Reverse engineering mobile apps - TOS violation
+❌ Web scraping for automation - Detectable, bannable
+❌ Third-party "unofficial" APIs - Unreliable, illegal
+❌ VPN to access restricted markets - Fraud, illegal
 
 ### Consequences
 - Account closure
@@ -436,6 +436,6 @@ Programmatic betting may be:
 
 ---
 
-**Last Updated**: 2026-01-16  
-**Status**: Active research document  
+**Last Updated**: 2026-01-16
+**Status**: Active research document
 **Next Review**: Quarterly (regulations change frequently)

@@ -72,25 +72,59 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
         away_team = None
         game_date = None
 
-        # Standard Kalshi Ticker: SERIES-YYMMDD-AWAYHOME-OUTCOME
+        # Standard Kalshi Ticker Parsing
+        # Attempt 1: SERIES-YYMMDD-AWAYHOME-OUTCOME (Old format)
         parts = ticker.split('-')
+        parsed = False
+
         if len(parts) >= 3:
-            date_part = parts[1]
-            teams_part = parts[2]
-
+            # Try numeric date format first (Old)
             try:
-                year = 2000 + int(date_part[0:2])
-                month = int(date_part[2:4])
-                day = int(date_part[4:6])
-                game_date = f"{year}-{month:02d}-{day:02d}"
+                date_part = parts[1]
+                # Check if it's purely numeric and length 6 (YYMMDD)
+                if len(date_part) == 6 and date_part.isdigit():
+                    year = 2000 + int(date_part[0:2])
+                    month = int(date_part[2:4])
+                    day = int(date_part[4:6])
+                    game_date = f"{year}-{month:02d}-{day:02d}"
 
-                if len(teams_part) == 6:
-                    away_team = teams_part[0:3]
-                    home_team = teams_part[3:6]
+                    teams_part = parts[2]
+                    if len(teams_part) == 6:
+                        away_team = teams_part[0:3]
+                        home_team = teams_part[3:6]
+                        parsed = True
             except:
                 pass
 
-        # Fallback for Tennis
+        # Attempt 2: SERIES-YYMMMDDTEAMS-OUTCOME (New format: 26JAN24LALDAL)
+        if not parsed and len(parts) >= 2:
+            try:
+                # The middle part contains everything: Date + Teams
+                middle = parts[1]
+                # Regex for YYMMMDDTEAMS (e.g. 26JAN24LALDAL)
+                # 2 digits Year, 3 letters Month, 2 digits Day, remaining is Teams
+                match_new = re.match(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$", middle)
+                if match_new:
+                    y_str, m_str, d_str, teams_str = match_new.groups()
+
+                    # Parse date
+                    dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
+                    game_date = dt.strftime("%Y-%m-%d")
+
+                    # Teams: Assuming 3-char codes usually, so 6 chars total?
+                    # Or split in half?
+                    # NBA/NCAAB usually 3 chars.
+                    if len(teams_str) == 6:
+                        away_team = teams_str[0:3]
+                        home_team = teams_str[3:6]
+                        parsed = True
+                    elif " vs " in title: # Fallback to title if ticker teams are ambiguous
+                        pass
+            except Exception as e:
+                # print(f"Failed new format parse: {e}")
+                pass
+
+        # Fallback for Tennis or others where Title is key
         if not home_team or not away_team or not game_date:
             if sport.lower() == 'tennis':
                 match = re.search(r"win the (.*?) vs (.*?) (?:match|:)", title)
@@ -270,7 +304,7 @@ def fetch_tennis_markets(date_str=None):
 def fetch_ncaab_markets(date_str=None):
     api_key_id, private_key = load_kalshi_credentials()
     api = KalshiAPI(api_key_id, private_key)
-    result = api.get_markets(series_ticker='KXNCAAMBGAME', limit=200)
+    result = api.get_markets(series_ticker='KXNCAAMBGAME', limit=1000)
     if result and 'markets' in result:
         markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
         save_to_db('ncaab', markets)
@@ -280,7 +314,7 @@ def fetch_ncaab_markets(date_str=None):
 def fetch_wncaab_markets(date_str=None):
     api_key_id, private_key = load_kalshi_credentials()
     api = KalshiAPI(api_key_id, private_key)
-    result = api.get_markets(series_ticker='KXNCAAWBGAME', limit=200)
+    result = api.get_markets(series_ticker='KXNCAAWBGAME', limit=1000)
     if result and 'markets' in result:
         markets = [m for m in result['markets'] if m.get('status') in ['active', 'initialized', 'open']]
         save_to_db('wncaab', markets)

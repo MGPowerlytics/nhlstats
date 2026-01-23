@@ -44,7 +44,7 @@ except ImportError:  # pragma: no cover
         load_games,
         print_decile_table,
     )
-    from nhl_elo_rating import NHLEloRating
+    from plugins.elo import NHLEloRating
 
 
 def _clamp_probs(p: np.ndarray, eps: float = 1e-6) -> np.ndarray:

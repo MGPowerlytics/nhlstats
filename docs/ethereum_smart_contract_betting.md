@@ -55,11 +55,11 @@ contract SportsBetting {
     bool public isBettingOpen = true;
     bool public isSettled = false;
     uint8 public winningTeam;
-    
+
     mapping(uint8 => uint256) public totalBetsPerTeam;
     mapping(uint8 => Bet[]) public betsByTeam;
     mapping(address => uint256[]) public userBets; // Track user's bet indices
-    
+
     uint256 public constant MIN_BET = 0.01 ether;
     uint256 public constant MAX_BET = 10 ether;
     uint256 public constant HOUSE_FEE_PERCENT = 2; // 2% house fee
@@ -92,7 +92,7 @@ contract SportsBetting {
         require(msg.value >= MIN_BET, "Bet too small");
         require(msg.value <= MAX_BET, "Bet too large");
         require(team == 1 || team == 2, "Invalid team");
-        
+
         // Store bet
         betsByTeam[team].push(Bet({
             bettor: msg.sender,
@@ -100,10 +100,10 @@ contract SportsBetting {
             selectedTeam: team,
             claimed: false
         }));
-        
+
         totalBetsPerTeam[team] += msg.value;
         userBets[msg.sender].push(betsByTeam[team].length - 1);
-        
+
         emit BetPlaced(msg.sender, team, msg.value);
     }
 
@@ -124,10 +124,10 @@ contract SportsBetting {
         require(!isBettingOpen, "Betting still open");
         require(!isSettled, "Already settled");
         require(team == 1 || team == 2, "Invalid team");
-        
+
         winningTeam = team;
         isSettled = true;
-        
+
         uint256 totalPool = totalBetsPerTeam[1] + totalBetsPerTeam[2];
         emit WinnerDeclared(team, totalPool);
     }
@@ -138,23 +138,23 @@ contract SportsBetting {
     function claimPayout() external {
         require(isSettled, "Not settled yet");
         require(userBets[msg.sender].length > 0, "No bets found");
-        
+
         uint256 totalPayout = 0;
-        
+
         // Calculate payout for all winning bets by this user
         for (uint i = 0; i < userBets[msg.sender].length; i++) {
             uint256 betIndex = userBets[msg.sender][i];
             Bet storage bet = betsByTeam[winningTeam][betIndex];
-            
+
             if (bet.bettor == msg.sender && bet.selectedTeam == winningTeam && !bet.claimed) {
                 uint256 payout = calculatePayout(bet.amount);
                 totalPayout += payout;
                 bet.claimed = true;
             }
         }
-        
+
         require(totalPayout > 0, "No winnings to claim");
-        
+
         payable(msg.sender).transfer(totalPayout);
         emit PayoutClaimed(msg.sender, totalPayout);
     }
@@ -166,12 +166,12 @@ contract SportsBetting {
     function calculatePayout(uint256 betAmount) public view returns (uint256) {
         uint256 totalPool = totalBetsPerTeam[1] + totalBetsPerTeam[2];
         uint256 winnersPool = totalBetsPerTeam[winningTeam];
-        
+
         if (winnersPool == 0) return 0;
-        
+
         // Calculate proportional share of total pool
         uint256 grossPayout = (betAmount * totalPool) / winnersPool;
-        
+
         // Deduct house fee
         uint256 houseFee = (grossPayout * HOUSE_FEE_PERCENT) / 100;
         return grossPayout - houseFee;
@@ -243,7 +243,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
     Game public game;
     mapping(uint8 => Bet[]) public betsByTeam;
     mapping(uint8 => uint256) public totalBetsPerTeam;
-    
+
     event BetPlaced(address indexed bettor, uint8 team, uint256 amount);
     event ScoreRequested(bytes32 indexed requestId);
     event ScoreFulfilled(uint256 homeScore, uint256 awayScore);
@@ -260,7 +260,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
         oracle = _oracle;
         jobId = _jobId;
         fee = _fee;
-        
+
         game = Game({
             gameId: _gameId,
             homeTeam: 1,
@@ -280,14 +280,14 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
         require(!game.isFinalized, "Game already finished");
         require(msg.value > 0, "Bet must be > 0");
         require(team == 1 || team == 2, "Invalid team");
-        
+
         betsByTeam[team].push(Bet({
             bettor: msg.sender,
             amount: msg.value,
             selectedTeam: team,
             claimed: false
         }));
-        
+
         totalBetsPerTeam[team] += msg.value;
         emit BetPlaced(msg.sender, team, msg.value);
     }
@@ -298,20 +298,20 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
     function requestGameScore() public returns (bytes32 requestId) {
         require(block.timestamp >= game.bettingCloseTime, "Game not started");
         require(!game.isFinalized, "Already finalized");
-        
+
         Chainlink.Request memory req = buildChainlinkRequest(
             jobId,
             address(this),
             this.fulfillScore.selector
         );
-        
+
         // Set parameters for the oracle request
         req.add("gameId", game.gameId);
         req.add("endpoint", "score");
-        
+
         requestId = sendChainlinkRequest(req, fee);
         emit ScoreRequested(requestId);
-        
+
         return requestId;
     }
 
@@ -329,9 +329,9 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
         game.homeScore = _homeScore;
         game.awayScore = _awayScore;
         game.isFinalized = true;
-        
+
         emit ScoreFulfilled(_homeScore, _awayScore);
-        
+
         // Determine winner
         uint8 winner;
         if (_homeScore > _awayScore) {
@@ -341,7 +341,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
         } else {
             winner = 0; // Tie - refund all bets
         }
-        
+
         emit GameFinalized(winner);
     }
 
@@ -350,7 +350,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
      */
     function claimPayout() external {
         require(game.isFinalized, "Game not finalized");
-        
+
         uint8 winningTeam;
         if (game.homeScore > game.awayScore) {
             winningTeam = game.homeTeam;
@@ -361,11 +361,11 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
             refundBets(msg.sender);
             return;
         }
-        
+
         // Calculate and send payout
         uint256 totalPayout = calculateUserPayout(msg.sender, winningTeam);
         require(totalPayout > 0, "No winnings");
-        
+
         payable(msg.sender).transfer(totalPayout);
     }
 
@@ -374,7 +374,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
      */
     function calculateUserPayout(address user, uint8 winningTeam) internal returns (uint256) {
         uint256 userBetAmount = 0;
-        
+
         // Find and mark user's winning bets
         for (uint i = 0; i < betsByTeam[winningTeam].length; i++) {
             Bet storage bet = betsByTeam[winningTeam][i];
@@ -383,13 +383,13 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
                 bet.claimed = true;
             }
         }
-        
+
         if (userBetAmount == 0) return 0;
-        
+
         // Calculate proportional payout
         uint256 totalPool = totalBetsPerTeam[1] + totalBetsPerTeam[2];
         uint256 winnersPool = totalBetsPerTeam[winningTeam];
-        
+
         return (userBetAmount * totalPool) / winnersPool;
     }
 
@@ -398,7 +398,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
      */
     function refundBets(address user) internal {
         uint256 refundAmount = 0;
-        
+
         for (uint8 team = 1; team <= 2; team++) {
             for (uint i = 0; i < betsByTeam[team].length; i++) {
                 Bet storage bet = betsByTeam[team][i];
@@ -408,7 +408,7 @@ contract OracleSportsBetting is ChainlinkClient, ConfirmedOwner {
                 }
             }
         }
-        
+
         if (refundAmount > 0) {
             payable(user).transfer(refundAmount);
         }
@@ -530,7 +530,7 @@ async function main() {
   const SportsBetting = await ethers.getContractFactory("SportsBetting");
   const betting = await SportsBetting.deploy();
   await betting.deployed();
-  
+
   console.log("SportsBetting deployed to:", betting.address);
 }
 
@@ -587,7 +587,7 @@ async function connectWallet() {
     await provider.send("eth_requestAccounts", []);
     const signer = provider.getSigner();
     const address = await signer.getAddress();
-    
+
     console.log("Connected:", address);
     return { provider, signer };
   } else {
@@ -607,7 +607,7 @@ async function placeBet(team, amount) {
   const tx = await contract.placeBet(team, {
     value: ethers.utils.parseEther(amount)
   });
-  
+
   await tx.wait();
   console.log("Bet placed!");
 }
@@ -617,10 +617,10 @@ async function checkWinnings() {
   const contract = await getContract();
   const { signer } = await connectWallet();
   const address = await signer.getAddress();
-  
+
   const team1Bets = await contract.getUserBetsOnTeam(address, 1);
   const team2Bets = await contract.getUserBetsOnTeam(address, 2);
-  
+
   console.log("Team 1 bets:", ethers.utils.formatEther(team1Bets));
   console.log("Team 2 bets:", ethers.utils.formatEther(team2Bets));
 }
@@ -636,11 +636,11 @@ async function claimWinnings() {
 // Listen to events
 async function listenToEvents() {
   const contract = await getContract();
-  
+
   contract.on("BetPlaced", (bettor, team, amount) => {
     console.log(`Bet placed: ${bettor} bet ${ethers.utils.formatEther(amount)} on team ${team}`);
   });
-  
+
   contract.on("WinnerDeclared", (team, totalPool) => {
     console.log(`Winner: Team ${team}, Pool: ${ethers.utils.formatEther(totalPool)}`);
   });
@@ -686,15 +686,15 @@ function BettingComponent({ contractAddress, abi }) {
 
   async function handlePlaceBet() {
     if (!contract) return;
-    
+
     try {
       const tx = await contract.placeBet(selectedTeam, {
         value: ethers.utils.parseEther(betAmount)
       });
-      
+
       await tx.wait();
       alert("Bet placed successfully!");
-      
+
       // Refresh pot sizes
       initContract();
     } catch (error) {
@@ -705,7 +705,7 @@ function BettingComponent({ contractAddress, abi }) {
 
   async function handleClaimPayout() {
     if (!contract) return;
-    
+
     try {
       const tx = await contract.claimPayout();
       await tx.wait();
@@ -720,7 +720,7 @@ function BettingComponent({ contractAddress, abi }) {
     <div className="betting-container">
       <h2>Sports Betting DApp</h2>
       <p>Connected: {account}</p>
-      
+
       <div className="pot-info">
         <p>Team 1 Pot: {totalPot.team1} MATIC</p>
         <p>Team 2 Pot: {totalPot.team2} MATIC</p>
@@ -731,15 +731,15 @@ function BettingComponent({ contractAddress, abi }) {
           <option value={1}>Team 1</option>
           <option value={2}>Team 2</option>
         </select>
-        
-        <input 
-          type="number" 
-          value={betAmount} 
+
+        <input
+          type="number"
+          value={betAmount}
           onChange={(e) => setBetAmount(e.target.value)}
           step="0.01"
           min="0.01"
         />
-        
+
         <button onClick={handlePlaceBet}>Place Bet</button>
       </div>
 
@@ -844,10 +844,10 @@ describe("SportsBetting", function () {
   });
 
   it("Should allow users to place bets", async function () {
-    await sportsBetting.connect(addr1).placeBet(1, { 
-      value: ethers.utils.parseEther("1.0") 
+    await sportsBetting.connect(addr1).placeBet(1, {
+      value: ethers.utils.parseEther("1.0")
     });
-    
+
     const totalTeam1 = await sportsBetting.totalBetsPerTeam(1);
     expect(totalTeam1).to.equal(ethers.utils.parseEther("1.0"));
   });
@@ -861,13 +861,13 @@ describe("SportsBetting", function () {
   it("Should calculate correct payouts", async function () {
     // Team 1: 2 ETH total
     await sportsBetting.connect(addr1).placeBet(1, { value: ethers.utils.parseEther("2.0") });
-    
+
     // Team 2: 1 ETH total
     await sportsBetting.connect(addr2).placeBet(2, { value: ethers.utils.parseEther("1.0") });
-    
+
     await sportsBetting.closeBetting();
     await sportsBetting.declareWinner(1);
-    
+
     // Team 1 should get: (2 / 2) * 3 = 3 ETH - 2% fee = 2.94 ETH
     const payout = await sportsBetting.calculatePayout(ethers.utils.parseEther("2.0"));
     expect(payout).to.be.closeTo(
@@ -878,7 +878,7 @@ describe("SportsBetting", function () {
 
   it("Should prevent betting after close", async function () {
     await sportsBetting.closeBetting();
-    
+
     await expect(
       sportsBetting.connect(addr1).placeBet(1, { value: ethers.utils.parseEther("1.0") })
     ).to.be.revertedWith("Betting closed");
@@ -942,7 +942,7 @@ for game in games_today:
     home_team = game['homeTeam']
     away_team = game['awayTeam']
     start_time = game['startTime']
-    
+
     # 2. Deploy smart contract for this game
     contract = deploy_betting_contract(
         game_id=game_id,
@@ -950,17 +950,17 @@ for game in games_today:
         away_team=away_team,
         betting_close_time=start_time
     )
-    
+
     # 3. Users bet via frontend
     # (happens via Web3 interface)
-    
+
     # 4. After game ends, your pipeline has score
     final_score = fetcher.get_game_final_score(game_id)
-    
+
     # 5. Either:
     # a) Manual: Owner calls declareWinner()
     # b) Oracle: Chainlink auto-fetches and settles
-    
+
     # 6. Winners claim payouts via smart contract
 ```
 
@@ -980,7 +980,7 @@ def submit_game_result(game_id):
     # Get score from your pipeline
     fetcher = NBAStatsFetcher()
     score = fetcher.get_game_final_score(game_id)
-    
+
     # Submit to smart contract
     tx = contract.functions.declareWinner(
         homeScore=score['home'],
@@ -989,10 +989,10 @@ def submit_game_result(game_id):
         'from': ORACLE_ADDRESS,
         'nonce': w3.eth.getTransactionCount(ORACLE_ADDRESS),
     })
-    
+
     signed = w3.eth.account.signTransaction(tx, private_key=ORACLE_PRIVATE_KEY)
     tx_hash = w3.eth.sendRawTransaction(signed.rawTransaction)
-    
+
     print(f"Result submitted: {tx_hash.hex()}")
 
 # Run after each game

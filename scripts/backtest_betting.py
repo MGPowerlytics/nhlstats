@@ -15,12 +15,12 @@ import pandas as pd
 # Add plugins to path
 sys.path.insert(0, '/mnt/data2/nhlstats/plugins')
 
-from nba_elo_rating import NBAEloRating
-from nhl_elo_rating import NHLEloRating
-from mlb_elo_rating import MLBEloRating
-from nfl_elo_rating import NFLEloRating
-from epl_elo_rating import EPLEloRating
-from ncaab_elo_rating import NCAABEloRating
+from plugins.elo import NBAEloRating
+from plugins.elo import NHLEloRating
+from plugins.elo import MLBEloRating
+from plugins.elo import NFLEloRating
+from plugins.elo import EPLEloRating
+from plugins.elo import NCAABEloRating
 
 
 class BettingBacktest:
