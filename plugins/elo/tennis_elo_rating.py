@@ -2,6 +2,7 @@ import json
 from pathlib import Path
 from datetime import datetime
 import math
+from typing import Union
 from .base_elo_rating import BaseEloRating
 
 
@@ -85,30 +86,55 @@ class TennisEloRating(BaseEloRating):
         ra = self.get_rating(player_a, tour)
         rb = self.get_rating(player_b, tour)
 
-        return 1 / (1 + 10 ** ((rb - ra) / 400))
+        return self.expected_score(ra, rb)
 
-    def expected_score(self, player_a, player_b, is_neutral=True):
+    def expected_score(self, rating_a: float, rating_b: float) -> float:
         """
-        Expected score for player_a (win probability).
-        For tennis, this is the same as predict().
-
-        Note: We need to handle the tour parameter differently.
-        For BaseEloRating compatibility, we'll use ATP as default.
+        Calculate expected score (probability of team A winning).
         """
-        return self.predict(player_a, player_b, tour='ATP', is_neutral=is_neutral)
+        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
-    def update(self, winner, loser, tour='ATP', is_neutral=True):
+    def update(
+        self,
+        home_team: str,
+        away_team: str,
+        home_won: Union[bool, float] = None,
+        is_neutral: bool = True,
+        tour: str = 'ATP',
+        **kwargs
+    ):
         """
         Update ratings after a match.
-        Tennis is binary (Win/Loss).
 
-        Note: Tennis is always neutral (no home advantage).
-        The is_neutral parameter is ignored (always True for tennis).
+        Supports two calling conventions:
+        1. Standard BaseEloRating: update(p1, p2, home_won=True) -> p1 won
+        2. Legacy Tennis: update(winner, loser) -> winner won (home_won=None)
+
+        Args:
+            home_team: Player A (or Winner in legacy mode)
+            away_team: Player B (or Loser in legacy mode)
+            home_won: True if home_team won, False if away_team won. None for legacy mode.
+            is_neutral: Always True for tennis.
+            tour: 'ATP' or 'WTA'
         """
         ratings, matches = self._get_tour_dicts(tour)
 
-        winner = self._normalize_name(winner)
-        loser = self._normalize_name(loser)
+        p1 = self._normalize_name(home_team)
+        p2 = self._normalize_name(away_team)
+
+        # Determine actual winner/loser
+        if home_won is None:
+            # Legacy mode: first arg is winner, second is loser
+            winner = p1
+            loser = p2
+        else:
+            # Standard mode
+            if home_won:
+                winner = p1
+                loser = p2
+            else:
+                winner = p2
+                loser = p1
 
         # Initialize if new
         if winner not in ratings:
@@ -123,7 +149,7 @@ class TennisEloRating(BaseEloRating):
         rw = ratings[winner]
         rl = ratings[loser]
 
-        expected_win = 1 / (1 + 10 ** ((rl - rw) / 400))
+        expected_win = 1.0 / (1.0 + 10.0 ** ((rl - rw) / 400.0))
 
         # Calculate K-Factor
         # Higher K for newer players to converge faster

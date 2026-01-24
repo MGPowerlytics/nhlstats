@@ -46,10 +46,10 @@ class TestTennisEloInheritance:
         assert 'tour' in predict_sig.parameters
 
         update_sig = inspect.signature(elo.update)
-        # Tennis update has different parameters than base
-        assert 'winner' in update_sig.parameters
-        assert 'loser' in update_sig.parameters
-        assert 'tour' in update_sig.parameters
+        # Tennis update has been refactored to match base interface
+        assert 'home_team' in update_sig.parameters
+        assert 'away_team' in update_sig.parameters
+        assert 'home_won' in update_sig.parameters
 
 
 class TestTennisEloFunctionality:
@@ -99,14 +99,19 @@ class TestTennisEloFunctionality:
     def test_expected_score_method(self):
         """Test the expected_score method."""
         elo = TennisEloRating()
-        elo.atp_ratings = {"Playera": 1600, "Playerb": 1400}
 
-        # expected_score should return the same as predict for player_a win probability
-        expected = elo.expected_score("Playera", "Playerb", is_neutral=True)
-        predicted = elo.predict("Playera", "Playerb", tour='ATP', is_neutral=True)
+        # Test 1: Equal ratings -> 50%
+        assert elo.expected_score(1500, 1500) == pytest.approx(0.5, abs=0.001)
 
-        # They should be very close
-        assert abs(expected - predicted) < 0.0001
+        # Test 2: Higher rating favored
+        prob = elo.expected_score(1600, 1400)
+        assert prob > 0.5
+        assert prob == pytest.approx(0.7597, abs=0.001)
+
+        # Test 3: Lower rating underdog
+        prob2 = elo.expected_score(1400, 1600)
+        assert prob2 < 0.5
+        assert prob2 == pytest.approx(1.0 - 0.7597, abs=0.001)
 
     def test_get_all_ratings_method(self):
         """Test get_all_ratings returns dictionary of ratings."""

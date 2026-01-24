@@ -12,19 +12,21 @@ class WNCAABEloRating(BaseEloRating):
         if team not in self.ratings:
             self.ratings[team] = self.initial_rating
         return self.ratings[team]
-    def predict(self, home_team, away_team, is_neutral=False):
+    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
         """Predict home team win probability."""
         rh = self.get_rating(home_team)
         ra = self.get_rating(away_team)
-        ha = 0 if is_neutral else self.home_advantage
-        dr = rh + ha - ra
-        return 1 / (1 + 10 ** (-dr / 400))
-    def expected_score(self, home_team, away_team, is_neutral=False):
+
+        if not is_neutral:
+            rh += self.home_advantage
+
+        return self.expected_score(rh, ra)
+
+    def expected_score(self, rating_a: float, rating_b: float) -> float:
         """
-        Expected score for home team (win probability).
-        For WNCAAB, this is the same as predict().
+        Calculate expected score (probability of team A winning).
         """
-        return self.predict(home_team, away_team, is_neutral=is_neutral)
+        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
     def update(
         self,
         home_team: str,

@@ -130,25 +130,13 @@ Where:
 | Tennis| 20       | 0              | No home advantage |
 
 **Current Refactoring Status (2026-01-23):**
-- ✅ **Completed**: NHL, NBA, MLB, NFL, EPL, Ligue1 (6/9 sports)
-- 🔄 **In Progress**: NCAAB, WNCAAB, Tennis (3/9 sports)
+
+- ✅ **Completed**: All 9 sports (NHL, NBA, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, Tennis)
+
+- 🔄 **In Progress**: None (Phase 1.2 Completed)
 
 
 
-### ⚠️ Known Issue: File Corruption
-
-Some Elo rating files have been corrupted with markdown wrapper syntax (e.g., ```python` code blocks in .py files). This causes import errors.
-
-**Files needing cleanup:**
-- `plugins/elo/nba_elo_rating.py`
-- `plugins/elo/nhl_elo_rating.py`
-- `plugins/elo/mlb_elo_rating.py`
-- `plugins/elo/nfl_elo_rating.py`
-- Possibly others
-
-**Temporary workaround**: When encountering import errors, check if the file has markdown syntax and clean it.
-
-**Permanent fix needed**: Clean all corrupted files before proceeding with Phase 1.4.
 ### Edge Calculation
 
 ```python

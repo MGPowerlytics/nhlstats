@@ -89,14 +89,20 @@ class TestWNCAABEloFunctionality:
     def test_expected_score_method(self):
         """Test the expected_score method (should be added during refactoring)."""
         elo = WNCAABEloRating()
-        elo.ratings = {"TeamA": 1600, "TeamB": 1400}
 
-        # expected_score should return the same as predict for home team win probability
-        expected = elo.expected_score("TeamA", "TeamB", is_neutral=False)
-        predicted = elo.predict("TeamA", "TeamB", is_neutral=False)
+        # expected_score takes ratings (floats), not team names
+        # Test 1: Equal ratings -> 50%
+        assert elo.expected_score(1500, 1500) == pytest.approx(0.5, abs=0.001)
 
-        # They should be very close (might be exactly the same implementation)
-        assert abs(expected - predicted) < 0.0001
+        # Test 2: Higher rating favored
+        prob = elo.expected_score(1600, 1400)
+        assert prob > 0.5
+        assert prob == pytest.approx(0.7597, abs=0.001)
+
+        # Test 3: Lower rating underdog
+        prob2 = elo.expected_score(1400, 1600)
+        assert prob2 < 0.5
+        assert prob2 == pytest.approx(1.0 - 0.7597, abs=0.001)
 
     def test_get_all_ratings_method(self):
         """Test get_all_ratings returns dictionary of ratings."""
