@@ -94,7 +94,16 @@ x-airflow-common:
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
     - ${AIRFLOW_PROJ_DIR:-.}/data:/opt/airflow/data
-    # Individual .py file mounts removed to prevent duplicate DAG parsing
+    - ${AIRFLOW_PROJ_DIR:-.}/nhl_game_events.py:/opt/airflow/nhl_game_events.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nhl_elo_rating.py:/opt/airflow/nhl_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/mlb_elo_rating.py:/opt/airflow/mlb_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nfl_elo_rating.py:/opt/airflow/nfl_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nba_elo_rating.py:/opt/airflow/nba_elo_rating.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nba_games.py:/opt/airflow/nba_games.py
+    - ${AIRFLOW_PROJ_DIR:-.}/kalshi_markets.py:/opt/airflow/kalshi_markets.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nfl_games.py:/opt/airflow/nfl_games.py
+    - ${AIRFLOW_PROJ_DIR:-.}/nba_games.py:/opt/airflow/nba_games.py
+    - ${AIRFLOW_PROJ_DIR:-.}/mlb_games.py:/opt/airflow/mlb_games.py
     - ${AIRFLOW_PROJ_DIR:-.}/kalshkey:/opt/airflow/kalshkey
     - ${AIRFLOW_PROJ_DIR:-.}/kalshi_private_key.pem:/opt/airflow/kalshi_private_key.pem
     - ${AIRFLOW_PROJ_DIR:-.}/odds_api_key:/opt/airflow/odds_api_key

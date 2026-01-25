@@ -195,3 +195,51 @@ class MLBEloRating(BaseEloRating):
             **kwargs: Additional args like scores
         """
         self.update(home_team, away_team, home_won, is_neutral=False, **kwargs)
+
+
+def calculate_current_elo_ratings(output_path=None):
+    """
+    Calculate current Elo ratings for MLB based on games in database.
+
+    Args:
+        output_path (str, optional): Path to save CSV of ratings.
+
+    Returns:
+        MLBEloRating instance with updated ratings, or None if no games.
+    """
+    from db_manager import default_db
+    import pandas as pd
+    from pathlib import Path
+
+    elo = MLBEloRating()
+    # Query mlb_games table
+    query = """
+        SELECT game_date, home_team, away_team, home_score, away_score
+        FROM mlb_games
+        WHERE game_date IS NOT NULL
+        ORDER BY game_date
+    """
+    df = default_db.fetch_df(query)
+    if df.empty:
+        print("No MLB games found in database")
+        return None
+
+    for _, row in df.iterrows():
+        home_team = row['home_team']
+        away_team = row['away_team']
+        home_score = row['home_score']
+        away_score = row['away_score']
+        home_won = home_score > away_score if home_score is not None and away_score is not None else None
+        if home_won is None:
+            continue
+        elo.update(home_team, away_team, home_won, home_score=home_score, away_score=away_score)
+
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            f.write("team,rating\n")
+            for team, rating in sorted(elo.ratings.items(), key=lambda x: x[0]):
+                f.write(f"{team},{rating:.2f}\n")
+        print(f"Saved MLB Elo ratings to {output_path}")
+
+    return elo

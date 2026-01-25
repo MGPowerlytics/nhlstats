@@ -8,6 +8,7 @@ from plugins.portfolio_snapshots import (
     load_latest_snapshot,
     load_snapshots_since,
     upsert_hourly_snapshot,
+    ensure_portfolio_snapshots_table,
 )
 from db_manager import default_db
 
@@ -15,6 +16,9 @@ from db_manager import default_db
 @pytest.fixture(autouse=True)
 def clean_portfolio_table():
     """Clean portfolio snapshots table before each test."""
+    # Ensure the table exists
+    ensure_portfolio_snapshots_table()
+    # Clean the table
     try:
         default_db.execute("DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'")
     except:

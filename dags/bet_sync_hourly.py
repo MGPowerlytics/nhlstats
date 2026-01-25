@@ -26,6 +26,13 @@ def sync_bets_from_kalshi():
 
     from bet_tracker import sync_bets_to_database
 
+    try:
+        added, updated = sync_bets_to_database()
+        print(f"✅ Synced bets: {added} added, {updated} updated")
+    except Exception as e:
+        print(f"❌ Failed to sync bets: {e}")
+        raise
+
 
 # Default arguments for the DAG
 default_args = {

@@ -103,3 +103,51 @@ class NFLEloRating(BaseEloRating):
 
     def legacy_update(self, home_team: str, away_team: str, home_won: bool = None, **kwargs) -> None:
         self.update(home_team, away_team, home_won, is_neutral=False, **kwargs)
+
+
+def calculate_current_elo_ratings(output_path=None):
+    """
+    Calculate current Elo ratings for NFL based on games in database.
+
+    Args:
+        output_path (str, optional): Path to save CSV of ratings.
+
+    Returns:
+        NFLEloRating instance with updated ratings, or None if no games.
+    """
+    from db_manager import default_db
+    import pandas as pd
+    from pathlib import Path
+
+    elo = NFLEloRating()
+    # Query nfl_games table
+    query = """
+        SELECT game_date, home_team, away_team, home_score, away_score
+        FROM nfl_games
+        WHERE game_date IS NOT NULL
+        ORDER BY game_date
+    """
+    df = default_db.fetch_df(query)
+    if df.empty:
+        print("No NFL games found in database")
+        return None
+
+    for _, row in df.iterrows():
+        home_team = row['home_team']
+        away_team = row['away_team']
+        home_score = row['home_score']
+        away_score = row['away_score']
+        home_won = home_score > away_score if home_score is not None and away_score is not None else None
+        if home_won is None:
+            continue
+        elo.update(home_team, away_team, home_won, home_score=home_score, away_score=away_score)
+
+    if output_path:
+        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, 'w') as f:
+            f.write("team,rating\n")
+            for team, rating in sorted(elo.ratings.items(), key=lambda x: x[0]):
+                f.write(f"{team},{rating:.2f}\n")
+        print(f"Saved NFL Elo ratings to {output_path}")
+
+    return elo

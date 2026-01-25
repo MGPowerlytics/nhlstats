@@ -1,0 +1,391 @@
+1: #!/bin/bash
+2:
+3: # ============================================================================
+4: # HOURLY FUNCTIONAL TEST SCRIPT
+5: # ============================================================================
+6: # Purpose: Execute critical functional tests hourly to ensure system health
+7: #          AI Agent can execute this script and fix any issues found
+8: # ============================================================================
+9:
+10: set -e  # Exit on error
+11: set -o pipefail  # Capture pipe failures
+12:
+13: # Configuration
+14: SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+15: PROJECT_ROOT="${SCRIPT_DIR}/.."
+16: LOG_DIR="${PROJECT_ROOT}/logs"
+17: TEST_LOG="${LOG_DIR}/hourly_functional_tests_$(date +%Y%m%d_%H%M%S).log"
+18: TIMESTAMP=$(date '+%Y-%m-%d %H:%M:%S')
+19:
+20: # Colors for output
+21: RED='\033[0;31m'
+22: GREEN='\033[0;32m'
+23: YELLOW='\033[1;33m'
+24: BLUE='\033[0;34m'
+25: NC='\033[0m' # No Color
+26:
+27: # Create log directory if it doesn't exist
+28: mkdir -p "${LOG_DIR}"
+29:
+30: # Logging function
+31: log() {
+32:     local level="$1"
+33:     local message="$2"
+34:     local color="${NC}"
+35:
+36:     case "${level}" in
+37:         "SUCCESS") color="${GREEN}" ;;
+38:         "ERROR") color="${RED}" ;;
+39:         "WARNING") color="${YELLOW}" ;;
+40:         "INFO") color="${BLUE}" ;;
+41:     esac
+42:
+43:     echo -e "${color}[${TIMESTAMP}] [${level}] ${message}${NC}" | tee -a "${TEST_LOG}"
+44: }
+45:
+46: # Test result tracking
+47: TESTS_PASSED=0
+48: TESTS_FAILED=0
+49: TESTS_TOTAL=0
+50: FAILED_TESTS=()
+51:
+52: # Test execution wrapper
+53: run_test() {
+54:     local test_name="$1"
+55:     local test_command="$2"
+56:     local test_description="$3"
+57:
+58:     TESTS_TOTAL=$((TESTS_TOTAL + 1))
+59:
+60:     log "INFO" "Running test: ${test_name}"
+61:     log "INFO" "Description: ${test_description}"
+62:
+63:     if eval "${test_command}" >> "${TEST_LOG}" 2>&1; then
+64:         log "SUCCESS" "✓ Test passed: ${test_name}"
+65:         TESTS_PASSED=$((TESTS_PASSED + 1))
+66:         return 0
+67:     else
+68:         log "ERROR" "✗ Test failed: ${test_name}"
+69:         TESTS_FAILED=$((TESTS_FAILED + 1))
+70:         FAILED_TESTS+=("${test_name}")
+71:
+72:         # Log detailed error
+73:         log "ERROR" "Failed command: ${test_command}"
+74:         log "ERROR" "See ${TEST_LOG} for details"
+75:         return 1
+76:     fi
+77: }
+78:
+79: # ============================================================================
+80: # TEST CATEGORY 1: DAG INFRASTRUCTURE TESTS
+81: # ============================================================================
+82:
+83: test_dag_import() {
+84:     run_test "dag_import" \
+85:         "cd ${PROJECT_ROOT} && python -c 'from airflow.models import DagBag; dag_bag = DagBag(dag_folder="dags", include_examples=False); assert len(dag_bag.import_errors) == 0, \"DAG import errors: {dag_bag.import_errors}\"; print(\"All DAGs import successfully\")'" \
+86:         "Validate all DAGs import without syntax errors"
+87: }
+88:
+89: test_dag_schedule() {
+90:     run_test "dag_schedule" \
+91:         "cd ${PROJECT_ROOT} && python -c '
+92: import sys
+93: sys.path.insert(0, \"dags\")
+94: from multi_sport_betting_workflow import dag as main_dag
+95: from bet_sync_hourly import dag as sync_dag
+96: from portfolio_hourly_snapshot import dag as portfolio_dag
+97: # Check schedule intervals
+98: assert main_dag.schedule_interval == \"0 12 * * *\", f\"Main DAG schedule mismatch: {main_dag.schedule_interval}\"
+99: assert sync_dag.schedule_interval == \"@hourly\", f\"Sync DAG schedule mismatch: {sync_dag.schedule_interval}\"
+100: assert portfolio_dag.schedule_interval == \"@hourly\", f\"Portfolio DAG schedule mismatch: {portfolio_dag.schedule_interval}\"
+101: print(\"All DAG schedules valid\")
+102: '" \
+103:         "Validate DAG schedule intervals"
+104: }
+105:
+106: # ============================================================================
+107: # TEST CATEGORY 2: DATABASE CONNECTIVITY TESTS
+108: # ============================================================================
+109:
+110: test_database_connection() {
+111:     run_test "database_connection" \
+112:         "cd ${PROJECT_ROOT} && python -c '
+113: import sys
+114: sys.path.insert(0, \"plugins\")
+115: from db_manager import get_engine
+116: engine = get_engine()
+117: with engine.connect() as conn:
+118:     result = conn.execute(\"SELECT 1\")
+119:     assert result.scalar() == 1
+120: print(\"Database connection successful\")
+121: '" \
+122:         "Validate PostgreSQL database connection"
+123: }
+124:
+125: test_core_tables_exist() {
+126:     run_test "core_tables_exist" \
+127:         "cd ${PROJECT_ROOT} && python -c '
+128: import sys
+129: sys.path.insert(0, \"plugins\")
+130: from db_manager import get_engine
+131: engine = get_engine()
+132: required_tables = [
+133:     \"unified_games\", \"game_odds\", \"placed_bets\",
+134:     \"portfolio_value_snapshots\", \"cash_deposits\",
+135:     \"bet_recommendations\", \"canonical_mappings\"
+136: ]
+137: existing_tables = [t.lower() for t in engine.table_names()]
+138: missing_tables = [t for t in required_tables if t.lower() not in existing_tables]
+139: assert len(missing_tables) == 0, f\"Missing tables: {missing_tables}\"
+140: print(f\"All {len(required_tables)} core tables exist\")
+141: '" \
+142:         "Validate all core database tables exist"
+143: }
+144:
+145: # ============================================================================
+146: # TEST CATEGORY 3: ELO SYSTEM TESTS
+147: # ============================================================================
+148:
+149: test_elo_classes_instantiate() {
+150:     run_test "elo_classes_instantiate" \
+151:         "cd ${PROJECT_ROOT} && python -c '
+152: import sys
+153: sys.path.insert(0, \"plugins/elo\")
+154: from base_elo_rating import BaseEloRating
+155: from nba_elo_rating import NBAEloRating
+156: from nhl_elo_rating import NHLEloRating
+157: from mlb_elo_rating import MLBEloRating
+158: from nfl_elo_rating import NFLEloRating
+159: from epl_elo_rating import EPLEloRating
+160: from ligue1_elo_rating import Ligue1EloRating
+161: from ncaab_elo_rating import NCAABEloRating
+162: from wncaab_elo_rating import WNCAABEloRating
+163: from tennis_elo_rating import TennisEloRating
+164:
+165: # Test instantiation
+166: elo_classes = [NBAEloRating, NHLEloRating, MLBEloRating, NFLEloRating,
+167:                EPLEloRating, Ligue1EloRating, NCAABEloRating,
+168:                WNCAABEloRating, TennisEloRating]
+169:
+170: for elo_class in elo_classes:
+171:     instance = elo_class()
+172:     assert isinstance(instance, BaseEloRating), f\"{elo_class.__name__} not a BaseEloRating\"
+173:     assert hasattr(instance, \"predict\"), f\"{elo_class.__name__} missing predict method\"
+174:     assert hasattr(instance, \"update_ratings\"), f\"{elo_class.__name__} missing update_ratings method\"
+175:
+176: print(f\"All {len(elo_classes)} Elo classes instantiate correctly\")
+177: '" \
+178:         "Validate all 9 Elo rating classes instantiate correctly"
+179: }
+180:
+181: # ============================================================================
+182: # TEST CATEGORY 4: SPORTS CONFIGURATION TESTS
+183: # ============================================================================
+184:
+185: test_sports_config() {
+186:     run_test "sports_config" \
+187:         "cd ${PROJECT_ROOT} && python -c '
+188: import sys
+189: sys.path.insert(0, \"dags\")
+190: from multi_sport_betting_workflow import SPORTS_CONFIG
+191:
+192: expected_sports = [\"nba\", \"nhl\", \"mlb\", \"nfl\", \"epl\", \"tennis\", \"ncaab\", \"wncaab\", \"ligue1\"]
+193: assert len(SPORTS_CONFIG) == 9, f\"Expected 9 sports, got {len(SPORTS_CONFIG)}\"
+194:
+195: for sport in expected_sports:
+196:     assert sport in SPORTS_CONFIG, f\"Missing sport in config: {sport}\"
+197:     config = SPORTS_CONFIG[sport]
+198:     assert \"elo_class\" in config, f\"Missing elo_class for {sport}\"
+199:     assert \"games_module\" in config, f\"Missing games_module for {sport}\"
+200:     assert \"kalshi_function\" in config, f\"Missing kalshi_function for {sport}\"
+201:     assert \"elo_threshold\" in config, f\"Missing elo_threshold for {sport}\"
+202:     assert isinstance(config[\"elo_threshold\"], (int, float)), f\"Invalid elo_threshold for {sport}\"
+203:
+204: print(\"Sports configuration valid for all 9 sports\")
+205: '" \
+206:         "Validate SPORTS_CONFIG includes all 9 sports with required fields"
+207: }
+208:
+209: # ============================================================================
+210: # TEST CATEGORY 5: DASHBOARD INTEGRATION TESTS
+211: # ============================================================================
+212:
+213: test_dashboard_import() {
+214:     run_test "dashboard_import" \
+215:         "cd ${PROJECT_ROOT} && python -c '
+216: import sys
+217: import os
+218: sys.path.append(os.path.join(os.path.dirname(__file__), \"dashboard\"))
+219: try:
+220:     import dashboard_app
+221:     # Test key imports
+222:     assert hasattr(dashboard_app, \"st\"), \"Streamlit not imported\"
+223:     assert hasattr(dashboard_app, \"pd\"), \"Pandas not imported\"
+224:     assert hasattr(dashboard_app, \"px\"), \"Plotly not imported\"
+225:     print(\"Dashboard imports successfully\")
+226: except ImportError as e:
+227:     raise AssertionError(f\"Dashboard import failed: {e}\")
+228: '" \
+229:         "Validate dashboard application imports correctly"
+230: }
+231:
+232: # ============================================================================
+233: # TEST CATEGORY 6: DATA PIPELINE INTEGRITY TESTS
+234: # ============================================================================
+235:
+236: test_data_validation_module() {
+237:     run_test "data_validation_module" \
+238:         "cd ${PROJECT_ROOT} && python -c '
+239: import sys
+240: sys.path.insert(0, \"plugins\")
+241: from data_validation import DataValidationReport
+242:
+243: # Test report creation
+244: report = DataValidationReport(\"nba\")
+245: assert report.sport == \"nba\"
+246: assert report.checks == []
+247: assert report.errors == []
+248: assert report.warnings == []
+249:
+250: # Test adding checks
+251: report.add_check(\"Test Check\", True, \"All good\", severity=\"info\")
+252: assert len(report.checks) == 1
+253: assert report.checks[0][\"passed\"] == True
+254:
+255: print(\"Data validation module functions correctly\")
+256: '" \
+257:         "Validate data validation module functionality"
+258: }
+259:
+260: # ============================================================================
+261: # TEST CATEGORY 7: PORTFOLIO SYSTEM TESTS
+262: # ============================================================================
+263:
+264: test_portfolio_snapshots() {
+265:     run_test "portfolio_snapshots" \
+266:         "cd ${PROJECT_ROOT} && python -c '
+267: import sys
+268: sys.path.insert(0, \"plugins\")
+269: from portfolio_snapshots import ensure_portfolio_snapshots_table, PortfolioSnapshot
+270: from datetime import datetime, timezone
+271:
+272: # Test table creation function exists
+273: assert callable(ensure_portfolio_snapshots_table), \"ensure_portfolio_snapshots_table not callable\"
+274:
+275: # Test PortfolioSnapshot dataclass
+276: snapshot = PortfolioSnapshot(
+277:     snapshot_hour_utc=datetime(2024, 1, 1, 12, 0, tzinfo=timezone.utc),
+278:     balance_dollars=1000.0,
+279:     portfolio_value_dollars=1500.0,
+280:     created_at_utc=datetime.now(timezone.utc)
+281: )
+282: assert snapshot.balance_dollars == 1000.0
+283: assert snapshot.portfolio_value_dollars == 1500.0
+284:
+285: print(\"Portfolio snapshot system functions correctly\")
+286: '" \
+287:         "Validate portfolio snapshot system functionality"
+288: }
+289:
+290: # ============================================================================
+291: # TEST CATEGORY 8: KALSHI INTEGRATION TESTS
+292: # ============================================================================
+293:
+294: test_kalshi_module() {
+295:     run_test "kalshi_module" \
+296:         "cd ${PROJECT_ROOT} && python -c '
+297: import sys
+298: sys.path.insert(0, \"plugins\")
+299: from kalshi_betting import KalshiBetting
+300:
+301: # Test class definition
+302: assert hasattr(KalshiBetting, \"__init__\"), \"KalshiBetting missing __init__\"
+303: assert hasattr(KalshiBetting, \"place_limit_order\"), \"KalshiBetting missing place_limit_order\"
+304: assert hasattr(KalshiBetting, \"get_portfolio\"), \"KalshiBetting missing get_portfolio\"
+305:
+306: print(\"Kalshi betting module structure valid\")
+307: '" \
+308:         "Validate Kalshi betting module structure"
+309: }
+310:
+311: # ============================================================================
+312: # MAIN EXECUTION
+313: # ============================================================================
+314:
+315: main() {
+316:     log "INFO" "Starting hourly functional tests"
+317:     log "INFO" "Project root: ${PROJECT_ROOT}"
+318:     log "INFO" "Test log: ${TEST_LOG}"
+319:
+320:     # Execute all tests
+321:     test_dag_import
+322:     test_dag_schedule
+323:     test_database_connection
+324:     test_core_tables_exist
+325:     test_elo_classes_instantiate
+326:     test_sports_config
+327:     test_dashboard_import
+328:     test_data_validation_module
+329:     test_portfolio_snapshots
+330:     test_kalshi_module
+331:
+332:     # Summary
+333:     log "INFO" "=" * 60
+334:     log "INFO" "TEST SUMMARY"
+335:     log "INFO" "=" * 60
+336:     log "INFO" "Total tests: ${TESTS_TOTAL}"
+337:     log "SUCCESS" "Tests passed: ${TESTS_PASSED}"
+338:
+339:     if [ "${TESTS_FAILED}" -gt 0 ]; then
+340:         log "ERROR" "Tests failed: ${TESTS_FAILED}"
+341:         log "WARNING" "Failed tests:"
+342:         for test in "${FAILED_TESTS[@]}"; do
+343:             log "WARNING" "  - ${test}"
+344:         done
+345:
+346:         # Generate AI-friendly diagnostic report
+347:         echo "DIAGNOSTIC_REPORT_START"
+348:         echo "Total tests: ${TESTS_TOTAL}"
+349:         echo "Tests passed: ${TESTS_PASSED}"
+350:         echo "Tests failed: ${TESTS_FAILED}"
+351:         echo "Failed test names: ${FAILED_TESTS[*]}"
+352:         echo "Log file: ${TEST_LOG}"
+353:         echo "Timestamp: ${TIMESTAMP}"
+354:         echo "DIAGNOSTIC_REPORT_END"
+355:
+356:         exit 1
+357:     else
+358:         log "SUCCESS" "All ${TESTS_TOTAL} tests passed!"
+359:         echo "ALL_TESTS_PASSED"
+360:         exit 0
+361:     fi
+362: }
+363:
+364: # Handle script arguments
+365: case "$1" in
+366:     "--help" | "-h")
+367:         echo "Hourly Functional Test Script"
+368:         echo "Usage: $0 [--help | -h]"
+369:         echo ""
+370:         echo "This script executes critical functional tests for the multi-sport betting system."
+371:         echo "AI Agents can execute this script to detect and fix system issues."
+372:         echo ""
+373:         echo "Tests include:"
+374:         echo "  - DAG infrastructure validation"
+375:         echo "  - Database connectivity"
+376:         echo "  - Elo system functionality"
+377:         echo "  - Sports configuration"
+378:         echo "  - Dashboard integration"
+379:         echo "  - Data pipeline integrity"
+380:         echo "  - Portfolio system"
+381:         echo "  - Kalshi integration"
+382:         echo ""
+383:         echo "Exit codes:"
+384:         echo "  0 - All tests passed"
+385:         echo "  1 - One or more tests failed"
+386:         exit 0
+387:         ;;
+388:     *)
+389:         main
+390:         ;;
+391: esac
