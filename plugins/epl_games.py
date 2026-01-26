@@ -1,16 +1,16 @@
 import pandas as pd
 from pathlib import Path
 import requests
-from datetime import datetime
+
 
 class EPLGames:
     """Download and manage EPL game data."""
 
-    def __init__(self, data_dir='data/epl'):
+    def __init__(self, data_dir="data/epl"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         # Seasons to fetch (e.g., '2122' for 2021-2022)
-        self.seasons = ['2122', '2223', '2324', '2425', '2526']
+        self.seasons = ["2122", "2223", "2324", "2425", "2526"]
 
     def download_games(self):
         """Download historical and current EPL data."""
@@ -20,16 +20,16 @@ class EPLGames:
             filename = self.data_dir / f"E0_{season}.csv"
 
             # Skip historical if already downloaded (keep current fresh)
-            if filename.exists() and season != '2526':
+            if filename.exists() and season != "2526":
                 continue
 
             print(f"📥 Downloading EPL data ({season}) from {url}...")
             try:
-                headers = {'User-Agent': 'Mozilla/5.0'}
+                headers = {"User-Agent": "Mozilla/5.0"}
                 response = requests.get(url, headers=headers)
                 response.raise_for_status()
 
-                with open(filename, 'wb') as f:
+                with open(filename, "wb") as f:
                     f.write(response.content)
 
                 print(f"✓ Saved EPL data to {filename}")
@@ -57,24 +57,27 @@ class EPLGames:
                 # CSV cols: Date, HomeTeam, AwayTeam, FTHG, FTAG, FTR (H, D, A)
 
                 # Parse dates (usually DD/MM/YYYY)
-                df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
+                df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 
                 for _, row in df.iterrows():
-                    if pd.isna(row['FTHG']):  # Skip unplayed
+                    if pd.isna(row["FTHG"]):  # Skip unplayed
                         continue
 
-                    all_games.append({
-                        'date': row['Date'],
-                        'home_team': row['HomeTeam'],
-                        'away_team': row['AwayTeam'],
-                        'home_score': int(row['FTHG']),
-                        'away_score': int(row['FTAG']),
-                        'result': row['FTR']  # H, D, A
-                    })
+                    all_games.append(
+                        {
+                            "date": row["Date"],
+                            "home_team": row["HomeTeam"],
+                            "away_team": row["AwayTeam"],
+                            "home_score": int(row["FTHG"]),
+                            "away_score": int(row["FTAG"]),
+                            "result": row["FTR"],  # H, D, A
+                        }
+                    )
             except Exception as e:
                 print(f"Error loading EPL games for {season}: {e}")
 
         return pd.DataFrame(all_games)
+
 
 if __name__ == "__main__":
     epl = EPLGames()

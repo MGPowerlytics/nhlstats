@@ -7,7 +7,7 @@ import os
 import pandas as pd
 import sqlalchemy
 from sqlalchemy import create_engine, text
-from typing import Optional, List, Any, Dict
+from typing import Optional, Any, Dict
 import logging
 
 # Configure logging

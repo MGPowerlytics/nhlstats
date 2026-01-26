@@ -19,16 +19,18 @@ class TheOddsAPI:
 
     # Sport keys mapping
     SPORT_KEYS = {
-        'nba': 'basketball_nba',
-        'nhl': 'icehockey_nhl',
-        'mlb': 'baseball_mlb',
-        'nfl': 'americanfootball_nfl',
-        'epl': 'soccer_epl',
-        'ncaab': 'basketball_ncaab',
-        'ligue1': 'soccer_france_ligue_one'
+        "nba": "basketball_nba",
+        "nhl": "icehockey_nhl",
+        "mlb": "baseball_mlb",
+        "nfl": "americanfootball_nfl",
+        "epl": "soccer_epl",
+        "ncaab": "basketball_ncaab",
+        "ligue1": "soccer_france_ligue_one",
     }
 
-    def __init__(self, api_key: Optional[str] = None, db_manager: DBManager = default_db):
+    def __init__(
+        self, api_key: Optional[str] = None, db_manager: DBManager = default_db
+    ):
         """
         Initialize The Odds API client.
 
@@ -36,7 +38,7 @@ class TheOddsAPI:
             api_key: API key from the-odds-api.com (free tier: 500 req/month)
             db_manager: DBManager instance
         """
-        self.api_key = api_key or os.getenv('ODDS_API_KEY')
+        self.api_key = api_key or os.getenv("ODDS_API_KEY")
         self.db = db_manager
 
         if not self.api_key:
@@ -45,18 +47,20 @@ class TheOddsAPI:
 
         self.session = requests.Session()
 
-    def _generate_game_id(self, sport: str, game_date: str, home_team: str, away_team: str) -> str:
+    def _generate_game_id(
+        self, sport: str, game_date: str, home_team: str, away_team: str
+    ) -> str:
         """
         Generates a consistent and unique game_id.
         Format: SPORT_YYYYMMDD_HOMEABBREV_AWAYABBREV
         """
         # Parse ISO date or YYYY-MM-DD
-        if 'T' in game_date:
-            dt = datetime.fromisoformat(game_date.replace('Z', '+00:00'))
-            date_str = dt.strftime('%Y%m%d')
+        if "T" in game_date:
+            dt = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y%m%d")
         else:
-            dt = datetime.strptime(game_date, '%Y-%m-%d')
-            date_str = dt.strftime('%Y%m%d')
+            dt = datetime.strptime(game_date, "%Y-%m-%d")
+            date_str = dt.strftime("%Y%m%d")
 
         # Simple slugification for team names
         home_slug = "".join(filter(str.isalnum, home_team)).upper()
@@ -88,21 +92,23 @@ class TheOddsAPI:
 
         try:
             for game in parsed_markets:
-                sport = game['sport']
-                commence_time = game['commence_time']
-                game_date = commence_time.split('T')[0]
-                home_team = game['home_team']
-                away_team = game['away_team']
+                sport = game["sport"]
+                commence_time = game["commence_time"]
+                game_date = commence_time.split("T")[0]
+                home_team = game["home_team"]
+                away_team = game["away_team"]
 
                 game_id = self._generate_game_id(sport, game_date, home_team, away_team)
 
                 # 0. Register team mappings for future resolution
                 from naming_resolver import NamingResolver
-                NamingResolver.add_mapping(sport, 'the_odds_api', home_team, home_team)
-                NamingResolver.add_mapping(sport, 'the_odds_api', away_team, away_team)
+
+                NamingResolver.add_mapping(sport, "the_odds_api", home_team, home_team)
+                NamingResolver.add_mapping(sport, "the_odds_api", away_team, away_team)
 
                 # 1. Upsert into unified_games
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO unified_games (
                         game_id, sport, game_date, home_team_id, home_team_name,
                         away_team_id, away_team_name, commence_time, status
@@ -110,26 +116,36 @@ class TheOddsAPI:
                              :away_team_id, :away_team_name, :commence_time, :status)
                     ON CONFLICT (game_id) DO UPDATE SET
                         commence_time = EXCLUDED.commence_time
-                """, {
-                    'game_id': game_id, 'sport': sport.upper(), 'game_date': game_date,
-                    'home_team_id': home_team, 'home_team_name': home_team,
-                    'away_team_id': away_team, 'away_team_name': away_team,
-                    'commence_time': commence_time, 'status': 'Scheduled'
-                })
+                """,
+                    {
+                        "game_id": game_id,
+                        "sport": sport.upper(),
+                        "game_date": game_date,
+                        "home_team_id": home_team,
+                        "home_team_name": home_team,
+                        "away_team_id": away_team,
+                        "away_team_name": away_team,
+                        "commence_time": commence_time,
+                        "status": "Scheduled",
+                    },
+                )
 
                 # 2. Upsert into game_odds for each bookmaker
-                for bm_name, bm_data in game['bookmakers'].items():
+                for bm_name, bm_data in game["bookmakers"].items():
                     # Determine outcome names
-                    if sport.lower() == 'tennis':
+                    if sport.lower() == "tennis":
                         h_outcome = home_team
                         a_outcome = away_team
                     else:
-                        h_outcome = 'home'
-                        a_outcome = 'away'
+                        h_outcome = "home"
+                        a_outcome = "away"
 
                     # Home win odds
-                    home_odds_id = f"{game_id}_{bm_name}_h2h_{h_outcome.replace(' ', '_')}"
-                    self.db.execute("""
+                    home_odds_id = (
+                        f"{game_id}_{bm_name}_h2h_{h_outcome.replace(' ', '_')}"
+                    )
+                    self.db.execute(
+                        """
                         INSERT INTO game_odds (
                             odds_id, game_id, bookmaker, market_name, outcome_name,
                             price, last_update, is_pregame
@@ -138,16 +154,25 @@ class TheOddsAPI:
                         ON CONFLICT (odds_id) DO UPDATE SET
                             price = EXCLUDED.price,
                             last_update = EXCLUDED.last_update
-                    """, {
-                        'odds_id': home_odds_id, 'game_id': game_id, 'bookmaker': bm_name,
-                        'market_name': 'h2h', 'outcome_name': h_outcome,
-                        'price': bm_data['home_odds'], 'last_update': bm_data['last_update'],
-                        'is_pregame': True
-                    })
+                    """,
+                        {
+                            "odds_id": home_odds_id,
+                            "game_id": game_id,
+                            "bookmaker": bm_name,
+                            "market_name": "h2h",
+                            "outcome_name": h_outcome,
+                            "price": bm_data["home_odds"],
+                            "last_update": bm_data["last_update"],
+                            "is_pregame": True,
+                        },
+                    )
 
                     # Away win odds
-                    away_odds_id = f"{game_id}_{bm_name}_h2h_{a_outcome.replace(' ', '_')}"
-                    self.db.execute("""
+                    away_odds_id = (
+                        f"{game_id}_{bm_name}_h2h_{a_outcome.replace(' ', '_')}"
+                    )
+                    self.db.execute(
+                        """
                         INSERT INTO game_odds (
                             odds_id, game_id, bookmaker, market_name, outcome_name,
                             price, last_update, is_pregame
@@ -156,12 +181,18 @@ class TheOddsAPI:
                         ON CONFLICT (odds_id) DO UPDATE SET
                             price = EXCLUDED.price,
                             last_update = EXCLUDED.last_update
-                    """, {
-                        'odds_id': away_odds_id, 'game_id': game_id, 'bookmaker': bm_name,
-                        'market_name': 'h2h', 'outcome_name': a_outcome,
-                        'price': bm_data['away_odds'], 'last_update': bm_data['last_update'],
-                        'is_pregame': True
-                    })
+                    """,
+                        {
+                            "odds_id": away_odds_id,
+                            "game_id": game_id,
+                            "bookmaker": bm_name,
+                            "market_name": "h2h",
+                            "outcome_name": a_outcome,
+                            "price": bm_data["away_odds"],
+                            "last_update": bm_data["last_update"],
+                            "is_pregame": True,
+                        },
+                    )
 
                     odds_count += 2
 
@@ -172,7 +203,9 @@ class TheOddsAPI:
             print(f"❌ Error saving to database: {e}")
             return 0
 
-    def fetch_markets(self, sport: str, markets: str = 'h2h', regions: str = 'us') -> List[Dict]:
+    def fetch_markets(
+        self, sport: str, markets: str = "h2h", regions: str = "us"
+    ) -> List[Dict]:
         """
         Fetch betting odds for a sport.
 
@@ -198,11 +231,11 @@ class TheOddsAPI:
         try:
             url = f"{self.BASE_URL}/sports/{sport_key}/odds"
             params = {
-                'apiKey': self.api_key,
-                'regions': regions,
-                'markets': markets,
-                'oddsFormat': 'decimal',
-                'dateFormat': 'iso'
+                "apiKey": self.api_key,
+                "regions": regions,
+                "markets": markets,
+                "oddsFormat": "decimal",
+                "dateFormat": "iso",
             }
 
             response = self.session.get(url, params=params, timeout=10)
@@ -211,7 +244,7 @@ class TheOddsAPI:
             games = response.json()
 
             # Check remaining requests
-            remaining = response.headers.get('x-requests-remaining')
+            remaining = response.headers.get("x-requests-remaining")
             if remaining:
                 print(f"📊 Requests remaining: {remaining}")
 
@@ -223,7 +256,9 @@ class TheOddsAPI:
                 if parsed:
                     parsed_markets.append(parsed)
 
-            print(f"✓ Found {len(parsed_markets)} games with odds from {self._count_bookmakers(games)} bookmakers")
+            print(
+                f"✓ Found {len(parsed_markets)} games with odds from {self._count_bookmakers(games)} bookmakers"
+            )
             return parsed_markets
 
         except requests.exceptions.RequestException as e:
@@ -233,64 +268,64 @@ class TheOddsAPI:
     def _parse_game(self, game: Dict, sport: str) -> Optional[Dict]:
         """Parse game data into standard format."""
         try:
-            home_team = game.get('home_team')
-            away_team = game.get('away_team')
-            commence_time = game.get('commence_time')
+            home_team = game.get("home_team")
+            away_team = game.get("away_team")
+            commence_time = game.get("commence_time")
 
             # Extract odds from all bookmakers
             bookmakers = {}
 
-            for bookmaker in game.get('bookmakers', []):
-                bm_name = bookmaker.get('key')
+            for bookmaker in game.get("bookmakers", []):
+                bm_name = bookmaker.get("key")
 
                 # Get h2h odds
-                for market in bookmaker.get('markets', []):
-                    if market.get('key') == 'h2h':
-                        outcomes = market.get('outcomes', [])
+                for market in bookmaker.get("markets", []):
+                    if market.get("key") == "h2h":
+                        outcomes = market.get("outcomes", [])
 
                         home_odds = None
                         away_odds = None
 
                         for outcome in outcomes:
-                            if outcome.get('name') == home_team:
-                                home_odds = outcome.get('price')
-                            elif outcome.get('name') == away_team:
-                                away_odds = outcome.get('price')
+                            if outcome.get("name") == home_team:
+                                home_odds = outcome.get("price")
+                            elif outcome.get("name") == away_team:
+                                away_odds = outcome.get("price")
 
                         if home_odds and away_odds:
                             home_prob = 1 / home_odds
                             away_prob = 1 / away_odds
 
                             bookmakers[bm_name] = {
-                                'home_odds': home_odds,
-                                'away_odds': away_odds,
-                                'home_prob': home_prob,
-                                'away_prob': away_prob,
-                                'last_update': bookmaker.get('last_update')
+                                "home_odds": home_odds,
+                                "away_odds": away_odds,
+                                "home_prob": home_prob,
+                                "away_prob": away_prob,
+                                "last_update": bookmaker.get("last_update"),
                             }
 
             if not bookmakers:
                 return None
 
             # Find best odds across all bookmakers
-            best_home = max(bookmakers.items(), key=lambda x: x[1]['home_prob'])
-            best_away = max(bookmakers.items(), key=lambda x: x[1]['away_prob'])
+            best_home = max(bookmakers.items(), key=lambda x: x[1]["home_prob"])
+            best_away = max(bookmakers.items(), key=lambda x: x[1]["away_prob"])
 
             return {
-                'platform': 'odds_api',
-                'sport': sport,
-                'game_id': game.get('id'),
-                'home_team': home_team,
-                'away_team': away_team,
-                'commence_time': commence_time,
-                'bookmakers': bookmakers,
-                'best_home_bookmaker': best_home[0],
-                'best_home_odds': best_home[1]['home_odds'],
-                'best_home_prob': best_home[1]['home_prob'],
-                'best_away_bookmaker': best_away[0],
-                'best_away_odds': best_away[1]['away_odds'],
-                'best_away_prob': best_away[1]['away_prob'],
-                'num_bookmakers': len(bookmakers)
+                "platform": "odds_api",
+                "sport": sport,
+                "game_id": game.get("id"),
+                "home_team": home_team,
+                "away_team": away_team,
+                "commence_time": commence_time,
+                "bookmakers": bookmakers,
+                "best_home_bookmaker": best_home[0],
+                "best_home_odds": best_home[1]["home_odds"],
+                "best_home_prob": best_home[1]["home_prob"],
+                "best_away_bookmaker": best_away[0],
+                "best_away_odds": best_away[1]["away_odds"],
+                "best_away_prob": best_away[1]["away_prob"],
+                "num_bookmakers": len(bookmakers),
             }
 
         except Exception as e:
@@ -301,8 +336,8 @@ class TheOddsAPI:
         """Count unique bookmakers."""
         bookmakers = set()
         for game in games:
-            for bm in game.get('bookmakers', []):
-                bookmakers.add(bm.get('key'))
+            for bm in game.get("bookmakers", []):
+                bookmakers.add(bm.get("key"))
         return len(bookmakers)
 
     def fetch_and_save_markets(self, sport: str, date_str: str) -> int:
@@ -316,12 +351,12 @@ class TheOddsAPI:
         self.save_to_db(markets)
 
         # Save to file (backward compatibility/backup)
-        output_dir = Path(f'data/{sport}')
+        output_dir = Path(f"data/{sport}")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        output_file = output_dir / f'odds_api_markets_{date_str}.json'
+        output_file = output_dir / f"odds_api_markets_{date_str}.json"
 
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(markets, f, indent=2)
 
         print(f"💾 Saved {len(markets)} games to {output_file}")
@@ -334,7 +369,7 @@ class TheOddsAPI:
 
         try:
             url = f"{self.BASE_URL}/sports"
-            params = {'apiKey': self.api_key}
+            params = {"apiKey": self.api_key}
 
             response = self.session.get(url, params=params, timeout=10)
             response.raise_for_status()
@@ -350,7 +385,7 @@ def fetch_all_sports(date_str: str, api_key: Optional[str] = None):
     """Fetch odds for all sports."""
     api = TheOddsAPI(api_key)
 
-    sports = ['nba', 'nhl', 'mlb', 'nfl', 'epl', 'ncaab']
+    sports = ["nba", "nhl", "mlb", "nfl", "epl", "ncaab"]
     total = 0
 
     for sport in sports:
@@ -361,7 +396,7 @@ def fetch_all_sports(date_str: str, api_key: Optional[str] = None):
     return total
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     from datetime import date
 
     print("=" * 80)
@@ -381,23 +416,29 @@ if __name__ == '__main__':
 
     # Check if API key is set
     if api.api_key:
-        today = date.today().strftime('%Y-%m-%d')
+        today = date.today().strftime("%Y-%m-%d")
 
         # Test NBA
         print("\nTesting NBA odds...")
-        markets = api.fetch_markets('nba')
+        markets = api.fetch_markets("nba")
 
         if markets:
             print(f"\n📊 Sample game with {markets[0]['num_bookmakers']} bookmakers:")
             sample = markets[0]
             print(f"  {sample['away_team']} @ {sample['home_team']}")
-            print(f"  Best home odds: {sample['best_home_odds']:.2f} ({sample['best_home_bookmaker']})")
-            print(f"  Best away odds: {sample['best_away_odds']:.2f} ({sample['best_away_bookmaker']})")
+            print(
+                f"  Best home odds: {sample['best_home_odds']:.2f} ({sample['best_home_bookmaker']})"
+            )
+            print(
+                f"  Best away odds: {sample['best_away_odds']:.2f} ({sample['best_away_bookmaker']})"
+            )
 
             # Show all bookmakers for this game
-            print(f"\n  All bookmakers offering this game:")
-            for bm_name, bm_data in sample['bookmakers'].items():
-                print(f"    {bm_name}: Home {bm_data['home_odds']:.2f}, Away {bm_data['away_odds']:.2f}")
+            print("\n  All bookmakers offering this game:")
+            for bm_name, bm_data in sample["bookmakers"].items():
+                print(
+                    f"    {bm_name}: Home {bm_data['home_odds']:.2f}, Away {bm_data['away_odds']:.2f}"
+                )
     else:
         print("\n⚠️  No API key found. Please set ODDS_API_KEY environment variable.")
         print("   Get a free key at: https://the-odds-api.com/")

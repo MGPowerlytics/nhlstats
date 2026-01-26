@@ -1,12 +1,10 @@
 """Tests for Data Validation module."""
 
-import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 from datetime import datetime
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestExpectedTeams:
@@ -15,45 +13,53 @@ class TestExpectedTeams:
     def test_nba_has_30_teams(self):
         """Test that NBA has 30 expected teams."""
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['nba']) == 30
+
+        assert len(EXPECTED_TEAMS["nba"]) == 30
 
     def test_nhl_has_32_plus_teams(self):
         """Test that NHL has expected teams (32+, includes relocations)."""
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['nhl']) >= 32
+
+        assert len(EXPECTED_TEAMS["nhl"]) >= 32
 
     def test_mlb_has_30_teams(self):
         """Test that MLB has 30 expected teams."""
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['mlb']) == 30
+
+        assert len(EXPECTED_TEAMS["mlb"]) == 30
 
     def test_nfl_has_32_teams(self):
         """Test that NFL has 32 expected teams."""
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['nfl']) == 32
+
+        assert len(EXPECTED_TEAMS["nfl"]) == 32
 
     def test_nba_teams_are_unique(self):
         """Test that NBA teams are unique."""
         from data_validation import EXPECTED_TEAMS
-        teams = EXPECTED_TEAMS['nba']
+
+        teams = EXPECTED_TEAMS["nba"]
         assert len(teams) == len(set(teams))
 
     def test_nhl_teams_are_unique(self):
         """Test that NHL teams are unique."""
         from data_validation import EXPECTED_TEAMS
-        teams = EXPECTED_TEAMS['nhl']
+
+        teams = EXPECTED_TEAMS["nhl"]
         assert len(teams) == len(set(teams))
 
     def test_mlb_teams_are_unique(self):
         """Test that MLB teams are unique."""
         from data_validation import EXPECTED_TEAMS
-        teams = EXPECTED_TEAMS['mlb']
+
+        teams = EXPECTED_TEAMS["mlb"]
         assert len(teams) == len(set(teams))
 
     def test_nfl_teams_are_unique(self):
         """Test that NFL teams are unique."""
         from data_validation import EXPECTED_TEAMS
-        teams = EXPECTED_TEAMS['nfl']
+
+        teams = EXPECTED_TEAMS["nfl"]
         assert len(teams) == len(set(teams))
 
 
@@ -64,38 +70,38 @@ class TestSeasonInfo:
         """Test NBA season configuration."""
         from data_validation import SEASON_INFO
 
-        nba = SEASON_INFO['nba']
-        assert nba['games_per_team'] == 82
-        assert nba['total_games_per_season'] == 1230
-        assert nba['start_month'] == 10
-        assert nba['end_month'] == 4
+        nba = SEASON_INFO["nba"]
+        assert nba["games_per_team"] == 82
+        assert nba["total_games_per_season"] == 1230
+        assert nba["start_month"] == 10
+        assert nba["end_month"] == 4
 
     def test_nhl_season_info(self):
         """Test NHL season configuration."""
         from data_validation import SEASON_INFO
 
-        nhl = SEASON_INFO['nhl']
-        assert nhl['games_per_team'] == 82
-        assert nhl['total_games_per_season'] == 1312
-        assert nhl['start_month'] == 10
-        assert nhl['end_month'] == 4
+        nhl = SEASON_INFO["nhl"]
+        assert nhl["games_per_team"] == 82
+        assert nhl["total_games_per_season"] == 1312
+        assert nhl["start_month"] == 10
+        assert nhl["end_month"] == 4
 
     def test_mlb_season_info(self):
         """Test MLB season configuration."""
         from data_validation import SEASON_INFO
 
-        mlb = SEASON_INFO['mlb']
-        assert mlb['games_per_team'] == 162
-        assert mlb['total_games_per_season'] == 2430
-        assert mlb['start_month'] == 3
+        mlb = SEASON_INFO["mlb"]
+        assert mlb["games_per_team"] == 162
+        assert mlb["total_games_per_season"] == 2430
+        assert mlb["start_month"] == 3
 
     def test_nfl_season_info(self):
         """Test NFL season configuration."""
         from data_validation import SEASON_INFO
 
-        nfl = SEASON_INFO['nfl']
-        assert nfl['games_per_team'] == 17
-        assert nfl['start_month'] == 9
+        nfl = SEASON_INFO["nfl"]
+        assert nfl["games_per_team"] == 17
+        assert nfl["start_month"] == 9
 
 
 class TestTeamNameNormalization:
@@ -116,14 +122,14 @@ class TestTeamNameNormalization:
     def test_normalize_team_name_abbreviation(self):
         """Test common abbreviation patterns."""
         team_map = {
-            'LAL': 'Lakers',
-            'BOS': 'Celtics',
-            'NYK': 'Knicks',
-            'GSW': 'Warriors'
+            "LAL": "Lakers",
+            "BOS": "Celtics",
+            "NYK": "Knicks",
+            "GSW": "Warriors",
         }
 
-        assert team_map['LAL'] == 'Lakers'
-        assert team_map['BOS'] == 'Celtics'
+        assert team_map["LAL"] == "Lakers"
+        assert team_map["BOS"] == "Celtics"
 
 
 class TestGameCountValidation:
@@ -175,8 +181,8 @@ class TestDateValidation:
         in_season = date_in_season.month in [10, 11, 12, 1, 2, 3, 4]
         out_of_season = date_out_of_season.month in [10, 11, 12, 1, 2, 3, 4]
 
-        assert in_season == True
-        assert out_of_season == False
+        assert in_season
+        assert not out_of_season
 
     def test_date_in_season_mlb(self):
         """Test checking if date is in MLB season."""
@@ -187,8 +193,8 @@ class TestDateValidation:
         in_season = date_in_season.month in [3, 4, 5, 6, 7, 8, 9, 10]
         out_of_season = date_out_of_season.month in [3, 4, 5, 6, 7, 8, 9, 10]
 
-        assert in_season == True
-        assert out_of_season == False
+        assert in_season
+        assert not out_of_season
 
 
 class TestDataQualityChecks:
@@ -197,12 +203,12 @@ class TestDataQualityChecks:
     def test_null_check(self):
         """Test checking for null values."""
         data = [
-            {'score': 100, 'team': 'Lakers'},
-            {'score': None, 'team': 'Celtics'},
-            {'score': 95, 'team': None}
+            {"score": 100, "team": "Lakers"},
+            {"score": None, "team": "Celtics"},
+            {"score": 95, "team": None},
         ]
 
-        nulls = sum(1 for d in data if d.get('score') is None or d.get('team') is None)
+        nulls = sum(1 for d in data if d.get("score") is None or d.get("team") is None)
 
         assert nulls == 2
 
@@ -217,11 +223,7 @@ class TestDataQualityChecks:
 
     def test_date_range_check(self):
         """Test checking date ranges."""
-        dates = [
-            datetime(2024, 1, 1),
-            datetime(2024, 1, 5),
-            datetime(2024, 1, 10)
-        ]
+        dates = [datetime(2024, 1, 1), datetime(2024, 1, 5), datetime(2024, 1, 10)]
 
         min_date = min(dates)
         max_date = max(dates)
@@ -238,11 +240,7 @@ class TestMissingDataDetection:
         from datetime import timedelta
 
         # Games on these dates
-        game_dates = {
-            datetime(2024, 1, 1),
-            datetime(2024, 1, 3),
-            datetime(2024, 1, 5)
-        }
+        game_dates = {datetime(2024, 1, 1), datetime(2024, 1, 3), datetime(2024, 1, 5)}
 
         # Check for gaps
         start = datetime(2024, 1, 1)
@@ -260,12 +258,12 @@ class TestMissingDataDetection:
 
     def test_find_missing_teams(self):
         """Test finding teams without games."""
-        all_teams = {'Lakers', 'Celtics', 'Knicks', 'Heat'}
-        teams_with_games = {'Lakers', 'Celtics'}
+        all_teams = {"Lakers", "Celtics", "Knicks", "Heat"}
+        teams_with_games = {"Lakers", "Celtics"}
 
         missing_teams = all_teams - teams_with_games
 
-        assert missing_teams == {'Knicks', 'Heat'}
+        assert missing_teams == {"Knicks", "Heat"}
 
 
 class TestValidationReport:
@@ -274,35 +272,27 @@ class TestValidationReport:
     def test_report_structure(self):
         """Test validation report has expected structure."""
         report = {
-            'sport': 'nba',
-            'total_games': 1000,
-            'date_range': {
-                'start': '2024-01-01',
-                'end': '2024-04-15'
-            },
-            'issues': [],
-            'warnings': [],
-            'summary': 'Passed'
+            "sport": "nba",
+            "total_games": 1000,
+            "date_range": {"start": "2024-01-01", "end": "2024-04-15"},
+            "issues": [],
+            "warnings": [],
+            "summary": "Passed",
         }
 
-        assert 'sport' in report
-        assert 'total_games' in report
-        assert 'date_range' in report
-        assert 'issues' in report
-        assert 'warnings' in report
+        assert "sport" in report
+        assert "total_games" in report
+        assert "date_range" in report
+        assert "issues" in report
+        assert "warnings" in report
 
     def test_report_with_issues(self):
         """Test validation report with issues."""
         report = {
-            'sport': 'nba',
-            'issues': [
-                'Missing 5 games on 2024-01-15',
-                'Invalid score detected: -10'
-            ],
-            'warnings': [
-                'Only 3 teams have games this week'
-            ]
+            "sport": "nba",
+            "issues": ["Missing 5 games on 2024-01-15", "Invalid score detected: -10"],
+            "warnings": ["Only 3 teams have games this week"],
         }
 
-        assert len(report['issues']) == 2
-        assert len(report['warnings']) == 1
+        assert len(report["issues"]) == 2
+        assert len(report["warnings"]) == 1

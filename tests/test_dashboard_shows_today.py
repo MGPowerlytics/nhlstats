@@ -25,7 +25,7 @@ from db_manager import DBManager
 # Skip unless running against production database
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration test requires production PostgreSQL database"
+    reason="Integration test requires production PostgreSQL database",
 )
 
 

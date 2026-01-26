@@ -3,10 +3,11 @@ from pathlib import Path
 import requests
 import time
 
+
 class NCAABGames:
     """Download and manage NCAAB game data from Massey Ratings."""
 
-    def __init__(self, data_dir='data/ncaab'):
+    def __init__(self, data_dir="data/ncaab"):
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
         # Seasons to fetch (e.g., 2022 corresponds to 2021-22 season)
@@ -32,7 +33,7 @@ class NCAABGames:
                 try:
                     resp = requests.get(teams_url)
                     resp.raise_for_status()
-                    with open(teams_file, 'wb') as f:
+                    with open(teams_file, "wb") as f:
                         f.write(resp.content)
                     time.sleep(1)
                 except Exception as e:
@@ -48,7 +49,7 @@ class NCAABGames:
                 try:
                     resp = requests.get(games_url)
                     resp.raise_for_status()
-                    with open(games_file, 'wb') as f:
+                    with open(games_file, "wb") as f:
                         f.write(resp.content)
                     print(f"✓ Saved NCAAB data for {season}")
                     time.sleep(1)
@@ -74,9 +75,11 @@ class NCAABGames:
             try:
                 # Load Teams
                 # Format: "   1, Abilene_Chr"
-                teams_df = pd.read_csv(teams_file, header=None, names=['team_id', 'team_name'])
-                teams_df['team_name'] = teams_df['team_name'].str.strip()
-                team_map = dict(zip(teams_df['team_id'], teams_df['team_name']))
+                teams_df = pd.read_csv(
+                    teams_file, header=None, names=["team_id", "team_name"]
+                )
+                teams_df["team_name"] = teams_df["team_name"].str.strip()
+                team_map = dict(zip(teams_df["team_id"], teams_df["team_name"]))
 
                 # Load Games (Format 1)
                 # Cols: Time, Date, Team1, @1, Score1, Team2, @2, Score2
@@ -94,10 +97,10 @@ class NCAABGames:
                     try:
                         date_int = row[1]
                         t1_id = row[2]
-                        loc1 = row[3] # 1=Home, -1=Away, 0=Neutral
+                        loc1 = row[3]  # 1=Home, -1=Away, 0=Neutral
                         s1 = row[4]
                         t2_id = row[5]
-                        loc2 = row[6]
+                        row[6]
                         s2 = row[7]
 
                         t1_name = team_map.get(t1_id, f"ID_{t1_id}")
@@ -108,7 +111,7 @@ class NCAABGames:
                             home_team, away_team = t1_name, t2_name
                             home_score, away_score = s1, s2
                             neutral = False
-                        elif loc1 == -1: # T1 is Away
+                        elif loc1 == -1:  # T1 is Away
                             home_team, away_team = t2_name, t1_name
                             home_score, away_score = s2, s1
                             neutral = False
@@ -120,24 +123,27 @@ class NCAABGames:
 
                         # Parse date YYYYMMDD
                         date_str = str(date_int).strip()
-                        game_date = pd.to_datetime(date_str, format='%Y%m%d')
+                        game_date = pd.to_datetime(date_str, format="%Y%m%d")
 
-                        all_games.append({
-                            'date': game_date,
-                            'home_team': home_team,
-                            'away_team': away_team,
-                            'home_score': home_score,
-                            'away_score': away_score,
-                            'neutral': neutral,
-                            'season': season
-                        })
-                    except Exception as e:
+                        all_games.append(
+                            {
+                                "date": game_date,
+                                "home_team": home_team,
+                                "away_team": away_team,
+                                "home_score": home_score,
+                                "away_score": away_score,
+                                "neutral": neutral,
+                                "season": season,
+                            }
+                        )
+                    except Exception:
                         continue
 
             except Exception as e:
                 print(f"Error loading NCAAB season {season}: {e}")
 
         return pd.DataFrame(all_games)
+
 
 if __name__ == "__main__":
     ncaab = NCAABGames()

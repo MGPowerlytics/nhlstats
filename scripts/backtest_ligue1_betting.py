@@ -6,11 +6,13 @@ Tests Elo-based betting strategies for French Ligue 1 using simulated odds.
 """
 
 import sys
-sys.path.insert(0, 'plugins')
+
+sys.path.insert(0, "plugins")
 
 from plugins.elo import Ligue1EloRating
 import duckdb
 import pandas as pd
+
 
 def backtest_ligue1_betting(elo_threshold=0.45, min_edge=0.05):
     """
@@ -25,14 +27,14 @@ def backtest_ligue1_betting(elo_threshold=0.45, min_edge=0.05):
         elo_threshold: Min Elo probability to consider bet
         min_edge: Min edge over market required
     """
-    print(f"\n{'='*80}")
-    print(f"🇫🇷 LIGUE1 BETTING BACKTEST")
-    print(f"{'='*80}")
+    print(f"\n{'=' * 80}")
+    print("🇫🇷 LIGUE1 BETTING BACKTEST")
+    print(f"{'=' * 80}")
     print(f"Strategy: {elo_threshold:.0%} Elo threshold, {min_edge:.0%} min edge")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     # Load games
-    conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+    conn = duckdb.connect("data/nhlstats.duckdb", read_only=True)
     query = """
         SELECT game_date, season, home_team, away_team, home_score, away_score, result
         FROM ligue1_games
@@ -52,7 +54,7 @@ def backtest_ligue1_betting(elo_threshold=0.45, min_edge=0.05):
 
     for _, game in games_df.iterrows():
         # Get Elo prediction (home win probability, ignoring draws)
-        home_prob = elo.predict(game['home_team'], game['away_team'])
+        home_prob = elo.predict(game["home_team"], game["away_team"])
         away_prob = 1 - home_prob
 
         # Simulate market odds with typical soccer vig (27%)
@@ -75,50 +77,54 @@ def backtest_ligue1_betting(elo_threshold=0.45, min_edge=0.05):
         away_edge = away_prob - market_away_prob
 
         # Actual outcome
-        home_won = game['result'] == 'H'
-        away_won = game['result'] == 'A'
-        was_draw = game['result'] == 'D'
+        home_won = game["result"] == "H"
+        away_won = game["result"] == "A"
+        was_draw = game["result"] == "D"
 
         # Bet on home team?
         if home_prob > elo_threshold and home_edge > min_edge:
             payout = home_odds if home_won else 0
             profit = payout - 1
 
-            bets.append({
-                'date': game['game_date'],
-                'home': game['home_team'],
-                'away': game['away_team'],
-                'bet_on': 'home',
-                'elo_prob': home_prob,
-                'market_prob': market_home_prob,
-                'edge': home_edge,
-                'odds': home_odds,
-                'won': home_won,
-                'draw': was_draw,
-                'profit': profit
-            })
+            bets.append(
+                {
+                    "date": game["game_date"],
+                    "home": game["home_team"],
+                    "away": game["away_team"],
+                    "bet_on": "home",
+                    "elo_prob": home_prob,
+                    "market_prob": market_home_prob,
+                    "edge": home_edge,
+                    "odds": home_odds,
+                    "won": home_won,
+                    "draw": was_draw,
+                    "profit": profit,
+                }
+            )
 
         # Bet on away team?
         elif away_prob > elo_threshold and away_edge > min_edge:
             payout = away_odds if away_won else 0
             profit = payout - 1
 
-            bets.append({
-                'date': game['game_date'],
-                'home': game['home_team'],
-                'away': game['away_team'],
-                'bet_on': 'away',
-                'elo_prob': away_prob,
-                'market_prob': market_away_prob,
-                'edge': away_edge,
-                'odds': away_odds,
-                'won': away_won,
-                'draw': was_draw,
-                'profit': profit
-            })
+            bets.append(
+                {
+                    "date": game["game_date"],
+                    "home": game["home_team"],
+                    "away": game["away_team"],
+                    "bet_on": "away",
+                    "elo_prob": away_prob,
+                    "market_prob": market_away_prob,
+                    "edge": away_edge,
+                    "odds": away_odds,
+                    "won": away_won,
+                    "draw": was_draw,
+                    "profit": profit,
+                }
+            )
 
         # Update Elo
-        elo.update(game['home_team'], game['away_team'], game['result'])
+        elo.update(game["home_team"], game["away_team"], game["result"])
 
     # Analyze results
     if not bets:
@@ -128,70 +134,77 @@ def backtest_ligue1_betting(elo_threshold=0.45, min_edge=0.05):
     bets_df = pd.DataFrame(bets)
 
     total_bets = len(bets_df)
-    wins = bets_df['won'].sum()
-    draws = bets_df['draw'].sum()
+    wins = bets_df["won"].sum()
+    draws = bets_df["draw"].sum()
     losses = total_bets - wins - draws
     win_rate = wins / total_bets
 
-    total_profit = bets_df['profit'].sum()
+    total_profit = bets_df["profit"].sum()
     roi = total_profit / total_bets * 100
 
-    avg_odds = bets_df['odds'].mean()
-    avg_edge = bets_df['edge'].mean()
+    avg_odds = bets_df["odds"].mean()
+    avg_edge = bets_df["edge"].mean()
 
-    print(f"\n📈 BACKTEST RESULTS:")
-    print(f"{'='*80}")
+    print("\n📈 BACKTEST RESULTS:")
+    print(f"{'=' * 80}")
     print(f"Total Bets:      {total_bets}")
     print(f"Wins:            {wins} ({win_rate:.1%})")
-    print(f"Draws:           {draws} ({draws/total_bets:.1%})")
-    print(f"Losses:          {losses} ({losses/total_bets:.1%})")
-    print(f"")
+    print(f"Draws:           {draws} ({draws / total_bets:.1%})")
+    print(f"Losses:          {losses} ({losses / total_bets:.1%})")
+    print("")
     print(f"Total Profit:    ${total_profit:.2f} on ${total_bets} wagered")
     print(f"ROI:             {roi:+.1f}%")
-    print(f"")
+    print("")
     print(f"Avg Odds:        {avg_odds:.2f}")
     print(f"Avg Edge:        {avg_edge:.1%}")
     print(f"Avg Elo Prob:    {bets_df['elo_prob'].mean():.1%}")
 
     # By edge bucket
-    print(f"\n📊 BY EDGE BUCKET:")
-    print(f"{'='*80}")
+    print("\n📊 BY EDGE BUCKET:")
+    print(f"{'=' * 80}")
 
     edge_buckets = [
-        (0.05, 0.10, '5-10%'),
-        (0.10, 0.15, '10-15%'),
-        (0.15, 0.20, '15-20%'),
-        (0.20, 1.00, '20%+')
+        (0.05, 0.10, "5-10%"),
+        (0.10, 0.15, "10-15%"),
+        (0.15, 0.20, "15-20%"),
+        (0.20, 1.00, "20%+"),
     ]
 
     for min_e, max_e, label in edge_buckets:
-        bucket = bets_df[(bets_df['edge'] >= min_e) & (bets_df['edge'] < max_e)]
+        bucket = bets_df[(bets_df["edge"] >= min_e) & (bets_df["edge"] < max_e)]
         if len(bucket) == 0:
             continue
 
-        b_wins = bucket['won'].sum()
-        b_draws = bucket['draw'].sum()
+        b_wins = bucket["won"].sum()
+        b_draws = bucket["draw"].sum()
         b_total = len(bucket)
-        b_profit = bucket['profit'].sum()
+        b_profit = bucket["profit"].sum()
         b_roi = b_profit / b_total * 100
 
-        print(f"{label:10s}: {b_total:3d} bets, {b_wins:3d} wins ({b_wins/b_total:5.1%}), "
-              f"{b_draws:3d} draws ({b_draws/b_total:5.1%}), ROI: {b_roi:+6.1f}%")
+        print(
+            f"{label:10s}: {b_total:3d} bets, {b_wins:3d} wins ({b_wins / b_total:5.1%}), "
+            f"{b_draws:3d} draws ({b_draws / b_total:5.1%}), ROI: {b_roi:+6.1f}%"
+        )
 
     # Top 10 bets
-    print(f"\n🎯 TOP 10 BETS BY EDGE:")
-    print(f"{'='*80}")
-    top_bets = bets_df.nlargest(10, 'edge')
+    print("\n🎯 TOP 10 BETS BY EDGE:")
+    print(f"{'=' * 80}")
+    top_bets = bets_df.nlargest(10, "edge")
     for _, bet in top_bets.iterrows():
-        result = "✅ WIN" if bet['won'] else "⚽ DRAW" if bet['draw'] else "❌ LOSS"
-        print(f"{bet['date'].strftime('%Y-%m-%d')} | {bet['away']:15s} @ {bet['home']:15s}")
-        print(f"  Bet: {bet['bet_on']:4s} @ {bet['odds']:.2f} | Edge: {bet['edge']:.1%} | {result}")
+        result = "✅ WIN" if bet["won"] else "⚽ DRAW" if bet["draw"] else "❌ LOSS"
+        print(
+            f"{bet['date'].strftime('%Y-%m-%d')} | {bet['away']:15s} @ {bet['home']:15s}"
+        )
+        print(
+            f"  Bet: {bet['bet_on']:4s} @ {bet['odds']:.2f} | Edge: {bet['edge']:.1%} | {result}"
+        )
 
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
 
     return bets_df
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import sys
 
     # Parse arguments
@@ -202,9 +215,9 @@ if __name__ == '__main__':
     results = backtest_ligue1_betting(elo_threshold=threshold, min_edge=min_edge)
 
     # Try different thresholds
-    print(f"\n\n{'='*80}")
-    print(f"TESTING MULTIPLE STRATEGIES")
-    print(f"{'='*80}\n")
+    print(f"\n\n{'=' * 80}")
+    print("TESTING MULTIPLE STRATEGIES")
+    print(f"{'=' * 80}\n")
 
     strategies = [
         (0.40, 0.05),
@@ -219,16 +232,18 @@ if __name__ == '__main__':
     for thresh, edge in strategies:
         bets_df = backtest_ligue1_betting(elo_threshold=thresh, min_edge=edge)
         if bets_df is not None and len(bets_df) > 0:
-            summary.append({
-                'threshold': f'{thresh:.0%}',
-                'min_edge': f'{edge:.0%}',
-                'bets': len(bets_df),
-                'win_rate': f'{bets_df["won"].sum()/len(bets_df):.1%}',
-                'roi': f'{bets_df["profit"].sum()/len(bets_df)*100:+.1f}%'
-            })
+            summary.append(
+                {
+                    "threshold": f"{thresh:.0%}",
+                    "min_edge": f"{edge:.0%}",
+                    "bets": len(bets_df),
+                    "win_rate": f"{bets_df['won'].sum() / len(bets_df):.1%}",
+                    "roi": f"{bets_df['profit'].sum() / len(bets_df) * 100:+.1f}%",
+                }
+            )
 
     if summary:
-        print(f"\n📊 STRATEGY COMPARISON:")
-        print(f"{'='*80}")
+        print("\n📊 STRATEGY COMPARISON:")
+        print(f"{'=' * 80}")
         summary_df = pd.DataFrame(summary)
         print(summary_df.to_string(index=False))

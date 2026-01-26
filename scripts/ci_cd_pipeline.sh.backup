@@ -49,8 +49,22 @@ if ! command -v vulture &> /dev/null; then
     pip install vulture
 fi
 
-print_status "Skipping vulture dead code detection (too slow)..."
-print_warning "Vulture disabled for CI/CD speed"
+print_status "Running vulture to find dead code..."
+vulture . --min-confidence 80 --exclude "archive/*,tests/*,data/*,.venv/*,.git/*" > vulture_report.txt
+VULTURE_EXIT_CODE=$?
+
+if [ $VULTURE_EXIT_CODE -eq 0 ]; then
+    DEAD_CODE_COUNT=$(wc -l < vulture_report.txt)
+    if [ $DEAD_CODE_COUNT -eq 0 ]; then
+        print_success "No dead code found"
+    else
+        print_warning "Found $DEAD_CODE_COUNT potential dead code items"
+        cat vulture_report.txt
+    fi
+else
+    print_error "Vulture failed with exit code $VULTURE_EXIT_CODE"
+    exit 1
+fi
 
 # Check if ruff is installed
 if ! command -v ruff &> /dev/null; then
@@ -59,11 +73,13 @@ if ! command -v ruff &> /dev/null; then
 fi
 
 print_status "Running ruff for linting..."
-ruff check . --fix || RUFF_EXIT_CODE=$?
-if [ ${RUFF_EXIT_CODE:-0} -eq 0 ]; then
+ruff check . --fix
+RUFF_EXIT_CODE=$?
+
+if [ $RUFF_EXIT_CODE -eq 0 ]; then
     print_success "Ruff linting passed"
 else
-    print_warning "Ruff found issues (exit code: $RUFF_EXIT_CODE)"
+    print_error "Ruff found issues (exit code: $RUFF_EXIT_CODE)"
     # Continue anyway - ruff issues are warnings, not blockers
 fi
 
@@ -84,8 +100,7 @@ pytest tests/ \
     --cov-report=html:reports/coverage \
     --cov-report=xml:reports/coverage.xml \
     --junitxml=reports/test-results.xml \
-    -v \
-    -k "not test_sport_selection"
+    -v
 
 PYTEST_EXIT_CODE=$?
 

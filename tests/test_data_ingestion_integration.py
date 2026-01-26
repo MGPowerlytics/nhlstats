@@ -6,12 +6,10 @@ This is a critical path test that validates the data pipeline integrity.
 """
 
 import pytest
-import json
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock, Mock
+from unittest.mock import patch, Mock
 import sys
-import os
 
 # Add project root to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -19,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from plugins.nba_games import NBAGames
 from plugins.db_loader import NHLDatabaseLoader
 from plugins.database_schema_manager import DatabaseSchemaManager
-from plugins.db_manager import DBManager
 
 
 class TestDataIngestionToDatabaseIntegration:
@@ -49,14 +46,35 @@ class TestDataIngestionToDatabaseIntegration:
                 "resultSets": [
                     {
                         "name": "GameHeader",
-                        "headers": ["GAME_ID", "GAME_DATE_EST", "HOME_TEAM_ID", "VISITOR_TEAM_ID",
-                                   "SEASON", "GAME_STATUS_TEXT", "GAMECODE"],
+                        "headers": [
+                            "GAME_ID",
+                            "GAME_DATE_EST",
+                            "HOME_TEAM_ID",
+                            "VISITOR_TEAM_ID",
+                            "SEASON",
+                            "GAME_STATUS_TEXT",
+                            "GAMECODE",
+                        ],
                         "rowSet": [
-                            ["0022301234", "2026-01-24T00:00:00", 1610612747, 1610612748,
-                             "2025", "Final", "2026/LALDAL"],
-                            ["0022301235", "2026-01-24T00:00:00", 1610612738, 1610612751,
-                             "2025", "Final", "2026/BOSNYK"]
-                        ]
+                            [
+                                "0022301234",
+                                "2026-01-24T00:00:00",
+                                1610612747,
+                                1610612748,
+                                "2025",
+                                "Final",
+                                "2026/LALDAL",
+                            ],
+                            [
+                                "0022301235",
+                                "2026-01-24T00:00:00",
+                                1610612738,
+                                1610612751,
+                                "2025",
+                                "Final",
+                                "2026/BOSNYK",
+                            ],
+                        ],
                     },
                     {
                         "name": "LineScore",
@@ -65,9 +83,9 @@ class TestDataIngestionToDatabaseIntegration:
                             ["0022301234", 1610612747, "LAL", 112],
                             ["0022301234", 1610612748, "DAL", 108],
                             ["0022301235", 1610612738, "BOS", 105],
-                            ["0022301235", 1610612751, "NYK", 98]
-                        ]
-                    }
+                            ["0022301235", 1610612751, "NYK", 98],
+                        ],
+                    },
                 ]
             }
 
@@ -77,7 +95,7 @@ class TestDataIngestionToDatabaseIntegration:
                     {
                         "name": "GameSummary",
                         "headers": ["GAME_ID", "GAME_DATE_EST"],
-                        "rowSet": [["0022301234", "2026-01-24T00:00:00"]]
+                        "rowSet": [["0022301234", "2026-01-24T00:00:00"]],
                     }
                 ]
             }
@@ -85,7 +103,7 @@ class TestDataIngestionToDatabaseIntegration:
             # Step 2: Mock the NBA API calls
             print("Step 2: Mocking NBA API calls...")
 
-            with patch('plugins.nba_games.requests.get') as mock_get:
+            with patch("plugins.nba_games.requests.get") as mock_get:
                 # Configure mock responses
                 mock_response_scoreboard = Mock()
                 mock_response_scoreboard.status_code = 200
@@ -118,14 +136,20 @@ class TestDataIngestionToDatabaseIntegration:
                 nba_fetcher = NBAGames(output_dir=str(tmp_path / "nba" / "2026-01-24"))
                 games_downloaded = nba_fetcher.download_games_for_date("2026-01-24")
 
-                assert games_downloaded == 2, f"Expected 2 games, got {games_downloaded}"
+                assert games_downloaded == 2, (
+                    f"Expected 2 games, got {games_downloaded}"
+                )
                 print(f"✓ Downloaded {games_downloaded} NBA games")
 
                 # Verify files were created
-                scoreboard_file = tmp_path / "nba" / "2026-01-24" / "scoreboard_2026-01-24.json"
+                scoreboard_file = (
+                    tmp_path / "nba" / "2026-01-24" / "scoreboard_2026-01-24.json"
+                )
                 assert scoreboard_file.exists(), "Scoreboard file not created"
 
-                boxscore_file = tmp_path / "nba" / "2026-01-24" / "boxscore_0022301234.json"
+                boxscore_file = (
+                    tmp_path / "nba" / "2026-01-24" / "boxscore_0022301234.json"
+                )
                 assert boxscore_file.exists(), "Boxscore file not created"
 
                 print("✓ Game data files created successfully")
@@ -151,27 +175,51 @@ class TestDataIngestionToDatabaseIntegration:
             print("\nStep 5: Verifying data integrity...")
 
             # Check NBA games table
-            nba_games = loader.db.fetch_df("SELECT * FROM nba_games WHERE game_date = '2026-01-24'")
-            assert len(nba_games) == 2, f"Expected 2 NBA games in database, got {len(nba_games)}"
+            nba_games = loader.db.fetch_df(
+                "SELECT * FROM nba_games WHERE game_date = '2026-01-24'"
+            )
+            assert len(nba_games) == 2, (
+                f"Expected 2 NBA games in database, got {len(nba_games)}"
+            )
 
             # Verify game data
             for _, game in nba_games.iterrows():
-                assert game['game_id'] in ['0022301234', '0022301235'], f"Unexpected game ID: {game['game_id']}"
-                assert game['game_date'] == '2026-01-24', f"Unexpected game date: {game['game_date']}"
-                assert game['season'] == 2025, f"Unexpected season: {game['season']}"
-                assert game['status'] == 'Final', f"Unexpected status: {game['status']}"
+                assert game["game_id"] in ["0022301234", "0022301235"], (
+                    f"Unexpected game ID: {game['game_id']}"
+                )
+                assert game["game_date"] == "2026-01-24", (
+                    f"Unexpected game date: {game['game_date']}"
+                )
+                assert game["season"] == 2025, f"Unexpected season: {game['season']}"
+                assert game["status"] == "Final", f"Unexpected status: {game['status']}"
 
                 # Verify scores
-                if game['game_id'] == '0022301234':
-                    assert game['home_team'] == 'LAL', f"Unexpected home team: {game['home_team']}"
-                    assert game['away_team'] == 'DAL', f"Unexpected away team: {game['away_team']}"
-                    assert game['home_score'] == 112, f"Unexpected home score: {game['home_score']}"
-                    assert game['away_score'] == 108, f"Unexpected away score: {game['away_score']}"
-                elif game['game_id'] == '0022301235':
-                    assert game['home_team'] == 'BOS', f"Unexpected home team: {game['home_team']}"
-                    assert game['away_team'] == 'NYK', f"Unexpected away team: {game['away_team']}"
-                    assert game['home_score'] == 105, f"Unexpected home score: {game['home_score']}"
-                    assert game['away_score'] == 98, f"Unexpected away score: {game['away_score']}"
+                if game["game_id"] == "0022301234":
+                    assert game["home_team"] == "LAL", (
+                        f"Unexpected home team: {game['home_team']}"
+                    )
+                    assert game["away_team"] == "DAL", (
+                        f"Unexpected away team: {game['away_team']}"
+                    )
+                    assert game["home_score"] == 112, (
+                        f"Unexpected home score: {game['home_score']}"
+                    )
+                    assert game["away_score"] == 108, (
+                        f"Unexpected away score: {game['away_score']}"
+                    )
+                elif game["game_id"] == "0022301235":
+                    assert game["home_team"] == "BOS", (
+                        f"Unexpected home team: {game['home_team']}"
+                    )
+                    assert game["away_team"] == "NYK", (
+                        f"Unexpected away team: {game['away_team']}"
+                    )
+                    assert game["home_score"] == 105, (
+                        f"Unexpected home score: {game['home_score']}"
+                    )
+                    assert game["away_score"] == 98, (
+                        f"Unexpected away score: {game['away_score']}"
+                    )
 
             print("✓ NBA game data verified successfully")
 
@@ -179,7 +227,9 @@ class TestDataIngestionToDatabaseIntegration:
             unified_games = loader.db.fetch_df(
                 "SELECT * FROM unified_games WHERE game_date = '2026-01-24' AND sport = 'NBA'"
             )
-            assert len(unified_games) >= 2, f"Expected at least 2 games in unified_games, got {len(unified_games)}"
+            assert len(unified_games) >= 2, (
+                f"Expected at least 2 games in unified_games, got {len(unified_games)}"
+            )
 
             print("✓ Unified games table populated successfully")
 
@@ -230,13 +280,21 @@ class TestDataIngestionToDatabaseIntegration:
         try:
             # Test that all required tables exist
             required_tables = [
-                'unified_games', 'game_odds', 'nba_games', 'mlb_games',
-                'nfl_games', 'epl_games', 'tennis_games', 'ncaab_games'
+                "unified_games",
+                "game_odds",
+                "nba_games",
+                "mlb_games",
+                "nfl_games",
+                "epl_games",
+                "tennis_games",
+                "ncaab_games",
             ]
 
             for table in required_tables:
-                result = loader.db.execute(f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table}')").fetchone()
-                assert result[0] == True, f"Required table '{table}' does not exist"
+                result = loader.db.execute(
+                    f"SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = '{table}')"
+                ).fetchone()
+                assert result[0], f"Required table '{table}' does not exist"
 
             print("✓ All required database tables exist")
 
@@ -247,14 +305,27 @@ class TestDataIngestionToDatabaseIntegration:
             )
 
             required_columns = {
-                'game_id', 'sport', 'game_date', 'season', 'status',
-                'home_team_id', 'home_team_name', 'away_team_id', 'away_team_name',
-                'home_score', 'away_score', 'commence_time', 'venue', 'loaded_at'
+                "game_id",
+                "sport",
+                "game_date",
+                "season",
+                "status",
+                "home_team_id",
+                "home_team_name",
+                "away_team_id",
+                "away_team_name",
+                "home_score",
+                "away_score",
+                "commence_time",
+                "venue",
+                "loaded_at",
             }
 
-            actual_columns = set(unified_schema['column_name'])
+            actual_columns = set(unified_schema["column_name"])
             missing_columns = required_columns - actual_columns
-            assert len(missing_columns) == 0, f"Missing columns in unified_games: {missing_columns}"
+            assert len(missing_columns) == 0, (
+                f"Missing columns in unified_games: {missing_columns}"
+            )
 
             print("✓ Unified games schema is correct")
 
@@ -288,14 +359,14 @@ class TestDataIngestionToDatabaseIntegration:
 
         # Import data validation module
         try:
-            from plugins.data_validation import DataValidationReport, validate_nba_data
+            from plugins.data_validation import DataValidationReport
 
             # Create a test report
-            report = DataValidationReport('nba')
-            report.add_stat('total_games', 1230)
-            report.add_stat('coverage_pct', 98.5)
-            report.add_check('Data Exists', True, 'Found 1230 games')
-            report.add_check('Data Quality', False, 'Missing 5 boxscores', 'warning')
+            report = DataValidationReport("nba")
+            report.add_stat("total_games", 1230)
+            report.add_stat("coverage_pct", 98.5)
+            report.add_check("Data Exists", True, "Found 1230 games")
+            report.add_check("Data Quality", False, "Missing 5 boxscores", "warning")
 
             # Test report generation
             import io
@@ -311,9 +382,9 @@ class TestDataIngestionToDatabaseIntegration:
             finally:
                 sys.stdout = old_stdout
 
-            assert 'NBA' in output, "Report should contain sport name"
-            assert '1230' in output, "Report should contain statistics"
-            assert result == True, "Report with warnings should return True"
+            assert "NBA" in output, "Report should contain sport name"
+            assert "1230" in output, "Report should contain statistics"
+            assert result, "Report with warnings should return True"
 
             print("✓ Data validation report generation working")
 
@@ -345,5 +416,6 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"\n❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)

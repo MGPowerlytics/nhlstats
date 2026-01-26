@@ -9,7 +9,7 @@ Requirements:
 
 import os
 import pytest
-from datetime import datetime, timezone
+from datetime import datetime
 from plugins.db_manager import DBManager
 
 # Override for testing outside Docker
@@ -42,7 +42,7 @@ class TestDepositTracking:
             self.db.execute(
                 "DELETE FROM cash_deposits WHERE deposit_date > '2026-01-18'"
             )
-        except:
+        except Exception:
             pass
 
     def test_cash_deposits_table_exists(self):
@@ -78,9 +78,9 @@ class TestDepositTracking:
         }
         actual_columns = set(columns["column_name"].tolist())
 
-        assert expected_columns.issubset(
-            actual_columns
-        ), f"Missing columns. Expected: {expected_columns}, Got: {actual_columns}"
+        assert expected_columns.issubset(actual_columns), (
+            f"Missing columns. Expected: {expected_columns}, Got: {actual_columns}"
+        )
 
     def test_initial_deposit_exists(self):
         """RED: Initial $100 deposit on Jan 18, 2026 should be recorded."""
@@ -95,9 +95,9 @@ class TestDepositTracking:
         assert not result.empty, "Initial deposit record should exist"
 
         deposit = result.iloc[0]
-        assert (
-            float(deposit["amount_dollars"]) == 100.0
-        ), f"Initial deposit should be $100, got ${deposit['amount_dollars']}"
+        assert float(deposit["amount_dollars"]) == 100.0, (
+            f"Initial deposit should be $100, got ${deposit['amount_dollars']}"
+        )
 
     def test_calculate_total_deposits(self):
         """RED: Should calculate total deposits from database."""
@@ -131,9 +131,9 @@ class TestDepositTracking:
         deposits = detect_new_deposits(snapshots, db=self.db)
 
         assert len(deposits) > 0, "Should detect at least one deposit"
-        assert any(
-            d["amount_dollars"] == 50.0 for d in deposits
-        ), "Should detect $50 deposit"
+        assert any(d["amount_dollars"] == 50.0 for d in deposits), (
+            "Should detect $50 deposit"
+        )
 
     def test_upsert_deposit_record(self):
         """RED: Should insert/update deposit records."""
@@ -175,9 +175,9 @@ class TestDepositTracking:
         column_names = columns["column_name"].tolist()
 
         # Should have a column to track cumulative deposits
-        assert any(
-            "deposit" in col.lower() for col in column_names
-        ), "portfolio_value_snapshots should track deposits"
+        assert any("deposit" in col.lower() for col in column_names), (
+            "portfolio_value_snapshots should track deposits"
+        )
 
     def test_calculate_net_profit_with_deposits(self):
         """RED: Should calculate true P&L accounting for deposits."""
@@ -194,6 +194,6 @@ class TestDepositTracking:
 
         # Should be close to -$19.31 (within $1 due to timing)
         expected_loss = -19.31
-        assert (
-            abs(net_profit - expected_loss) < 5.0
-        ), f"Expected P&L ~${expected_loss}, got ${net_profit}"
+        assert abs(net_profit - expected_loss) < 5.0, (
+            f"Expected P&L ~${expected_loss}, got ${net_profit}"
+        )

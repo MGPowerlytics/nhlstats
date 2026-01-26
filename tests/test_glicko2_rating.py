@@ -2,11 +2,9 @@
 
 import pytest
 import sys
-import math
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 from glicko2_rating import Glicko2Rating
 
@@ -26,10 +24,7 @@ class TestGlicko2RatingInit:
     def test_init_custom_values(self):
         """Test initialization with custom values."""
         g = Glicko2Rating(
-            initial_rating=1600,
-            initial_rd=300,
-            initial_vol=0.05,
-            home_advantage=80
+            initial_rating=1600, initial_rd=300, initial_vol=0.05, home_advantage=80
         )
 
         assert g.initial_rating == 1600
@@ -60,30 +55,30 @@ class TestGlicko2GetRating:
         g = Glicko2Rating()
         rating = g.get_rating("Toronto")
 
-        assert rating['rating'] == 1500
-        assert rating['rd'] == 350
-        assert rating['vol'] == 0.06
+        assert rating["rating"] == 1500
+        assert rating["rd"] == 350
+        assert rating["vol"] == 0.06
 
     def test_get_rating_existing_team(self):
         """Test getting rating for existing team."""
         g = Glicko2Rating()
-        g.ratings["Toronto"] = {'rating': 1600, 'rd': 200, 'vol': 0.05}
+        g.ratings["Toronto"] = {"rating": 1600, "rd": 200, "vol": 0.05}
 
         rating = g.get_rating("Toronto")
 
-        assert rating['rating'] == 1600
-        assert rating['rd'] == 200
-        assert rating['vol'] == 0.05
+        assert rating["rating"] == 1600
+        assert rating["rd"] == 200
+        assert rating["vol"] == 0.05
 
     def test_get_rating_returns_copy(self):
         """Test that get_rating returns a copy, not reference."""
         g = Glicko2Rating()
         rating1 = g.get_rating("Toronto")
-        rating1['rating'] = 2000  # Modify the returned copy
+        rating1["rating"] = 2000  # Modify the returned copy
 
         rating2 = g.get_rating("Toronto")
 
-        assert rating2['rating'] == 1500  # Original should be unchanged
+        assert rating2["rating"] == 1500  # Original should be unchanged
 
 
 class TestGlicko2ScaleConversion:
@@ -193,8 +188,8 @@ class TestGlicko2Predict:
     def test_predict_stronger_home(self):
         """Test prediction with stronger home team."""
         g = Glicko2Rating()
-        g.ratings["Toronto"] = {'rating': 1700, 'rd': 200, 'vol': 0.06}
-        g.ratings["Boston"] = {'rating': 1400, 'rd': 200, 'vol': 0.06}
+        g.ratings["Toronto"] = {"rating": 1700, "rd": 200, "vol": 0.06}
+        g.ratings["Boston"] = {"rating": 1400, "rd": 200, "vol": 0.06}
 
         prob = g.predict("Toronto", "Boston")
 
@@ -203,8 +198,8 @@ class TestGlicko2Predict:
     def test_predict_stronger_away(self):
         """Test prediction with much stronger away team."""
         g = Glicko2Rating(home_advantage=50)
-        g.ratings["Toronto"] = {'rating': 1300, 'rd': 200, 'vol': 0.06}
-        g.ratings["Boston"] = {'rating': 1800, 'rd': 200, 'vol': 0.06}
+        g.ratings["Toronto"] = {"rating": 1300, "rd": 200, "vol": 0.06}
+        g.ratings["Boston"] = {"rating": 1800, "rd": 200, "vol": 0.06}
 
         prob = g.predict("Toronto", "Boston")
 
@@ -221,12 +216,12 @@ class TestGlicko2Predict:
     def test_predict_high_uncertainty_closer_to_50(self):
         """Test that high RD brings probability closer to 50%."""
         g1 = Glicko2Rating(home_advantage=0)
-        g1.ratings["Toronto"] = {'rating': 1700, 'rd': 50, 'vol': 0.06}
-        g1.ratings["Boston"] = {'rating': 1500, 'rd': 50, 'vol': 0.06}
+        g1.ratings["Toronto"] = {"rating": 1700, "rd": 50, "vol": 0.06}
+        g1.ratings["Boston"] = {"rating": 1500, "rd": 50, "vol": 0.06}
 
         g2 = Glicko2Rating(home_advantage=0)
-        g2.ratings["Toronto"] = {'rating': 1700, 'rd': 350, 'vol': 0.06}
-        g2.ratings["Boston"] = {'rating': 1500, 'rd': 350, 'vol': 0.06}
+        g2.ratings["Toronto"] = {"rating": 1700, "rd": 350, "vol": 0.06}
+        g2.ratings["Boston"] = {"rating": 1500, "rd": 350, "vol": 0.06}
 
         prob1 = g1.predict("Toronto", "Boston")  # Low uncertainty
         prob2 = g2.predict("Toronto", "Boston")  # High uncertainty
@@ -242,30 +237,30 @@ class TestGlicko2Update:
         """Test that home win increases home rating."""
         g = Glicko2Rating()
 
-        initial_rating = g.get_rating("Toronto")['rating']
+        initial_rating = g.get_rating("Toronto")["rating"]
         g.update("Toronto", "Boston", home_won=True)
 
-        new_rating = g.ratings["Toronto"]['rating']
+        new_rating = g.ratings["Toronto"]["rating"]
         assert new_rating > initial_rating
 
     def test_update_home_loss_rating_decreases(self):
         """Test that home loss decreases home rating."""
         g = Glicko2Rating()
 
-        initial_rating = g.get_rating("Toronto")['rating']
+        initial_rating = g.get_rating("Toronto")["rating"]
         g.update("Toronto", "Boston", home_won=False)
 
-        new_rating = g.ratings["Toronto"]['rating']
+        new_rating = g.ratings["Toronto"]["rating"]
         assert new_rating < initial_rating
 
     def test_update_rd_decreases_after_game(self):
         """Test that RD decreases after playing a game."""
         g = Glicko2Rating()
 
-        initial_rd = g.get_rating("Toronto")['rd']
+        initial_rd = g.get_rating("Toronto")["rd"]
         g.update("Toronto", "Boston", home_won=True)
 
-        new_rd = g.ratings["Toronto"]['rd']
+        new_rd = g.ratings["Toronto"]["rd"]
         assert new_rd < initial_rd
 
     def test_update_both_teams_affected(self):
@@ -293,8 +288,8 @@ class TestGlicko2EdgeCases:
     def test_very_high_rating_difference(self):
         """Test with very high rating difference."""
         g = Glicko2Rating(home_advantage=0)
-        g.ratings["Toronto"] = {'rating': 2000, 'rd': 100, 'vol': 0.06}
-        g.ratings["Boston"] = {'rating': 1000, 'rd': 100, 'vol': 0.06}
+        g.ratings["Toronto"] = {"rating": 2000, "rd": 100, "vol": 0.06}
+        g.ratings["Boston"] = {"rating": 1000, "rd": 100, "vol": 0.06}
 
         prob = g.predict("Toronto", "Boston")
 
@@ -308,7 +303,7 @@ class TestGlicko2EdgeCases:
         for _ in range(50):
             g.update("Toronto", "Boston", home_won=True)
 
-        rd = g.ratings["Toronto"]['rd']
+        rd = g.ratings["Toronto"]["rd"]
 
         # RD should be much lower than initial 350
         assert rd < 200  # Glicko-2 converges slower than expected
@@ -317,7 +312,7 @@ class TestGlicko2EdgeCases:
         """Test that volatility can change based on performance."""
         g = Glicko2Rating()
 
-        initial_vol = g.get_rating("Toronto")['vol']
+        g.get_rating("Toronto")["vol"]
 
         # Play several games
         for _ in range(10):
@@ -325,5 +320,5 @@ class TestGlicko2EdgeCases:
 
         # Volatility should have changed (up or down)
         # Just check it's still a valid value
-        new_vol = g.ratings["Toronto"]['vol']
+        new_vol = g.ratings["Toronto"]["vol"]
         assert 0 < new_vol < 1

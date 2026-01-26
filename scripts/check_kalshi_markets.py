@@ -3,7 +3,7 @@ import os
 import logging
 
 # Add plugins to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins")))
 
 from kalshi_markets import fetch_nba_markets, fetch_ncaab_markets, fetch_wncaab_markets
 

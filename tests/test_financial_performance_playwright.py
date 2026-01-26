@@ -7,10 +7,9 @@ Tests the Portfolio Value metric calculation:
 """
 
 import pytest
-from playwright.sync_api import Page, expect
+from playwright.sync_api import Page
 import time
 import re
-from decimal import Decimal
 
 
 @pytest.fixture(scope="module")
@@ -66,7 +65,9 @@ class TestFinancialPerformancePortfolioValue:
 
         # Check for metric values with correct data-testid
         metric_values = page.locator('[data-testid="stMetricValue"]')
-        assert metric_values.count() > 0, "No metric values found with data-testid='stMetricValue'"
+        assert metric_values.count() > 0, (
+            "No metric values found with data-testid='stMetricValue'"
+        )
 
     def test_portfolio_value_equals_cash_plus_bets(self, page: Page):
         """Test displayed Portfolio Value equals cash balance + open positions value.
@@ -139,7 +140,7 @@ class TestFinancialPerformancePortfolioValue:
             # Check if this metric contains "Portfolio Value"
             if "Portfolio Value" in metric_text:
                 metric_label = "Portfolio Value"
-                print(f"  ✓ Found Portfolio Value metric!")
+                print("  ✓ Found Portfolio Value metric!")
 
                 # Extract the dollar value from stMetricValue within this metric
                 value_element = metric.locator('[data-testid="stMetricValue"]')
@@ -147,9 +148,9 @@ class TestFinancialPerformancePortfolioValue:
                     value_text = value_element.inner_text()
                     print(f"  Value text: {value_text}")
                     # Extract numeric value (e.g., "$80.69" -> 80.69)
-                    match = re.search(r'\$?([0-9,]+\.[0-9]{2})', value_text)
+                    match = re.search(r"\$?([0-9,]+\.[0-9]{2})", value_text)
                     if match:
-                        displayed_value = float(match.group(1).replace(',', ''))
+                        displayed_value = float(match.group(1).replace(",", ""))
                         print(f"  Extracted value: ${displayed_value:.2f}")
                         break
 

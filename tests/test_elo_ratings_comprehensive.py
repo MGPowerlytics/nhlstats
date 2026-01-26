@@ -1,11 +1,5 @@
 """More tests for elo rating modules (mlb, nfl, ncaab)"""
 
-import pytest
-from unittest.mock import Mock, patch, MagicMock
-import tempfile
-from pathlib import Path
-import pandas as pd
-
 
 class TestMLBEloRating:
     """Test MLBEloRating class"""
@@ -28,39 +22,39 @@ class TestMLBEloRating:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        rating = elo.get_rating('Yankees')
+        rating = elo.get_rating("Yankees")
         assert rating == 1500
 
     def test_predict_equal_teams(self):
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        prob = elo.predict('Yankees', 'Red Sox')
+        prob = elo.predict("Yankees", "Red Sox")
         assert 0.4 < prob < 0.7
 
     def test_update(self):
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        initial = elo.get_rating('Yankees')
+        initial = elo.get_rating("Yankees")
 
         # Home win
-        elo.update('Yankees', 'Red Sox', 5, 2)
+        elo.update("Yankees", "Red Sox", 5, 2)
 
         # Winner should gain rating
-        assert elo.get_rating('Yankees') > initial
+        assert elo.get_rating("Yankees") > initial
 
     def test_update_away_win(self):
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        initial_away = elo.get_rating('Red Sox')
+        initial_away = elo.get_rating("Red Sox")
 
         # Away win
-        elo.update('Yankees', 'Red Sox', 2, 5)
+        elo.update("Yankees", "Red Sox", 2, 5)
 
         # Away team should gain rating
-        assert elo.get_rating('Red Sox') > initial_away
+        assert elo.get_rating("Red Sox") > initial_away
 
 
 class TestNFLEloRating:
@@ -84,37 +78,37 @@ class TestNFLEloRating:
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        rating = elo.get_rating('Patriots')
+        rating = elo.get_rating("Patriots")
         assert rating == 1500
 
     def test_predict_equal_teams(self):
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        prob = elo.predict('Patriots', 'Bills')
+        prob = elo.predict("Patriots", "Bills")
         assert 0.4 < prob < 0.7
 
     def test_update(self):
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        initial = elo.get_rating('Patriots')
+        initial = elo.get_rating("Patriots")
 
         # Home win
-        elo.update('Patriots', 'Bills', 28, 21)
+        elo.update("Patriots", "Bills", 28, 21)
 
-        assert elo.get_rating('Patriots') > initial
+        assert elo.get_rating("Patriots") > initial
 
     def test_update_away_win(self):
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        initial_away = elo.get_rating('Bills')
+        initial_away = elo.get_rating("Bills")
 
         # Away win
-        elo.update('Patriots', 'Bills', 14, 35)
+        elo.update("Patriots", "Bills", 14, 35)
 
-        assert elo.get_rating('Bills') > initial_away
+        assert elo.get_rating("Bills") > initial_away
 
 
 class TestNCAABEloRating:
@@ -130,26 +124,26 @@ class TestNCAABEloRating:
         from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
-        rating = elo.get_rating('Duke')
+        rating = elo.get_rating("Duke")
         assert rating == 1500
 
     def test_predict(self):
         from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
-        prob = elo.predict('Duke', 'Kentucky')
+        prob = elo.predict("Duke", "Kentucky")
         assert 0 < prob < 1
 
     def test_update(self):
         from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
-        initial = elo.get_rating('Duke')
+        initial = elo.get_rating("Duke")
 
         # Home win
-        elo.update('Duke', 'Kentucky', 1.0)
+        elo.update("Duke", "Kentucky", 1.0)
 
-        assert elo.get_rating('Duke') > initial
+        assert elo.get_rating("Duke") > initial
 
 
 class TestEloFormula:
@@ -188,11 +182,11 @@ class TestKFactorImpact:
         elo_high_k = MLBEloRating(k_factor=40)
 
         # Same update
-        elo_low_k.update('Team A', 'Team B', 5, 2)
-        elo_high_k.update('Team A', 'Team B', 5, 2)
+        elo_low_k.update("Team A", "Team B", 5, 2)
+        elo_high_k.update("Team A", "Team B", 5, 2)
 
-        change_low = abs(elo_low_k.get_rating('Team A') - 1500)
-        change_high = abs(elo_high_k.get_rating('Team A') - 1500)
+        change_low = abs(elo_low_k.get_rating("Team A") - 1500)
+        change_high = abs(elo_high_k.get_rating("Team A") - 1500)
 
         assert change_high > change_low
 
@@ -204,7 +198,7 @@ class TestHomeAdvantageImpact:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating(home_advantage=0)
-        prob = elo.predict('Team A', 'Team B')
+        prob = elo.predict("Team A", "Team B")
 
         # Should be close to 50%
         assert abs(prob - 0.5) < 0.01
@@ -213,7 +207,7 @@ class TestHomeAdvantageImpact:
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating(home_advantage=200)
-        prob = elo.predict('Team A', 'Team B')
+        prob = elo.predict("Team A", "Team B")
 
         # Should favor home team
         assert prob > 0.6
@@ -228,10 +222,10 @@ class TestMultipleGames:
         elo = MLBEloRating()
 
         for _ in range(50):
-            elo.update('Team A', 'Team B', 5, 2)
+            elo.update("Team A", "Team B", 5, 2)
 
         # Team A should be rated higher
-        assert elo.get_rating('Team A') > elo.get_rating('Team B')
+        assert elo.get_rating("Team A") > elo.get_rating("Team B")
 
     def test_ratings_converge_nfl(self):
         from plugins.elo import NFLEloRating
@@ -239,9 +233,9 @@ class TestMultipleGames:
         elo = NFLEloRating()
 
         for _ in range(20):
-            elo.update('Team A', 'Team B', 28, 14)
+            elo.update("Team A", "Team B", 28, 14)
 
-        assert elo.get_rating('Team A') > elo.get_rating('Team B')
+        assert elo.get_rating("Team A") > elo.get_rating("Team B")
 
 
 class TestModuleImports:
@@ -249,14 +243,17 @@ class TestModuleImports:
 
     def test_mlb_elo_import(self):
         from plugins.elo import MLBEloRating
+
         assert MLBEloRating is not None
 
     def test_nfl_elo_import(self):
         from plugins.elo import NFLEloRating
+
         assert NFLEloRating is not None
 
     def test_ncaab_elo_import(self):
         from plugins.elo import NCAABEloRating
+
         assert NCAABEloRating is not None
 
 
@@ -267,26 +264,26 @@ class TestClassInterface:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
-        assert hasattr(elo, 'expected_score')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
+        assert hasattr(elo, "expected_score")
 
     def test_nfl_elo_interface(self):
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
 
     def test_ncaab_elo_interface(self):
         from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
 
 
 class TestEdgeCases:
@@ -298,7 +295,7 @@ class TestEdgeCases:
         elo = MLBEloRating()
         # Tied game (rare in MLB but should handle)
         try:
-            elo.update('Team A', 'Team B', 5, 5)
+            elo.update("Team A", "Team B", 5, 5)
         except Exception:
             pass  # May not support ties
 
@@ -306,10 +303,10 @@ class TestEdgeCases:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        elo.update('Team A', 'Team B', 20, 0)
+        elo.update("Team A", "Team B", 20, 0)
 
         # Should still work
-        assert elo.get_rating('Team A') > 1500
+        assert elo.get_rating("Team A") > 1500
 
     def test_negative_rating_prevention(self):
         from plugins.elo import NFLEloRating
@@ -318,7 +315,7 @@ class TestEdgeCases:
 
         # Many losses
         for _ in range(100):
-            elo.update('Loser', 'Winner', 0, 50)
+            elo.update("Loser", "Winner", 0, 50)
 
         # Rating should still be positive
-        assert elo.get_rating('Loser') > 0
+        assert elo.get_rating("Loser") > 0

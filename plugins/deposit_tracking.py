@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, date, timezone
+from datetime import datetime, date
 from typing import Optional, List, Dict, Any
-import pandas as pd
 from plugins.db_manager import DBManager, default_db
 from plugins.portfolio_snapshots import ensure_portfolio_snapshots_table
 
@@ -40,7 +39,7 @@ def ensure_cash_deposits_table(db: DBManager = default_db) -> None:
         db.execute(
             "CREATE INDEX IF NOT EXISTS idx_cash_deposits_date ON cash_deposits(deposit_date)"
         )
-    except:
+    except Exception:
         pass
 
     # Ensure portfolio snapshots table exists with deposit tracking column

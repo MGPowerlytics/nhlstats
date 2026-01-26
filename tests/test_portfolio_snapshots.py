@@ -17,11 +17,16 @@ from db_manager import default_db
 def clean_portfolio_table():
     """Clean portfolio snapshots table before each test."""
     # Ensure the table exists
+    import sys
+    print("[FIXTURE] Calling ensure_portfolio_snapshots_table", file=sys.stderr)
     ensure_portfolio_snapshots_table()
     # Clean the table
     try:
-        default_db.execute("DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'")
-    except:
+        default_db.execute(
+            "DELETE FROM portfolio_value_snapshots WHERE snapshot_hour_utc >= '2026-01-20'"
+        )
+    except Exception as e:
+        print(f"[FIXTURE] Delete error: {e}", file=sys.stderr)
         pass
     yield
 

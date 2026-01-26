@@ -55,7 +55,6 @@ with DAG(
     max_active_runs=1,
     tags=["betting", "kalshi", "sync"],
 ) as dag:
-
     sync_task = PythonOperator(
         task_id="sync_bets_from_kalshi",
         python_callable=sync_bets_from_kalshi,

@@ -4,8 +4,7 @@ import numpy as np
 import plotly.express as px
 import sys
 import os
-from pathlib import Path
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 # Add plugins to path
@@ -28,7 +27,7 @@ except ImportError:
     NFLEloRating = None
 
 try:
-    from plugins.elo import NBAEloRating, load_nba_games_from_json
+    from plugins.elo import NBAEloRating
 except ImportError:
     NBAEloRating = None
 
@@ -71,6 +70,8 @@ except ImportError:
     MLBGlicko2Rating = None
     NFLGlicko2Rating = None
 
+from db_manager import default_db
+
 # --- Configuration ---
 st.set_page_config(
     page_title="Sports Betting Analytics Dashboard",
@@ -78,8 +79,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
-from db_manager import DBManager, default_db
 
 # --- Helper Functions ---
 
@@ -384,7 +383,7 @@ def calculate_decile_probability_roi_matrix(
             # ROI = (return - cost) / cost = (win_rate / kalshi_price) - 1
             roi = ((win_rate / kalshi_price) - 1) * 100 if kalshi_price > 0 else 0
 
-            row_data[f"{int(kalshi_price*100)}¢"] = f"{roi:+.1f}%"
+            row_data[f"{int(kalshi_price * 100)}¢"] = f"{roi:+.1f}%"
 
         results.append(row_data)
 
@@ -1198,7 +1197,7 @@ else:
             col2.metric(
                 "Glicko-2 Accuracy",
                 f"{gl_acc:.1%}",
-                delta=f"{(gl_acc - elo_acc)*100:.1f} pts",
+                delta=f"{(gl_acc - elo_acc) * 100:.1f} pts",
             )
             fig = px.scatter(comp_df, x="elo_prob", y="glicko2_prob", color="home_win")
             fig.add_shape(

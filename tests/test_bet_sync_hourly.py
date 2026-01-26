@@ -5,9 +5,7 @@ Following TDD approach - these tests define the expected behavior
 before implementation.
 """
 
-import pytest
 from airflow.models import DagBag
-from datetime import datetime
 
 
 def test_bet_sync_hourly_dag_exists():

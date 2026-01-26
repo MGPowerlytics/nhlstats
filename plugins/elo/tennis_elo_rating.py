@@ -1,9 +1,5 @@
-import json
-from pathlib import Path
-from datetime import datetime
-import math
 from typing import Union
-from .base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import BaseEloRating
 
 
 class TennisEloRating(BaseEloRating):
@@ -24,7 +20,11 @@ class TennisEloRating(BaseEloRating):
             home_advantage: Not used in tennis (default 0)
             initial_rating: Initial rating for new players (default 1500)
         """
-        super().__init__(k_factor=k_factor, home_advantage=home_advantage, initial_rating=initial_rating)
+        super().__init__(
+            k_factor=k_factor,
+            home_advantage=home_advantage,
+            initial_rating=initial_rating,
+        )
         # Separate ratings for ATP and WTA
         self.atp_ratings = {}
         self.wta_ratings = {}
@@ -39,7 +39,7 @@ class TennisEloRating(BaseEloRating):
         name = str(name).strip().title()
 
         # If already formatted as "Djokovic N." (ends with dot), keep it
-        if name.endswith('.'):
+        if name.endswith("."):
             return name
 
         # If "Novak Djokovic", convert to "Djokovic N."
@@ -53,12 +53,12 @@ class TennisEloRating(BaseEloRating):
 
     def _get_tour_dicts(self, tour):
         """Get the appropriate ratings/matches dicts for a tour."""
-        if str(tour).upper() == 'ATP':
+        if str(tour).upper() == "ATP":
             return self.atp_ratings, self.atp_matches_played
         else:  # WTA
             return self.wta_ratings, self.wta_matches_played
 
-    def get_rating(self, player, tour='ATP'):
+    def get_rating(self, player, tour="ATP"):
         """Get rating for a player in their tour."""
         ratings, matches = self._get_tour_dicts(tour)
         player = self._normalize_name(player)
@@ -69,13 +69,13 @@ class TennisEloRating(BaseEloRating):
             matches[player] = 0
         return ratings[player]
 
-    def get_match_count(self, player, tour='ATP'):
+    def get_match_count(self, player, tour="ATP"):
         """Get number of matches played by a player."""
         _, matches = self._get_tour_dicts(tour)
         player = self._normalize_name(player)
         return matches.get(player, 0)
 
-    def predict(self, player_a, player_b, tour='ATP', is_neutral=True):
+    def predict(self, player_a, player_b, tour="ATP", is_neutral=True):
         """
         Predict probability of Player A defeating Player B.
         Both players must be from the same tour.
@@ -100,8 +100,8 @@ class TennisEloRating(BaseEloRating):
         away_team: str,
         home_won: Union[bool, float] = None,
         is_neutral: bool = True,
-        tour: str = 'ATP',
-        **kwargs
+        tour: str = "ATP",
+        **kwargs,
     ):
         """
         Update ratings after a match.
@@ -156,8 +156,10 @@ class TennisEloRating(BaseEloRating):
         k = self.k_factor
 
         # Simple dynamic K:
-        if matches[winner] < 20: k *= 1.5
-        if matches[loser] < 20: k *= 1.5
+        if matches[winner] < 20:
+            k *= 1.5
+        if matches[loser] < 20:
+            k *= 1.5
 
         change = k * (1.0 - expected_win)
 
@@ -183,7 +185,7 @@ class TennisEloRating(BaseEloRating):
             all_ratings[f"WTA:{player}"] = rating
         return all_ratings
 
-    def legacy_update(self, winner, loser, tour='ATP'):
+    def legacy_update(self, winner, loser, tour="ATP"):
         """
         Legacy update method for backward compatibility.
         Same as update() for tennis.
@@ -192,12 +194,12 @@ class TennisEloRating(BaseEloRating):
 
     # Tennis-specific methods (preserved for backward compatibility)
 
-    def get_rankings(self, tour='ATP', top_n=10):
+    def get_rankings(self, tour="ATP", top_n=10):
         """Get top N players for a specific tour."""
         ratings, _ = self._get_tour_dicts(tour)
         return sorted(ratings.items(), key=lambda x: x[1], reverse=True)[:top_n]
 
-    def get_all_players(self, tour='ATP'):
+    def get_all_players(self, tour="ATP"):
         """Get all players for a tour."""
         ratings, _ = self._get_tour_dicts(tour)
         return list(ratings.keys())
@@ -217,7 +219,7 @@ class TennisEloRating(BaseEloRating):
         Returns:
             Probability that home_team (player_a) defeats away_team (player_b)
         """
-        return self.predict(home_team, away_team, tour='ATP', is_neutral=True)
+        return self.predict(home_team, away_team, tour="ATP", is_neutral=True)
 
     def update_team(self, home_team, away_team, home_win, is_neutral=False):
         """
@@ -234,6 +236,6 @@ class TennisEloRating(BaseEloRating):
             Rating change
         """
         if home_win == 1.0:
-            return self.update(home_team, away_team, tour='ATP', is_neutral=True)
+            return self.update(home_team, away_team, tour="ATP", is_neutral=True)
         else:
-            return self.update(away_team, home_team, tour='ATP', is_neutral=True)
+            return self.update(away_team, home_team, tour="ATP", is_neutral=True)

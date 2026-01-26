@@ -4,9 +4,9 @@ Resolves duplicates, filters exhibition games, and standardizes team names.
 """
 
 import duckdb
-from pathlib import Path
 
-def fix_data_issues(db_path='data/nhlstats.duckdb', dry_run=False):
+
+def fix_data_issues(db_path="data/nhlstats.duckdb", dry_run=False):
     """Fix identified data issues"""
 
     conn = duckdb.connect(db_path, read_only=dry_run)
@@ -37,7 +37,7 @@ def fix_data_issues(db_path='data/nhlstats.duckdb', dry_run=False):
 
             if not dry_run:
                 # Keep the first game_id, delete others
-                game_ids = gids.split(', ')
+                game_ids = gids.split(", ")
                 to_delete = game_ids[1:]  # Keep first, delete rest
 
                 for gid in to_delete:
@@ -76,20 +76,39 @@ def fix_data_issues(db_path='data/nhlstats.duckdb', dry_run=False):
     print("\n3. EXHIBITION/NON-NHL GAMES")
     print("-" * 70)
 
-    exhibition_teams = ['CAN', 'USA', 'ATL', 'MET', 'CEN', 'PAC',
-                       'SWE', 'FIN', 'EIS', 'MUN', 'SCB', 'KLS',
-                       'KNG', 'MKN', 'HGS', 'MAT', 'MCD']
+    exhibition_teams = [
+        "CAN",
+        "USA",
+        "ATL",
+        "MET",
+        "CEN",
+        "PAC",
+        "SWE",
+        "FIN",
+        "EIS",
+        "MUN",
+        "SCB",
+        "KLS",
+        "KNG",
+        "MKN",
+        "HGS",
+        "MAT",
+        "MCD",
+    ]
 
-    placeholders = ','.join(['?' for _ in exhibition_teams])
-    result = conn.execute(f"""
+    placeholders = ",".join(["?" for _ in exhibition_teams])
+    result = conn.execute(
+        f"""
         SELECT COUNT(*) FROM games
         WHERE home_team_abbrev IN ({placeholders})
            OR away_team_abbrev IN ({placeholders})
-    """, exhibition_teams + exhibition_teams).fetchone()
+    """,
+        exhibition_teams + exhibition_teams,
+    ).fetchone()
 
     exhibition_count = result[0]
     print(f"  Found {exhibition_count} exhibition/All-Star games")
-    print(f"  ℹ️  These will be filtered in Elo calculations (not deleted)")
+    print("  ℹ️  These will be filtered in Elo calculations (not deleted)")
 
     # 4. Summary
     print("\n" + "=" * 70)
@@ -116,7 +135,9 @@ def fix_data_issues(db_path='data/nhlstats.duckdb', dry_run=False):
 
     conn.close()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     import sys
-    dry_run = '--dry-run' in sys.argv
+
+    dry_run = "--dry-run" in sys.argv
     fix_data_issues(dry_run=dry_run)

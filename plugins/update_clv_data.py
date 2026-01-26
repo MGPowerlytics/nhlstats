@@ -12,7 +12,7 @@ Should be run daily after markets close.
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict
 
 try:
     from db_manager import default_db
@@ -54,7 +54,7 @@ def load_kalshi_credentials() -> tuple[str, str]:
         if "-----END RSA PRIVATE KEY-----" in line:
             break
 
-    private_key = '\n'.join(private_key_lines)
+    private_key = "\n".join(private_key_lines)
     return api_key_id, private_key
 
 
@@ -85,10 +85,10 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
         )
     except Exception as e:
         print(f"❌ Failed to initialize Kalshi client: {e}")
-        return {'error': str(e)}
+        return {"error": str(e)}
 
     # Get bets that need CLV updates (markets closed but no closing_line_prob)
-    cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime('%Y-%m-%d')
+    cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
 
     query = """
         SELECT DISTINCT ticker, side
@@ -99,18 +99,18 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
         AND ticker IS NOT NULL
     """
 
-    bets_df = default_db.fetch_df(query, {'cutoff_date': cutoff_date})
+    bets_df = default_db.fetch_df(query, {"cutoff_date": cutoff_date})
     print(f"📊 Found {len(bets_df)} unique tickers needing CLV updates")
 
     if bets_df.empty:
-        return {'processed': 0, 'updated': 0}
+        return {"processed": 0, "updated": 0}
 
     updated_count = 0
     error_count = 0
 
     # Process each unique ticker
     for _, row in bets_df.iterrows():
-        ticker = row['ticker']
+        ticker = row["ticker"]
 
         try:
             # Get market details
@@ -119,21 +119,21 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
                 print(f"  ⚠️  Could not fetch market {ticker}")
                 continue
 
-            status = market.get('status')
-            result = market.get('result')
+            status = market.get("status")
+            result = market.get("result")
 
             # Only process closed/finalized markets with results
-            if status not in ['closed', 'finalized'] or not result:
+            if status not in ["closed", "finalized"] or not result:
                 continue
 
             # Calculate closing probability based on result
             # For Kalshi binary markets: result is 'yes' or 'no'
             # If result is 'yes', closing prob of yes = 1.0, no = 0.0
             # If result is 'no', closing prob of yes = 0.0, no = 1.0
-            if result == 'yes':
+            if result == "yes":
                 closing_prob_yes = 1.0
                 closing_prob_no = 0.0
-            elif result == 'no':
+            elif result == "no":
                 closing_prob_yes = 0.0
                 closing_prob_no = 1.0
             else:
@@ -141,13 +141,13 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
                 continue
 
             # Update all bets on this ticker
-            for _, bet_row in bets_df[bets_df['ticker'] == ticker].iterrows():
-                side = bet_row['side']
+            for _, bet_row in bets_df[bets_df["ticker"] == ticker].iterrows():
+                side = bet_row["side"]
 
                 # Get the closing prob for this bet's side
-                if side == 'yes':
+                if side == "yes":
                     closing_line_prob = closing_prob_yes
-                elif side == 'no':
+                elif side == "no":
                     closing_line_prob = closing_prob_no
                 else:
                     continue
@@ -163,14 +163,15 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
                     AND closing_line_prob IS NULL
                 """
 
-                default_db.execute(update_query, {
-                    'closing_prob': closing_line_prob,
-                    'ticker': ticker,
-                    'side': side
-                })
+                default_db.execute(
+                    update_query,
+                    {"closing_prob": closing_line_prob, "ticker": ticker, "side": side},
+                )
 
                 updated_count += 1
-                print(f"  ✅ Updated {ticker} ({side}): closing_prob = {closing_line_prob}")
+                print(
+                    f"  ✅ Updated {ticker} ({side}): closing_prob = {closing_line_prob}"
+                )
 
         except Exception as e:
             print(f"  ❌ Error processing {ticker}: {e}")
@@ -179,15 +180,11 @@ def update_clv_for_closed_markets(days_back: int = 7) -> Dict[str, int]:
     # Clean up temp key file
     try:
         temp_key_file.unlink()
-    except:
+    except Exception:
         pass
 
     print(f"🎯 CLV update complete: {updated_count} updated, {error_count} errors")
-    return {
-        'processed': len(bets_df),
-        'updated': updated_count,
-        'errors': error_count
-    }
+    return {"processed": len(bets_df), "updated": updated_count, "errors": error_count}
 
 
 def main():
@@ -200,5 +197,5 @@ def main():
     print(f"  Errors: {results.get('errors', 0)}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -6,7 +6,7 @@ Find arbitrage and value betting opportunities.
 import json
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Tuple
+from typing import Dict, List
 import sys
 
 
@@ -86,14 +86,16 @@ def find_arbitrage(kalshi_bets: List[Dict], betmgm_opps: List[Dict]) -> List[Dic
             implied_total = (1 / odds1) + (1 / odds2)
             if implied_total < 1.0:
                 profit_pct = (1 / implied_total - 1) * 100
-                arbitrage_opps.append({
-                    "sport": betmgm["sport"],
-                    "matchup": f"{away} @ {home}",
-                    "combination": combo_name,
-                    "profit_pct": profit_pct,
-                    "odds1": odds1,
-                    "odds2": odds2,
-                })
+                arbitrage_opps.append(
+                    {
+                        "sport": betmgm["sport"],
+                        "matchup": f"{away} @ {home}",
+                        "combination": combo_name,
+                        "profit_pct": profit_pct,
+                        "odds1": odds1,
+                        "odds2": odds2,
+                    }
+                )
 
     return arbitrage_opps
 
@@ -103,9 +105,9 @@ def compare_markets(date_str: str = None):
     if not date_str:
         date_str = datetime.now().strftime("%Y-%m-%d")
 
-    print(f"{'='*80}")
+    print(f"{'=' * 80}")
     print(f"📊 CROSS-MARKET ANALYSIS - {date_str}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     # Load data
     sports = ["nba", "ncaab", "wncaab", "tennis"]
@@ -122,9 +124,9 @@ def compare_markets(date_str: str = None):
     print(f"✓ Loaded {len(betmgm_opps)} BetMGM opportunities\n")
 
     # Kalshi summary
-    print(f"{'='*80}")
-    print(f"🎯 KALSHI BETS (Edge over Market)")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}")
+    print("🎯 KALSHI BETS (Edge over Market)")
+    print(f"{'=' * 80}\n")
 
     kalshi_by_sport = {}
     for bet in all_kalshi_bets:
@@ -147,15 +149,13 @@ def compare_markets(date_str: str = None):
         for bet in top_bets:
             home = bet.get("home_team", bet.get("player", ""))
             away = bet.get("away_team", bet.get("opponent", ""))
-            print(
-                f"    {bet['edge']*100:.0f}% - {bet['bet_on']}: {away} @ {home}"
-            )
+            print(f"    {bet['edge'] * 100:.0f}% - {bet['bet_on']}: {away} @ {home}")
         print()
 
     # BetMGM vs Elo summary
-    print(f"{'='*80}")
-    print(f"📈 BETMGM vs ELO PREDICTIONS")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}")
+    print("📈 BETMGM vs ELO PREDICTIONS")
+    print(f"{'=' * 80}\n")
 
     betmgm_by_sport = {}
     for opp in betmgm_opps:
@@ -176,19 +176,19 @@ def compare_markets(date_str: str = None):
         # Show best Elo edges
         if pos_edge:
             top_opps = sorted(pos_edge, key=lambda x: x["edge"], reverse=True)[:3]
-            print(f"  Top Elo edges:")
+            print("  Top Elo edges:")
             for opp in top_opps:
                 print(
-                    f"    {opp['edge']*100:.0f}% - {opp['best_bet'].upper()}: "
+                    f"    {opp['edge'] * 100:.0f}% - {opp['best_bet'].upper()}: "
                     f"{opp['away_team']} @ {opp['home_team']} "
-                    f"(Elo {opp['elo_prob']*100:.0f}% vs Mkt {opp['betmgm_prob']*100:.0f}%)"
+                    f"(Elo {opp['elo_prob'] * 100:.0f}% vs Mkt {opp['betmgm_prob'] * 100:.0f}%)"
                 )
         print()
 
     # Arbitrage opportunities
-    print(f"{'='*80}")
-    print(f"💰 ARBITRAGE OPPORTUNITIES (Kalshi vs BetMGM)")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}")
+    print("💰 ARBITRAGE OPPORTUNITIES (Kalshi vs BetMGM)")
+    print(f"{'=' * 80}\n")
 
     arb_opps = find_arbitrage(all_kalshi_bets, betmgm_opps)
 
@@ -202,41 +202,37 @@ def compare_markets(date_str: str = None):
             print()
     else:
         print("No arbitrage opportunities found.")
-        print(
-            "Note: Real arbitrage is rare. Markets are typically efficient.\n"
-        )
+        print("Note: Real arbitrage is rare. Markets are typically efficient.\n")
 
     # Recommendation summary
-    print(f"{'='*80}")
-    print(f"✅ RECOMMENDATIONS")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}")
+    print("✅ RECOMMENDATIONS")
+    print(f"{'=' * 80}\n")
 
     total_kalshi = len(all_kalshi_bets)
     high_edge_kalshi = [b for b in all_kalshi_bets if b["edge"] >= 0.10]
 
     print(f"1. Focus on HIGH EDGE Kalshi bets: {len(high_edge_kalshi)} bets")
-    print(f"   These show significant edge over prediction market\n")
+    print("   These show significant edge over prediction market\n")
 
     if arb_opps:
         print(f"2. Execute arbitrage opportunities: {len(arb_opps)} found")
-        print(f"   Risk-free profit by betting both sides\n")
+        print("   Risk-free profit by betting both sides\n")
 
     pos_elo_edge = [o for o in betmgm_opps if o["edge"] > 0.05]
     if pos_elo_edge:
         print(f"3. Consider BetMGM bets where Elo >> Market: {len(pos_elo_edge)}")
-        print(f"   Our model sees value BetMGM doesn't\n")
+        print("   Our model sees value BetMGM doesn't\n")
 
     # Value comparison
-    print(f"{'='*80}")
-    print(f"📌 KEY INSIGHTS")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}")
+    print("📌 KEY INSIGHTS")
+    print(f"{'=' * 80}\n")
 
     print(f"• Kalshi markets: {total_kalshi} total betting opportunities")
     print(f"• BetMGM markets: {len(betmgm_opps)} games covered")
-    print(f"• Overlap: Check for same games in both markets")
-    print(
-        f"• Strategy: Use Elo for edge identification, bet where we have advantage\n"
-    )
+    print("• Overlap: Check for same games in both markets")
+    print("• Strategy: Use Elo for edge identification, bet where we have advantage\n")
 
 
 if __name__ == "__main__":

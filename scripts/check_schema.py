@@ -3,7 +3,7 @@ import os
 from sqlalchemy import text
 
 # Add plugins to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins")))
 
 from db_manager import DBManager
 

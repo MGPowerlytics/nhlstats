@@ -20,7 +20,7 @@ import sys
 from pathlib import Path
 import re
 import pytest
-from playwright.sync_api import sync_playwright, expect
+from playwright.sync_api import sync_playwright
 
 sys.path.append(str(Path(__file__).parent.parent))
 
@@ -29,7 +29,7 @@ from plugins.db_manager import DBManager
 # Skip these tests unless running against production database
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration tests require production PostgreSQL database"
+    reason="Integration tests require production PostgreSQL database",
 )
 
 
@@ -81,13 +81,13 @@ def test_financial_performance_shows_correct_portfolio_value():
     )
     expected_portfolio_value = cash + open_value
 
-    print(f"\n📊 Expected Values (from database):")
+    print("\n📊 Expected Values (from database):")
     print(f"   Cash Balance: ${cash:.2f}")
     print(f"   Open Positions: ${open_value:.2f}")
     print(f"   Portfolio Value: ${expected_portfolio_value:.2f}")
 
     # Step 2: Launch dashboard with Playwright
-    print(f"\n🌐 Launching dashboard...")
+    print("\n🌐 Launching dashboard...")
 
     with sync_playwright() as p:
         # Launch browser
@@ -105,11 +105,11 @@ def test_financial_performance_shows_correct_portfolio_value():
             # Wait for Streamlit to load
             page.wait_for_load_state("networkidle")
 
-            print(f"   ✅ Dashboard loaded")
+            print("   ✅ Dashboard loaded")
 
             # Step 3: Navigate to Financial Performance
             # Look for sidebar navigation or main page
-            print(f"\n📄 Looking for Financial Performance page...")
+            print("\n📄 Looking for Financial Performance page...")
 
             # Try to find "Financial Performance" text or button
             try:
@@ -127,14 +127,14 @@ def test_financial_performance_shows_correct_portfolio_value():
                         financial_option.click()
                         page.wait_for_timeout(2000)  # Wait for page to render
 
-                print(f"   ✅ On Financial Performance page")
+                print("   ✅ On Financial Performance page")
 
             except Exception as e:
                 print(f"   ⚠️  Could not navigate to Financial Performance: {e}")
-                print(f"   Assuming we're on the right page...")
+                print("   Assuming we're on the right page...")
 
             # Step 4: Find and verify Portfolio Value metric
-            print(f"\n🔍 Looking for Portfolio Value metric...")
+            print("\n🔍 Looking for Portfolio Value metric...")
 
             # Streamlit metrics are typically in divs with specific classes
             # Look for text containing "Portfolio Value" and a dollar amount
@@ -157,12 +157,12 @@ def test_financial_performance_shows_correct_portfolio_value():
                         found_value = float(value_str)
                         print(f"   Found value: ${found_value:.2f}")
                         break
-                    except:
+                    except Exception:
                         continue
 
             if found_value is None:
-                print(f"   ❌ Could not find Portfolio Value on page")
-                print(f"   Page might not be fully loaded or format changed")
+                print("   ❌ Could not find Portfolio Value on page")
+                print("   Page might not be fully loaded or format changed")
 
                 # Save screenshot for debugging
                 screenshot_path = (
@@ -175,7 +175,7 @@ def test_financial_performance_shows_correct_portfolio_value():
                 return False
 
             # Step 5: Verify the value
-            print(f"\n✅ Verification:")
+            print("\n✅ Verification:")
             print(f"   Expected: ${expected_portfolio_value:.2f}")
             print(f"   Dashboard shows: ${found_value:.2f}")
 
@@ -183,14 +183,14 @@ def test_financial_performance_shows_correct_portfolio_value():
             print(f"   Difference: ${difference:.2f}")
 
             if difference < 0.50:  # Within 50 cents
-                print(f"\n✅ TEST PASSED! Dashboard shows correct portfolio value!")
+                print("\n✅ TEST PASSED! Dashboard shows correct portfolio value!")
                 success = True
             else:
-                print(f"\n❌ TEST FAILED! Values don't match")
-                print(f"   This could be due to:")
-                print(f"   - Race condition (bet settled during test)")
-                print(f"   - Stale snapshot data")
-                print(f"   - Dashboard calculation error")
+                print("\n❌ TEST FAILED! Values don't match")
+                print("   This could be due to:")
+                print("   - Race condition (bet settled during test)")
+                print("   - Stale snapshot data")
+                print("   - Dashboard calculation error")
                 success = False
 
                 # Save screenshot for debugging

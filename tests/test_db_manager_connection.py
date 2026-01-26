@@ -9,14 +9,13 @@ outside the pytest session that mocks DBManager to use SQLite.
 import pytest
 from unittest.mock import patch, MagicMock
 import os
+from plugins.db_manager import DBManager
 
 # Skip entire module when conftest mocks DBManager to SQLite
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="DBManager connection tests require unmocked PostgreSQL environment"
+    reason="DBManager connection tests require unmocked PostgreSQL environment",
 )
-
-from plugins.db_manager import DBManager
 
 
 class TestDBManagerConnection:

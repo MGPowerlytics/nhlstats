@@ -17,8 +17,13 @@ from plugins.db_manager import DBManager
 
 def test_dashboard_shows_kalshi_balance():
     from plugins.db_manager import DBManager
+
     db = DBManager()
-    from plugins.bet_tracker import create_portfolio_value_snapshots_table, create_bets_table
+    from plugins.bet_tracker import (
+        create_portfolio_value_snapshots_table,
+        create_bets_table,
+    )
+
     create_portfolio_value_snapshots_table(db)
     create_bets_table(db)
     db.execute("""
@@ -31,9 +36,9 @@ def test_dashboard_shows_kalshi_balance():
     """
     db = DBManager()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("VERIFICATION: Dashboard Shows Kalshi Balance")
-    print("="*80)
+    print("=" * 80)
 
     # Get latest Kalshi balance (what dashboard now shows)
     balance_df = db.fetch_df("""
@@ -49,10 +54,10 @@ def test_dashboard_shows_kalshi_balance():
         kalshi_balance = float(balance_df.iloc[0]["balance"])
         snapshot_time = balance_df.iloc[0]["snapshot_hour_utc"]
 
-        print(f"\n✅ Dashboard Now Shows:")
-        print(f"   Metric: 'Kalshi Balance'")
+        print("\n✅ Dashboard Now Shows:")
+        print("   Metric: 'Kalshi Balance'")
         print(f"   Value: ${kalshi_balance:.2f}")
-        print(f"   Source: portfolio_value_snapshots.balance_dollars")
+        print("   Source: portfolio_value_snapshots.balance_dollars")
         print(f"   As of: {snapshot_time}")
 
         # Compare to old metric
@@ -66,7 +71,7 @@ def test_dashboard_shows_kalshi_balance():
         if total_invested is None:
             total_invested = 0.0
         old_value = float(total_invested)
-        print(f"\n📊 Comparison:")
+        print("\n📊 Comparison:")
         print(f"   OLD metric (Total Invested): ${old_value:.2f}")
         print(f"   NEW metric (Kalshi Balance): ${kalshi_balance:.2f}")
         print(f"   Difference: ${abs(old_value - kalshi_balance):.2f}")
@@ -77,29 +82,35 @@ def test_dashboard_shows_kalshi_balance():
         print(f"   Dashboard Balance: ${kalshi_balance:.2f}")
         print(f"   Difference: ${difference:.2f}")
         if difference < 10.0:
-            print(f"   ✅ Within $10 - snapshot may need refresh but shows correct metric!")
+            print(
+                "   ✅ Within $10 - snapshot may need refresh but shows correct metric!"
+            )
         else:
-            print(f"   ⚠️  Large difference - trigger portfolio_hourly_snapshot DAG")
-        print(f"\n🎯 SUCCESS:")
-        print(f"   Dashboard now shows actual Kalshi balance!")
-        print(f"   Not an internal accounting metric")
-        print(f"   This is what user sees in Kalshi!")
+            print("   ⚠️  Large difference - trigger portfolio_hourly_snapshot DAG")
+        print("\n🎯 SUCCESS:")
+        print("   Dashboard now shows actual Kalshi balance!")
+        print("   Not an internal accounting metric")
+        print("   This is what user sees in Kalshi!")
         assert kalshi_balance is not None
         assert kalshi_balance > 0
-        print(f"\n✅ TEST PASSED")
+        print("\n✅ TEST PASSED")
     else:
-        print(f"\n❌ No portfolio snapshots found")
-        print(f"   Run: airflow dags trigger portfolio_hourly_snapshot")
+        print("\n❌ No portfolio snapshots found")
+        print("   Run: airflow dags trigger portfolio_hourly_snapshot")
         assert False, "Need portfolio snapshot data"
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
 
 
 def test_portfolio_snapshot_dag_running():
     """
     Verify portfolio snapshot DAG is collecting data
     """
-    from plugins.bet_tracker import create_bets_table, create_portfolio_value_snapshots_table
+    from plugins.bet_tracker import (
+        create_bets_table,
+        create_portfolio_value_snapshots_table,
+    )
+
     db = DBManager()
     create_bets_table(db)
     create_portfolio_value_snapshots_table(db)
@@ -109,13 +120,13 @@ def test_portfolio_snapshot_dag_running():
             INSERT OR IGNORE INTO portfolio_value_snapshots (
                 snapshot_hour_utc, balance_dollars, portfolio_value_dollars
             ) VALUES (
-                '{'2026-01-22T'+str(12+i).zfill(2)+':00:00Z'}', {100.0+i}, {150.0+i}
+                '{"2026-01-22T" + str(12 + i).zfill(2) + ":00:00Z"}', {100.0 + i}, {150.0 + i}
             )
         """)
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("VERIFICATION: Portfolio Snapshot DAG")
-    print("="*80)
+    print("=" * 80)
 
     # Check number of snapshots
     count_df = db.fetch_df("""
@@ -125,7 +136,7 @@ def test_portfolio_snapshot_dag_running():
 
     total_snapshots = int(count_df.iloc[0]["total"])
 
-    print(f"\n📊 Portfolio Snapshots:")
+    print("\n📊 Portfolio Snapshots:")
     print(f"   Total snapshots in database: {total_snapshots}")
 
     if total_snapshots > 0:
@@ -140,29 +151,31 @@ def test_portfolio_snapshot_dag_running():
             LIMIT 3
         """)
 
-        print(f"\n   Latest 3 snapshots:")
+        print("\n   Latest 3 snapshots:")
         for _, row in recent_df.iterrows():
-            print(f"   {row['snapshot_hour_utc']}: Balance=${row['balance']:.2f}, Portfolio=${row['portfolio_value']:.2f}")
+            print(
+                f"   {row['snapshot_hour_utc']}: Balance=${row['balance']:.2f}, Portfolio=${row['portfolio_value']:.2f}"
+            )
 
-        print(f"\n✅ portfolio_hourly_snapshot DAG is working!")
-        print(f"   Collecting balance data every hour")
+        print("\n✅ portfolio_hourly_snapshot DAG is working!")
+        print("   Collecting balance data every hour")
 
         assert total_snapshots >= 3, "Should have multiple snapshots"
-        print(f"\n✅ TEST PASSED")
+        print("\n✅ TEST PASSED")
     else:
-        print(f"\n❌ No snapshots found!")
-        print(f"   DAG may not be running or scheduled")
-        print(f"   Check: airflow dags list | grep portfolio")
+        print("\n❌ No snapshots found!")
+        print("   DAG may not be running or scheduled")
+        print("   Check: airflow dags list | grep portfolio")
         assert False, "Portfolio snapshot DAG not collecting data"
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
 
 
 if __name__ == "__main__":
     test_dashboard_shows_kalshi_balance()
     test_portfolio_snapshot_dag_running()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("✅ ALL VERIFICATION TESTS PASSED")
     print("Dashboard now correctly shows Kalshi Balance!")
-    print("="*80)
+    print("=" * 80)

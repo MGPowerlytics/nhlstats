@@ -5,12 +5,9 @@ Production-ready Elo rating system for MLB predictions.
 Inherits from BaseEloRating for unified interface.
 """
 
-from .base_elo_rating import BaseEloRating
-from typing import Dict, Optional, Union
-import json
+from plugins.elo.base_elo_rating import BaseEloRating
+from typing import Dict, Union
 from pathlib import Path
-import pandas as pd
-import numpy as np
 import math
 
 
@@ -28,7 +25,7 @@ class MLBEloRating(BaseEloRating):
         self,
         k_factor: float = 20.0,
         home_advantage: float = 50.0,
-        initial_rating: float = 1500.0
+        initial_rating: float = 1500.0,
     ) -> None:
         """
         Initialize MLB Elo rating system.
@@ -41,7 +38,7 @@ class MLBEloRating(BaseEloRating):
         super().__init__(
             k_factor=k_factor,
             home_advantage=home_advantage,
-            initial_rating=initial_rating
+            initial_rating=initial_rating,
         )
         self.game_history = []
 
@@ -72,7 +69,9 @@ class MLBEloRating(BaseEloRating):
         """
         return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning.
 
@@ -98,22 +97,24 @@ class MLBEloRating(BaseEloRating):
         away_team: str,
         home_won: Union[bool, float] = None,
         is_neutral: bool = False,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Update Elo ratings after a game result.
         """
         # Handle positional args for scores (legacy support)
         # Check if home_won is actually home_score (int/float > 1 usually, or if is_neutral is a score)
-        home_score = kwargs.get('home_score')
-        away_score = kwargs.get('away_score')
+        home_score = kwargs.get("home_score")
+        away_score = kwargs.get("away_score")
 
         real_home_won = home_won
         real_is_neutral = is_neutral
 
         if home_score is None and away_score is None:
             # Check if home_won and is_neutral look like scores
-            if isinstance(home_won, (int, float)) and isinstance(is_neutral, (int, float)):
+            if isinstance(home_won, (int, float)) and isinstance(
+                is_neutral, (int, float)
+            ):
                 # Heuristic: if both are numbers and not booleans (bool is int, but we can check)
                 # If is_neutral is a number > 1 (unlikely for boolean flag which is 0/1), it's likely away_score
                 # Or if home_won is > 1.
@@ -121,15 +122,15 @@ class MLBEloRating(BaseEloRating):
                     home_score = home_won
                     away_score = is_neutral
                     real_home_won = None
-                    real_is_neutral = False # Default
+                    real_is_neutral = False  # Default
 
         # If home_won not provided, determine from scores
         if real_home_won is None and home_score is not None and away_score is not None:
             real_home_won = home_score > away_score
         elif real_home_won is None:
             # Check for legacy alias
-            if 'home_win' in kwargs:
-                real_home_won = kwargs['home_win']
+            if "home_win" in kwargs:
+                real_home_won = kwargs["home_win"]
             else:
                 raise ValueError("Must provide home_won or scores")
 
@@ -153,7 +154,9 @@ class MLBEloRating(BaseEloRating):
         # Simple MOV multiplier if scores provided
         if home_score is not None and away_score is not None:
             mov = abs(home_score - away_score)
-            mov_multiplier = math.log(max(mov, 1) + 1.0) * (2.2 / ((0.001 * (home_rating - away_rating)) + 2.2))
+            mov_multiplier = math.log(max(mov, 1) + 1.0) * (
+                2.2 / ((0.001 * (home_rating - away_rating)) + 2.2)
+            )
             change *= mov_multiplier
 
         # Apply changes (remove home advantage first)
@@ -164,16 +167,18 @@ class MLBEloRating(BaseEloRating):
         self.ratings[away_team] = away_rating - change
 
         # Record game history
-        self.game_history.append({
-            'home_team': home_team,
-            'away_team': away_team,
-            'home_won': bool(real_home_won),
-            'home_score': home_score,
-            'away_score': away_score,
-            'home_rating_before': home_rating,
-            'away_rating_before': away_rating,
-            'change': change
-        })
+        self.game_history.append(
+            {
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_won": bool(real_home_won),
+                "home_score": home_score,
+                "away_score": away_score,
+                "home_rating_before": home_rating,
+                "away_rating_before": away_rating,
+                "change": change,
+            }
+        )
 
     def get_all_ratings(self) -> Dict[str, float]:
         """
@@ -184,7 +189,9 @@ class MLBEloRating(BaseEloRating):
         """
         return self.ratings.copy()
 
-    def legacy_update(self, home_team: str, away_team: str, home_won: bool = None, **kwargs) -> None:
+    def legacy_update(
+        self, home_team: str, away_team: str, home_won: bool = None, **kwargs
+    ) -> None:
         """
         Legacy update method for backward compatibility.
 
@@ -208,8 +215,6 @@ def calculate_current_elo_ratings(output_path=None):
         MLBEloRating instance with updated ratings, or None if no games.
     """
     from db_manager import default_db
-    import pandas as pd
-    from pathlib import Path
 
     elo = MLBEloRating()
     # Query mlb_games table
@@ -225,18 +230,24 @@ def calculate_current_elo_ratings(output_path=None):
         return None
 
     for _, row in df.iterrows():
-        home_team = row['home_team']
-        away_team = row['away_team']
-        home_score = row['home_score']
-        away_score = row['away_score']
-        home_won = home_score > away_score if home_score is not None and away_score is not None else None
+        home_team = row["home_team"]
+        away_team = row["away_team"]
+        home_score = row["home_score"]
+        away_score = row["away_score"]
+        home_won = (
+            home_score > away_score
+            if home_score is not None and away_score is not None
+            else None
+        )
         if home_won is None:
             continue
-        elo.update(home_team, away_team, home_won, home_score=home_score, away_score=away_score)
+        elo.update(
+            home_team, away_team, home_won, home_score=home_score, away_score=away_score
+        )
 
     if output_path:
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, 'w') as f:
+        with open(output_path, "w") as f:
             f.write("team,rating\n")
             for team, rating in sorted(elo.ratings.items(), key=lambda x: x[0]):
                 f.write(f"{team},{rating:.2f}\n")

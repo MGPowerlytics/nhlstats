@@ -15,95 +15,182 @@ Checks performed:
 """
 
 import pandas as pd
-import numpy as np
 import json
 from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import warnings
 from db_manager import default_db
 
-warnings.filterwarnings('ignore')
+warnings.filterwarnings("ignore")
 
 
 # Expected teams for each sport
 EXPECTED_TEAMS = {
-    'nba': [
-        'Hawks', 'Celtics', 'Nets', 'Hornets', 'Bulls', 'Cavaliers',
-        'Mavericks', 'Nuggets', 'Pistons', 'Warriors', 'Rockets', 'Pacers',
-        'Clippers', 'Lakers', 'Grizzlies', 'Heat', 'Bucks', 'Timberwolves',
-        'Pelicans', 'Knicks', 'Thunder', 'Magic', '76ers', 'Suns',
-        'Trail Blazers', 'Kings', 'Spurs', 'Raptors', 'Jazz', 'Wizards'
+    "nba": [
+        "Hawks",
+        "Celtics",
+        "Nets",
+        "Hornets",
+        "Bulls",
+        "Cavaliers",
+        "Mavericks",
+        "Nuggets",
+        "Pistons",
+        "Warriors",
+        "Rockets",
+        "Pacers",
+        "Clippers",
+        "Lakers",
+        "Grizzlies",
+        "Heat",
+        "Bucks",
+        "Timberwolves",
+        "Pelicans",
+        "Knicks",
+        "Thunder",
+        "Magic",
+        "76ers",
+        "Suns",
+        "Trail Blazers",
+        "Kings",
+        "Spurs",
+        "Raptors",
+        "Jazz",
+        "Wizards",
     ],  # 30 teams
-    'nhl': [
-        'Anaheim Ducks', 'Boston Bruins', 'Buffalo Sabres', 'Calgary Flames',
-        'Carolina Hurricanes', 'Chicago Blackhawks', 'Colorado Avalanche',
-        'Columbus Blue Jackets', 'Dallas Stars', 'Detroit Red Wings',
-        'Edmonton Oilers', 'Florida Panthers', 'Los Angeles Kings',
-        'Minnesota Wild', 'Montreal Canadiens', 'Nashville Predators',
-        'New Jersey Devils', 'New York Islanders', 'New York Rangers',
-        'Ottawa Senators', 'Philadelphia Flyers', 'Pittsburgh Penguins',
-        'San Jose Sharks', 'Seattle Kraken', 'St. Louis Blues',
-        'Tampa Bay Lightning', 'Toronto Maple Leafs', 'Vancouver Canucks',
-        'Vegas Golden Knights', 'Washington Capitals', 'Winnipeg Jets',
-        'Arizona Coyotes', 'Utah Hockey Club'  # Arizona moved to Utah
+    "nhl": [
+        "Anaheim Ducks",
+        "Boston Bruins",
+        "Buffalo Sabres",
+        "Calgary Flames",
+        "Carolina Hurricanes",
+        "Chicago Blackhawks",
+        "Colorado Avalanche",
+        "Columbus Blue Jackets",
+        "Dallas Stars",
+        "Detroit Red Wings",
+        "Edmonton Oilers",
+        "Florida Panthers",
+        "Los Angeles Kings",
+        "Minnesota Wild",
+        "Montreal Canadiens",
+        "Nashville Predators",
+        "New Jersey Devils",
+        "New York Islanders",
+        "New York Rangers",
+        "Ottawa Senators",
+        "Philadelphia Flyers",
+        "Pittsburgh Penguins",
+        "San Jose Sharks",
+        "Seattle Kraken",
+        "St. Louis Blues",
+        "Tampa Bay Lightning",
+        "Toronto Maple Leafs",
+        "Vancouver Canucks",
+        "Vegas Golden Knights",
+        "Washington Capitals",
+        "Winnipeg Jets",
+        "Arizona Coyotes",
+        "Utah Hockey Club",  # Arizona moved to Utah
     ],  # 32 teams
-    'mlb': [
-        'Arizona Diamondbacks', 'Atlanta Braves', 'Baltimore Orioles',
-        'Boston Red Sox', 'Chicago Cubs', 'Chicago White Sox',
-        'Cincinnati Reds', 'Cleveland Guardians', 'Colorado Rockies',
-        'Detroit Tigers', 'Houston Astros', 'Kansas City Royals',
-        'Los Angeles Angels', 'Los Angeles Dodgers', 'Miami Marlins',
-        'Milwaukee Brewers', 'Minnesota Twins', 'New York Mets',
-        'New York Yankees', 'Oakland Athletics', 'Philadelphia Phillies',
-        'Pittsburgh Pirates', 'San Diego Padres', 'San Francisco Giants',
-        'Seattle Mariners', 'St. Louis Cardinals', 'Tampa Bay Rays',
-        'Texas Rangers', 'Toronto Blue Jays', 'Washington Nationals'
+    "mlb": [
+        "Arizona Diamondbacks",
+        "Atlanta Braves",
+        "Baltimore Orioles",
+        "Boston Red Sox",
+        "Chicago Cubs",
+        "Chicago White Sox",
+        "Cincinnati Reds",
+        "Cleveland Guardians",
+        "Colorado Rockies",
+        "Detroit Tigers",
+        "Houston Astros",
+        "Kansas City Royals",
+        "Los Angeles Angels",
+        "Los Angeles Dodgers",
+        "Miami Marlins",
+        "Milwaukee Brewers",
+        "Minnesota Twins",
+        "New York Mets",
+        "New York Yankees",
+        "Oakland Athletics",
+        "Philadelphia Phillies",
+        "Pittsburgh Pirates",
+        "San Diego Padres",
+        "San Francisco Giants",
+        "Seattle Mariners",
+        "St. Louis Cardinals",
+        "Tampa Bay Rays",
+        "Texas Rangers",
+        "Toronto Blue Jays",
+        "Washington Nationals",
     ],  # 30 teams
-    'nfl': [
-        'Arizona Cardinals', 'Atlanta Falcons', 'Baltimore Ravens',
-        'Buffalo Bills', 'Carolina Panthers', 'Chicago Bears',
-        'Cincinnati Bengals', 'Cleveland Browns', 'Dallas Cowboys',
-        'Denver Broncos', 'Detroit Lions', 'Green Bay Packers',
-        'Houston Texans', 'Indianapolis Colts', 'Jacksonville Jaguars',
-        'Kansas City Chiefs', 'Las Vegas Raiders', 'Los Angeles Chargers',
-        'Los Angeles Rams', 'Miami Dolphins', 'Minnesota Vikings',
-        'New England Patriots', 'New Orleans Saints', 'New York Giants',
-        'New York Jets', 'Philadelphia Eagles', 'Pittsburgh Steelers',
-        'San Francisco 49ers', 'Seattle Seahawks', 'Tampa Bay Buccaneers',
-        'Tennessee Titans', 'Washington Commanders'
+    "nfl": [
+        "Arizona Cardinals",
+        "Atlanta Falcons",
+        "Baltimore Ravens",
+        "Buffalo Bills",
+        "Carolina Panthers",
+        "Chicago Bears",
+        "Cincinnati Bengals",
+        "Cleveland Browns",
+        "Dallas Cowboys",
+        "Denver Broncos",
+        "Detroit Lions",
+        "Green Bay Packers",
+        "Houston Texans",
+        "Indianapolis Colts",
+        "Jacksonville Jaguars",
+        "Kansas City Chiefs",
+        "Las Vegas Raiders",
+        "Los Angeles Chargers",
+        "Los Angeles Rams",
+        "Miami Dolphins",
+        "Minnesota Vikings",
+        "New England Patriots",
+        "New Orleans Saints",
+        "New York Giants",
+        "New York Jets",
+        "Philadelphia Eagles",
+        "Pittsburgh Steelers",
+        "San Francisco 49ers",
+        "Seattle Seahawks",
+        "Tampa Bay Buccaneers",
+        "Tennessee Titans",
+        "Washington Commanders",
     ],  # 32 teams
 }
 
 # Season date ranges (approximate)
 SEASON_INFO = {
-    'nba': {
-        'games_per_team': 82,
-        'total_games_per_season': 1230,  # 30 teams * 82 / 2
-        'start_month': 10,
-        'end_month': 4,  # Regular season ends in April
-        'playoff_months': [4, 5, 6],
+    "nba": {
+        "games_per_team": 82,
+        "total_games_per_season": 1230,  # 30 teams * 82 / 2
+        "start_month": 10,
+        "end_month": 4,  # Regular season ends in April
+        "playoff_months": [4, 5, 6],
     },
-    'nhl': {
-        'games_per_team': 82,
-        'total_games_per_season': 1312,  # 32 teams * 82 / 2
-        'start_month': 10,
-        'end_month': 4,
-        'playoff_months': [4, 5, 6],
+    "nhl": {
+        "games_per_team": 82,
+        "total_games_per_season": 1312,  # 32 teams * 82 / 2
+        "start_month": 10,
+        "end_month": 4,
+        "playoff_months": [4, 5, 6],
     },
-    'mlb': {
-        'games_per_team': 162,
-        'total_games_per_season': 2430,  # 30 teams * 162 / 2
-        'start_month': 3,
-        'end_month': 9,  # Regular season ends in Sept/Oct
-        'playoff_months': [10, 11],
+    "mlb": {
+        "games_per_team": 162,
+        "total_games_per_season": 2430,  # 30 teams * 162 / 2
+        "start_month": 3,
+        "end_month": 9,  # Regular season ends in Sept/Oct
+        "playoff_months": [10, 11],
     },
-    'nfl': {
-        'games_per_team': 17,
-        'total_games_per_season': 272,  # 32 teams * 17 / 2
-        'start_month': 9,
-        'end_month': 1,  # Ends in January
-        'playoff_months': [1, 2],
+    "nfl": {
+        "games_per_team": 17,
+        "total_games_per_season": 272,  # 32 teams * 17 / 2
+        "start_month": 9,
+        "end_month": 1,  # Ends in January
+        "playoff_months": [1, 2],
     },
 }
 
@@ -118,18 +205,15 @@ class DataValidationReport:
         self.warnings = []
         self.stats = {}
 
-    def add_check(self, name: str, passed: bool, message: str, severity: str = 'info'):
+    def add_check(self, name: str, passed: bool, message: str, severity: str = "info"):
         """Add a validation check result."""
-        self.checks.append({
-            'name': name,
-            'passed': passed,
-            'message': message,
-            'severity': severity
-        })
+        self.checks.append(
+            {"name": name, "passed": passed, "message": message, "severity": severity}
+        )
         if not passed:
-            if severity == 'error':
+            if severity == "error":
                 self.errors.append(f"❌ {name}: {message}")
-            elif severity == 'warning':
+            elif severity == "warning":
                 self.warnings.append(f"⚠️  {name}: {message}")
 
     def add_stat(self, name: str, value):
@@ -138,13 +222,13 @@ class DataValidationReport:
 
     def print_report(self):
         """Print formatted validation report."""
-        print(f"\n{'='*100}")
+        print(f"\n{'=' * 100}")
         print(f"📊 {self.sport.upper()} DATA VALIDATION REPORT")
-        print(f"{'='*100}")
+        print(f"{'=' * 100}")
 
         # Statistics
         if self.stats:
-            print(f"\n📈 Statistics:")
+            print("\n📈 Statistics:")
             for name, value in self.stats.items():
                 if isinstance(value, float):
                     print(f"   {name}: {value:,.2f}")
@@ -154,7 +238,7 @@ class DataValidationReport:
                     print(f"   {name}: {value}")
 
         # Passed checks
-        passed_checks = [c for c in self.checks if c['passed']]
+        passed_checks = [c for c in self.checks if c["passed"]]
         if passed_checks:
             print(f"\n✅ Passed Checks ({len(passed_checks)}):")
             for check in passed_checks:
@@ -175,42 +259,46 @@ class DataValidationReport:
         # Summary
         total = len(self.checks)
         passed = len(passed_checks)
-        print(f"\n{'='*100}")
+        print(f"\n{'=' * 100}")
         print(f"📋 Summary: {passed}/{total} checks passed")
         if self.errors:
             print(f"   ❌ {len(self.errors)} errors require attention")
         if self.warnings:
             print(f"   ⚠️  {len(self.warnings)} warnings to review")
-        print(f"{'='*100}")
+        print(f"{'=' * 100}")
 
         return len(self.errors) == 0
 
 
 def validate_nba_data() -> DataValidationReport:
     """Validate NBA data from JSON files."""
-    report = DataValidationReport('nba')
-    nba_dir = Path('data/nba')
+    report = DataValidationReport("nba")
+    nba_dir = Path("data/nba")
 
     # Check if directory exists
     if not nba_dir.exists():
-        report.add_check('Directory Exists', False, 'data/nba directory not found', 'error')
+        report.add_check(
+            "Directory Exists", False, "data/nba directory not found", "error"
+        )
         return report
 
-    report.add_check('Directory Exists', True, f'Found {nba_dir}')
+    report.add_check("Directory Exists", True, f"Found {nba_dir}")
 
     # Count date directories
     date_dirs = sorted([d for d in nba_dir.iterdir() if d.is_dir()])
-    report.add_stat('Total Date Directories', len(date_dirs))
+    report.add_stat("Total Date Directories", len(date_dirs))
 
     if len(date_dirs) == 0:
-        report.add_check('Date Directories', False, 'No date directories found', 'error')
+        report.add_check(
+            "Date Directories", False, "No date directories found", "error"
+        )
         return report
 
     # Analyze date range
     dates = [d.name for d in date_dirs]
     min_date = min(dates)
     max_date = max(dates)
-    report.add_stat('Date Range', f'{min_date} to {max_date}')
+    report.add_stat("Date Range", f"{min_date} to {max_date}")
 
     # Check for data files
     games_found = 0
@@ -230,20 +318,20 @@ def validate_nba_data() -> DataValidationReport:
             with open(scoreboard_file) as f:
                 data = json.load(f)
 
-            if 'resultSets' not in data:
+            if "resultSets" not in data:
                 continue
 
-            for result_set in data['resultSets']:
-                if result_set['name'] == 'GameHeader':
-                    headers = result_set['headers']
-                    idx_game_id = headers.index('GAME_ID')
-                    idx_status = headers.index('GAME_STATUS_TEXT')
+            for result_set in data["resultSets"]:
+                if result_set["name"] == "GameHeader":
+                    headers = result_set["headers"]
+                    idx_game_id = headers.index("GAME_ID")
+                    idx_status = headers.index("GAME_STATUS_TEXT")
 
-                    for row in result_set['rowSet']:
+                    for row in result_set["rowSet"]:
                         game_id = str(row[idx_game_id])
                         game_status = row[idx_status]
 
-                        if 'Final' in game_status:
+                        if "Final" in game_status:
                             games_found += 1
 
                             # Determine season
@@ -261,80 +349,82 @@ def validate_nba_data() -> DataValidationReport:
                                 with open(boxscore_file) as bf:
                                     boxscore = json.load(bf)
 
-                                for bs_result in boxscore.get('resultSets', []):
-                                    if bs_result['name'] == 'TeamStats':
-                                        bs_headers = bs_result['headers']
-                                        idx_team_name = bs_headers.index('TEAM_NAME')
-                                        idx_pts = bs_headers.index('PTS')
+                                for bs_result in boxscore.get("resultSets", []):
+                                    if bs_result["name"] == "TeamStats":
+                                        bs_headers = bs_result["headers"]
+                                        idx_team_name = bs_headers.index("TEAM_NAME")
+                                        idx_pts = bs_headers.index("PTS")
 
-                                        for bs_row in bs_result['rowSet']:
+                                        for bs_row in bs_result["rowSet"]:
                                             teams_found.add(bs_row[idx_team_name])
                                             if bs_row[idx_pts] is None:
                                                 null_scores += 1
                             else:
                                 missing_boxscores.append(f"{date_dir.name}/{game_id}")
 
-        except Exception as e:
+        except Exception:
             continue
 
-    report.add_stat('Total Completed Games', games_found)
-    report.add_stat('Games with Boxscore', games_with_boxscore)
-    report.add_stat('Teams Found', len(teams_found))
+    report.add_stat("Total Completed Games", games_found)
+    report.add_stat("Games with Boxscore", games_with_boxscore)
+    report.add_stat("Teams Found", len(teams_found))
 
     # Games by season
     for season, count in sorted(games_by_season.items()):
-        expected = SEASON_INFO['nba']['total_games_per_season']
+        expected = SEASON_INFO["nba"]["total_games_per_season"]
         pct = count / expected * 100 if expected > 0 else 0
-        report.add_stat(f'Season {season}-{season+1}', f'{count} games ({pct:.1f}% of expected)')
+        report.add_stat(
+            f"Season {season}-{season + 1}", f"{count} games ({pct:.1f}% of expected)"
+        )
 
     # Validation checks
     report.add_check(
-        'Sufficient Games',
+        "Sufficient Games",
         games_found >= 1000,
-        f'{games_found} games found (minimum: 1000)',
-        'warning' if games_found < 1000 else 'info'
+        f"{games_found} games found (minimum: 1000)",
+        "warning" if games_found < 1000 else "info",
     )
 
     boxscore_pct = games_with_boxscore / games_found * 100 if games_found > 0 else 0
     report.add_check(
-        'Boxscore Coverage',
+        "Boxscore Coverage",
         boxscore_pct >= 95,
-        f'{boxscore_pct:.1f}% of games have boxscores',
-        'warning' if boxscore_pct < 95 else 'info'
+        f"{boxscore_pct:.1f}% of games have boxscores",
+        "warning" if boxscore_pct < 95 else "info",
     )
 
     report.add_check(
-        'Team Coverage',
+        "Team Coverage",
         len(teams_found) >= 28,
-        f'{len(teams_found)}/30 expected teams found',
-        'warning' if len(teams_found) < 28 else 'info'
+        f"{len(teams_found)}/30 expected teams found",
+        "warning" if len(teams_found) < 28 else "info",
     )
 
     # Check for missing teams
-    missing_teams = set(EXPECTED_TEAMS['nba']) - teams_found
+    missing_teams = set(EXPECTED_TEAMS["nba"]) - teams_found
     if missing_teams:
         report.add_check(
-            'Missing Teams',
+            "Missing Teams",
             False,
-            f'Missing: {", ".join(sorted(missing_teams))}',
-            'warning'
+            f"Missing: {', '.join(sorted(missing_teams))}",
+            "warning",
         )
     else:
-        report.add_check('Missing Teams', True, 'All expected teams present')
+        report.add_check("Missing Teams", True, "All expected teams present")
 
     report.add_check(
-        'Null Scores',
+        "Null Scores",
         null_scores == 0,
-        f'{null_scores} null score values found',
-        'warning' if null_scores > 0 else 'info'
+        f"{null_scores} null score values found",
+        "warning" if null_scores > 0 else "info",
     )
 
     if len(missing_boxscores) > 0:
         report.add_check(
-            'Missing Boxscores',
+            "Missing Boxscores",
             len(missing_boxscores) < 50,
-            f'{len(missing_boxscores)} games missing boxscores',
-            'warning' if len(missing_boxscores) >= 50 else 'info'
+            f"{len(missing_boxscores)} games missing boxscores",
+            "warning" if len(missing_boxscores) >= 50 else "info",
         )
 
     return report
@@ -342,7 +432,7 @@ def validate_nba_data() -> DataValidationReport:
 
 def validate_nhl_data() -> DataValidationReport:
     """Validate NHL data from PostgreSQL."""
-    report = DataValidationReport('nhl')
+    report = DataValidationReport("nhl")
 
     try:
         # Check unified_games table for NHL
@@ -363,14 +453,25 @@ def validate_nhl_data() -> DataValidationReport:
         """
 
         games = default_db.execute(games_query).fetchone()
-        total, unique, min_date, max_date, home_teams, away_teams, null_home, null_away, completed, future_games = games
+        (
+            total,
+            unique,
+            min_date,
+            max_date,
+            home_teams,
+            away_teams,
+            null_home,
+            null_away,
+            completed,
+            future_games,
+        ) = games
 
-        report.add_stat('Total Games', total)
-        report.add_stat('Completed Games', completed)
-        report.add_stat('Future Games', future_games)
-        report.add_stat('Date Range', f'{min_date} to {max_date}')
-        report.add_stat('Unique Home Teams', home_teams)
-        report.add_stat('Unique Away Teams', away_teams)
+        report.add_stat("Total Games", total)
+        report.add_stat("Completed Games", completed)
+        report.add_stat("Future Games", future_games)
+        report.add_stat("Date Range", f"{min_date} to {max_date}")
+        report.add_stat("Unique Home Teams", home_teams)
+        report.add_stat("Unique Away Teams", away_teams)
 
         # Games by season (assuming season can be derived from game_date)
         seasons_query = """
@@ -387,9 +488,11 @@ def validate_nhl_data() -> DataValidationReport:
         seasons = default_db.execute(seasons_query).fetchall()
 
         for season, count in seasons:
-            expected = SEASON_INFO['nhl']['total_games_per_season']
+            expected = SEASON_INFO["nhl"]["total_games_per_season"]
             pct = count / expected * 100 if expected > 0 else 0
-            report.add_stat(f'Season {int(season)}', f'{count} games ({pct:.1f}% of expected)')
+            report.add_stat(
+                f"Season {int(season)}", f"{count} games ({pct:.1f}% of expected)"
+            )
 
         # Get all teams
         teams_query = """
@@ -401,66 +504,68 @@ def validate_nhl_data() -> DataValidationReport:
         """
         all_teams = default_db.execute(teams_query).fetchall()
         teams_found = {t[0] for t in all_teams}
-        report.add_stat('Total Teams', len(teams_found))
+        report.add_stat("Total Teams", len(teams_found))
 
         # Validation checks
         report.add_check(
-            'Sufficient Games',
+            "Sufficient Games",
             completed >= 100,
-            f'{completed} completed games found',
-            'warning' if completed < 100 else 'info'
+            f"{completed} completed games found",
+            "warning" if completed < 100 else "info",
         )
 
         report.add_check(
-            'Null Home Scores',
+            "Null Home Scores",
             null_home == 0,
-            f'{null_home} null home scores',
-            'warning' if null_home > 0 else 'info'
+            f"{null_home} null home scores",
+            "warning" if null_home > 0 else "info",
         )
 
         report.add_check(
-            'Null Away Scores',
+            "Null Away Scores",
             null_away == 0,
-            f'{null_away} null away scores',
-            'warning' if null_away > 0 else 'info'
+            f"{null_away} null away scores",
+            "warning" if null_away > 0 else "info",
         )
 
         report.add_check(
-            'Team Coverage',
+            "Team Coverage",
             len(teams_found) >= 30,
-            f'{len(teams_found)}/32 expected teams found',
-            'warning' if len(teams_found) < 30 else 'info'
+            f"{len(teams_found)}/32 expected teams found",
+            "warning" if len(teams_found) < 30 else "info",
         )
 
         # Check related tables (these may not exist in PostgreSQL yet)
         tables_to_check = [
-            ('nhl_games', True),  # NHL specific table
+            ("nhl_games", True),  # NHL specific table
         ]
 
         for table, required in tables_to_check:
             try:
-                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                report.add_stat(f'{table} rows', count)
+                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+                    0
+                ]
+                report.add_stat(f"{table} rows", count)
                 if required:
                     report.add_check(
-                        f'{table} has data',
+                        f"{table} has data",
                         count > 0,
-                        f'{count:,} rows',
-                        'warning' if count == 0 else 'info'
+                        f"{count:,} rows",
+                        "warning" if count == 0 else "info",
                     )
             except Exception as e:
                 if required:
-                    report.add_check(f'{table} exists', False, str(e), 'warning')
+                    report.add_check(f"{table} exists", False, str(e), "warning")
 
     except Exception as e:
-        report.add_check('Query Execution', False, str(e), 'error')
+        report.add_check("Query Execution", False, str(e), "error")
 
     return report
 
 
 def validate_mlb_data() -> DataValidationReport:
     """Validate MLB data from PostgreSQL."""
-    report = DataValidationReport('mlb')
+    report = DataValidationReport("mlb")
 
     try:
         # Check unified_games table for MLB
@@ -481,14 +586,25 @@ def validate_mlb_data() -> DataValidationReport:
         """
 
         games = default_db.execute(games_query).fetchone()
-        total, unique, min_date, max_date, home_teams, away_teams, null_home, null_away, completed, future_games = games
+        (
+            total,
+            unique,
+            min_date,
+            max_date,
+            home_teams,
+            away_teams,
+            null_home,
+            null_away,
+            completed,
+            future_games,
+        ) = games
 
-        report.add_stat('Total Games', total)
-        report.add_stat('Completed Games', completed)
-        report.add_stat('Future Games', future_games)
-        report.add_stat('Date Range', f'{min_date} to {max_date}')
-        report.add_stat('Unique Home Teams', home_teams)
-        report.add_stat('Unique Away Teams', away_teams)
+        report.add_stat("Total Games", total)
+        report.add_stat("Completed Games", completed)
+        report.add_stat("Future Games", future_games)
+        report.add_stat("Date Range", f"{min_date} to {max_date}")
+        report.add_stat("Unique Home Teams", home_teams)
+        report.add_stat("Unique Away Teams", away_teams)
 
         # Games by season (assuming season can be derived from game_date)
         seasons_query = """
@@ -505,9 +621,11 @@ def validate_mlb_data() -> DataValidationReport:
         seasons = default_db.execute(seasons_query).fetchall()
 
         for season, count in seasons:
-            expected = SEASON_INFO['mlb']['total_games_per_season']
+            expected = SEASON_INFO["mlb"]["total_games_per_season"]
             pct = count / expected * 100 if expected > 0 else 0
-            report.add_stat(f'Season {int(season)}', f'{count} games ({pct:.1f}% of expected)')
+            report.add_stat(
+                f"Season {int(season)}", f"{count} games ({pct:.1f}% of expected)"
+            )
 
         # Get all teams
         teams_query = """
@@ -519,66 +637,68 @@ def validate_mlb_data() -> DataValidationReport:
         """
         all_teams = default_db.execute(teams_query).fetchall()
         teams_found = {t[0] for t in all_teams}
-        report.add_stat('Total Teams', len(teams_found))
+        report.add_stat("Total Teams", len(teams_found))
 
         # Validation checks
         report.add_check(
-            'Sufficient Games',
+            "Sufficient Games",
             (completed or 0) >= 100,
-            f'{completed or 0} completed games found',
-            'warning' if (completed or 0) < 100 else 'info'
+            f"{completed or 0} completed games found",
+            "warning" if (completed or 0) < 100 else "info",
         )
 
         report.add_check(
-            'Null Home Scores',
+            "Null Home Scores",
             null_home == 0,
-            f'{null_home} null home scores',
-            'warning' if null_home > 0 else 'info'
+            f"{null_home} null home scores",
+            "warning" if null_home > 0 else "info",
         )
 
         report.add_check(
-            'Null Away Scores',
+            "Null Away Scores",
             null_away == 0,
-            f'{null_away} null away scores',
-            'warning' if null_away > 0 else 'info'
+            f"{null_away} null away scores",
+            "warning" if null_away > 0 else "info",
         )
 
         report.add_check(
-            'Team Coverage',
+            "Team Coverage",
             len(teams_found) >= 25,
-            f'{len(teams_found)}/30 expected teams found',
-            'warning' if len(teams_found) < 25 else 'info'
+            f"{len(teams_found)}/30 expected teams found",
+            "warning" if len(teams_found) < 25 else "info",
         )
 
         # Check related tables (these may not exist in PostgreSQL yet)
         tables_to_check = [
-            ('mlb_games', True),  # MLB specific table
+            ("mlb_games", True),  # MLB specific table
         ]
 
         for table, required in tables_to_check:
             try:
-                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                report.add_stat(f'{table} rows', count)
+                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+                    0
+                ]
+                report.add_stat(f"{table} rows", count)
                 if required:
                     report.add_check(
-                        f'{table} has data',
+                        f"{table} has data",
                         count > 0,
-                        f'{count:,} rows',
-                        'warning' if count == 0 else 'info'
+                        f"{count:,} rows",
+                        "warning" if count == 0 else "info",
                     )
             except Exception as e:
                 if required:
-                    report.add_check(f'{table} exists', False, str(e), 'warning')
+                    report.add_check(f"{table} exists", False, str(e), "warning")
 
     except Exception as e:
-        report.add_check('Query Execution', False, str(e), 'error')
+        report.add_check("Query Execution", False, str(e), "error")
 
     return report
 
 
 def validate_nfl_data() -> DataValidationReport:
     """Validate NFL data from PostgreSQL."""
-    report = DataValidationReport('nfl')
+    report = DataValidationReport("nfl")
 
     try:
         # Check unified_games table for NFL
@@ -599,14 +719,25 @@ def validate_nfl_data() -> DataValidationReport:
         """
 
         games = default_db.execute(games_query).fetchone()
-        total, unique, min_date, max_date, home_teams, away_teams, null_home, null_away, completed, future_games = games
+        (
+            total,
+            unique,
+            min_date,
+            max_date,
+            home_teams,
+            away_teams,
+            null_home,
+            null_away,
+            completed,
+            future_games,
+        ) = games
 
-        report.add_stat('Total Games', total)
-        report.add_stat('Completed Games', completed)
-        report.add_stat('Future Games', future_games)
-        report.add_stat('Date Range', f'{min_date} to {max_date}')
-        report.add_stat('Unique Home Teams', home_teams)
-        report.add_stat('Unique Away Teams', away_teams)
+        report.add_stat("Total Games", total)
+        report.add_stat("Completed Games", completed)
+        report.add_stat("Future Games", future_games)
+        report.add_stat("Date Range", f"{min_date} to {max_date}")
+        report.add_stat("Unique Home Teams", home_teams)
+        report.add_stat("Unique Away Teams", away_teams)
 
         # Games by season (assuming season can be derived from game_date)
         seasons_query = """
@@ -623,9 +754,11 @@ def validate_nfl_data() -> DataValidationReport:
         seasons = default_db.execute(seasons_query).fetchall()
 
         for season, count in seasons:
-            expected = SEASON_INFO['nfl']['total_games_per_season']
+            expected = SEASON_INFO["nfl"]["total_games_per_season"]
             pct = count / expected * 100 if expected > 0 else 0
-            report.add_stat(f'Season {int(season)}', f'{count} games ({pct:.1f}% of expected)')
+            report.add_stat(
+                f"Season {int(season)}", f"{count} games ({pct:.1f}% of expected)"
+            )
 
         # Get all teams
         teams_query = """
@@ -637,74 +770,76 @@ def validate_nfl_data() -> DataValidationReport:
         """
         all_teams = default_db.execute(teams_query).fetchall()
         teams_found = {t[0] for t in all_teams}
-        report.add_stat('Total Teams', len(teams_found))
+        report.add_stat("Total Teams", len(teams_found))
 
         # Validation checks
         report.add_check(
-            'Sufficient Games',
+            "Sufficient Games",
             (completed or 0) >= 100,
-            f'{completed or 0} completed games found',
-            'warning' if (completed or 0) < 100 else 'info'
+            f"{completed or 0} completed games found",
+            "warning" if (completed or 0) < 100 else "info",
         )
 
         report.add_check(
-            'Null Home Scores',
+            "Null Home Scores",
             null_home == 0,
-            f'{null_home} null home scores',
-            'warning' if null_home > 0 else 'info'
+            f"{null_home} null home scores",
+            "warning" if null_home > 0 else "info",
         )
 
         report.add_check(
-            'Null Away Scores',
+            "Null Away Scores",
             null_away == 0,
-            f'{null_away} null away scores',
-            'warning' if null_away > 0 else 'info'
+            f"{null_away} null away scores",
+            "warning" if null_away > 0 else "info",
         )
 
         report.add_check(
-            'Team Coverage',
+            "Team Coverage",
             len(teams_found) >= 30,
-            f'{len(teams_found)}/32 expected teams found',
-            'warning' if len(teams_found) < 30 else 'info'
+            f"{len(teams_found)}/32 expected teams found",
+            "warning" if len(teams_found) < 30 else "info",
         )
 
         # Check related tables (these may not exist in PostgreSQL yet)
         tables_to_check = [
-            ('nfl_games', True),  # NFL specific table
+            ("nfl_games", True),  # NFL specific table
         ]
 
         for table, required in tables_to_check:
             try:
-                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-                report.add_stat(f'{table} rows', count)
+                count = default_db.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[
+                    0
+                ]
+                report.add_stat(f"{table} rows", count)
                 if required:
                     report.add_check(
-                        f'{table} has data',
+                        f"{table} has data",
                         count > 0,
-                        f'{count:,} rows',
-                        'warning' if count == 0 else 'info'
+                        f"{count:,} rows",
+                        "warning" if count == 0 else "info",
                     )
             except Exception as e:
                 if required:
-                    report.add_check(f'{table} exists', False, str(e), 'warning')
+                    report.add_check(f"{table} exists", False, str(e), "warning")
 
     except Exception as e:
-        report.add_check('Query Execution', False, str(e), 'error')
+        report.add_check("Query Execution", False, str(e), "error")
 
     return report
 
 
 def validate_elo_ratings():
     """Validate that Elo rating files exist and are valid."""
-    print(f"\n{'='*100}")
+    print(f"\n{'=' * 100}")
     print("📊 ELO RATINGS VALIDATION")
-    print(f"{'='*100}")
+    print(f"{'=' * 100}")
 
     elo_files = [
-        ('nba', 'data/nba_current_elo_ratings.csv'),
-        ('nhl', 'data/nhl_current_elo_ratings.csv'),
-        ('mlb', 'data/mlb_current_elo_ratings.csv'),
-        ('nfl', 'data/nfl_current_elo_ratings.csv'),
+        ("nba", "data/nba_current_elo_ratings.csv"),
+        ("nhl", "data/nhl_current_elo_ratings.csv"),
+        ("mlb", "data/mlb_current_elo_ratings.csv"),
+        ("nfl", "data/nfl_current_elo_ratings.csv"),
     ]
 
     for sport, filepath in elo_files:
@@ -713,12 +848,14 @@ def validate_elo_ratings():
             try:
                 df = pd.read_csv(path)
                 teams = len(df)
-                if 'rating' in df.columns:
-                    avg_rating = df['rating'].mean()
-                    min_rating = df['rating'].min()
-                    max_rating = df['rating'].max()
+                if "rating" in df.columns:
+                    avg_rating = df["rating"].mean()
+                    min_rating = df["rating"].min()
+                    max_rating = df["rating"].max()
                     print(f"✅ {sport.upper()}: {filepath}")
-                    print(f"   Teams: {teams}, Avg: {avg_rating:.0f}, Range: {min_rating:.0f}-{max_rating:.0f}")
+                    print(
+                        f"   Teams: {teams}, Avg: {avg_rating:.0f}, Range: {min_rating:.0f}-{max_rating:.0f}"
+                    )
                 else:
                     print(f"⚠️  {sport.upper()}: {filepath} - no 'rating' column")
             except Exception as e:
@@ -729,13 +866,13 @@ def validate_elo_ratings():
 
 def validate_kalshi_integration():
     """Validate Kalshi API data and market files."""
-    print(f"\n{'='*100}")
+    print(f"\n{'=' * 100}")
     print("📊 KALSHI INTEGRATION VALIDATION")
-    print(f"{'='*100}")
+    print(f"{'=' * 100}")
 
     kalshi_files = [
-        'data/kalshi_markets.json',
-        'data/kalshi_nhl_markets.json',
+        "data/kalshi_markets.json",
+        "data/kalshi_nhl_markets.json",
     ]
 
     for filepath in kalshi_files:
@@ -757,7 +894,7 @@ def validate_kalshi_integration():
             print(f"⚠️  {filepath} not found")
 
     # Check kalshkey
-    if Path('kalshkey').exists():
+    if Path("kalshkey").exists():
         print("✅ kalshkey: API credentials file exists")
     else:
         print("❌ kalshkey: API credentials file not found")
@@ -765,21 +902,25 @@ def validate_kalshi_integration():
 
 def generate_summary(reports: dict):
     """Generate overall summary of all validations."""
-    print(f"\n{'#'*100}")
+    print(f"\n{'#' * 100}")
     print("📋 OVERALL VALIDATION SUMMARY")
-    print(f"{'#'*100}")
+    print(f"{'#' * 100}")
 
     all_passed = True
     total_errors = 0
     total_warnings = 0
 
-    print(f"\n{'Sport':<10} {'Status':<15} {'Errors':<10} {'Warnings':<10} {'Games':<15}")
-    print(f"{'-'*60}")
+    print(
+        f"\n{'Sport':<10} {'Status':<15} {'Errors':<10} {'Warnings':<10} {'Games':<15}"
+    )
+    print(f"{'-' * 60}")
 
     for sport, report in reports.items():
         errors = len(report.errors)
         warnings = len(report.warnings)
-        games = report.stats.get('Total Completed Games', report.stats.get('Completed Games', 0))
+        games = report.stats.get(
+            "Total Completed Games", report.stats.get("Completed Games", 0)
+        )
 
         if isinstance(games, str):
             games = games.split()[0]  # Extract number from string like "1234 games"
@@ -790,22 +931,26 @@ def generate_summary(reports: dict):
         if errors == 0 and warnings > 0:
             status = "⚠️  WARN"
 
-        print(f"{sport.upper():<10} {status:<15} {errors:<10} {warnings:<10} {games:<15}")
+        print(
+            f"{sport.upper():<10} {status:<15} {errors:<10} {warnings:<10} {games:<15}"
+        )
 
         total_errors += errors
         total_warnings += warnings
         if errors > 0:
             all_passed = False
 
-    print(f"{'-'*60}")
-    print(f"{'TOTAL':<10} {'✅ PASS' if all_passed else '❌ FAIL':<15} {total_errors:<10} {total_warnings:<10}")
+    print(f"{'-' * 60}")
+    print(
+        f"{'TOTAL':<10} {'✅ PASS' if all_passed else '❌ FAIL':<15} {total_errors:<10} {total_warnings:<10}"
+    )
 
     if total_errors > 0:
         print(f"\n🔴 {total_errors} errors require attention before production use")
     if total_warnings > 0:
         print(f"🟡 {total_warnings} warnings should be reviewed")
     if all_passed and total_warnings == 0:
-        print(f"\n🟢 All data validations passed! System ready for production.")
+        print("\n🟢 All data validations passed! System ready for production.")
 
     return all_passed
 
@@ -823,26 +968,26 @@ def main():
     print("\n" + "=" * 100)
     print("VALIDATING NBA DATA...")
     print("=" * 100)
-    reports['nba'] = validate_nba_data()
-    reports['nba'].print_report()
+    reports["nba"] = validate_nba_data()
+    reports["nba"].print_report()
 
     print("\n" + "=" * 100)
     print("VALIDATING NHL DATA...")
     print("=" * 100)
-    reports['nhl'] = validate_nhl_data()
-    reports['nhl'].print_report()
+    reports["nhl"] = validate_nhl_data()
+    reports["nhl"].print_report()
 
     print("\n" + "=" * 100)
     print("VALIDATING MLB DATA...")
     print("=" * 100)
-    reports['mlb'] = validate_mlb_data()
-    reports['mlb'].print_report()
+    reports["mlb"] = validate_mlb_data()
+    reports["mlb"].print_report()
 
     print("\n" + "=" * 100)
     print("VALIDATING NFL DATA...")
     print("=" * 100)
-    reports['nfl'] = validate_nfl_data()
-    reports['nfl'].print_report()
+    reports["nfl"] = validate_nfl_data()
+    reports["nfl"].print_report()
 
     # Additional validations
     validate_elo_ratings()
@@ -854,5 +999,5 @@ def main():
     return 0 if all_passed else 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     exit(main())

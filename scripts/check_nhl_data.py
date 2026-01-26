@@ -3,7 +3,7 @@ import os
 from sqlalchemy import text
 
 # Add plugins to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins")))
 
 from db_manager import DBManager
 
@@ -43,7 +43,7 @@ try:
         """)
         res = conn.execute(query)
         missing_games = res.fetchall()
-        print(f"Missing scores for generic 'games' table (likely NHL):")
+        print("Missing scores for generic 'games' table (likely NHL):")
         for game in missing_games:
             print(f"  {game[0]}: {game[1]} vs {game[2]}")
 

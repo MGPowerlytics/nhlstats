@@ -12,14 +12,13 @@ This test suite validates:
 import unittest
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 from plugins.elo import NBAEloRating
 from plugins.elo import NHLEloRating
 from plugins.elo import MLBEloRating
 from plugins.elo import NFLEloRating
-from plugins.elo import NCAABEloRating
-from plugins.elo import WNCAABEloRating
 from plugins.elo import TennisEloRating
 
 
@@ -53,20 +52,33 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         rating_a_after_game1 = elo.get_rating("Team A")
         rating_b_after_game1 = elo.get_rating("Team B")
 
-        self.assertGreater(rating_a_after_game1, 1500, "Team A should increase after winning")
-        self.assertLess(rating_b_after_game1, 1500, "Team B should decrease after losing")
+        self.assertGreater(
+            rating_a_after_game1, 1500, "Team A should increase after winning"
+        )
+        self.assertLess(
+            rating_b_after_game1, 1500, "Team B should decrease after losing"
+        )
 
         # Game 2: Prediction should use ratings AFTER Game 1
         prob_game2 = elo.predict("Team A", "Team B")
 
         # Game 2 prediction should be higher than Game 1 (Team A now stronger)
-        self.assertGreater(prob_game2, prob_game1,
-                          "Game 2 prediction should reflect Team A's improved rating")
+        self.assertGreater(
+            prob_game2,
+            prob_game1,
+            "Game 2 prediction should reflect Team A's improved rating",
+        )
 
         # Verify exact calculation
-        expected_prob_game2 = 1 / (1 + 10 ** ((rating_b_after_game1 - (rating_a_after_game1 + 100)) / 400))
-        self.assertAlmostEqual(prob_game2, expected_prob_game2, places=5,
-                              msg="Game 2 prediction should use post-Game-1 ratings")
+        expected_prob_game2 = 1 / (
+            1 + 10 ** ((rating_b_after_game1 - (rating_a_after_game1 + 100)) / 400)
+        )
+        self.assertAlmostEqual(
+            prob_game2,
+            expected_prob_game2,
+            places=5,
+            msg="Game 2 prediction should use post-Game-1 ratings",
+        )
 
     def test_nhl_predict_before_update(self):
         """NHL: Verify temporal integrity with recency weighting."""
@@ -78,13 +90,15 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         elo.update("Toronto Maple Leafs", "Boston Bruins", home_won=True)
         rating_after = elo.get_rating("Toronto Maple Leafs")
 
-        self.assertNotEqual(rating_before, rating_after,
-                           "Rating must change after update")
+        self.assertNotEqual(
+            rating_before, rating_after, "Rating must change after update"
+        )
 
         # Game 2: Should use updated rating
         prob2 = elo.predict("Toronto Maple Leafs", "Boston Bruins")
-        self.assertNotEqual(prob1, prob2,
-                           "Second prediction should use updated ratings")
+        self.assertNotEqual(
+            prob1, prob2, "Second prediction should use updated ratings"
+        )
 
     def test_mlb_predict_before_update(self):
         """MLB: Verify temporal integrity."""
@@ -94,8 +108,7 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         elo.update("Yankees", "Red Sox", home_score=5, away_score=3)
         prob2 = elo.predict("Yankees", "Red Sox")
 
-        self.assertGreater(prob2, prob1,
-                          "Yankees should be stronger after winning")
+        self.assertGreater(prob2, prob1, "Yankees should be stronger after winning")
 
     def test_nfl_predict_before_update(self):
         """NFL: Verify temporal integrity."""
@@ -105,8 +118,7 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         elo.update("Chiefs", "Bills", home_score=27, away_score=24)
         prob2 = elo.predict("Chiefs", "Bills")
 
-        self.assertGreater(prob2, prob1,
-                          "Chiefs should be stronger after winning")
+        self.assertGreater(prob2, prob1, "Chiefs should be stronger after winning")
 
     def test_historical_simulation_no_leakage(self):
         """
@@ -117,9 +129,24 @@ class TestEloTemporalIntegrity(unittest.TestCase):
 
         # Simulated historical games (chronological order)
         games = [
-            {"date": "2024-01-01", "home": "Lakers", "away": "Warriors", "home_won": True},
-            {"date": "2024-01-02", "home": "Warriors", "away": "Lakers", "home_won": False},
-            {"date": "2024-01-03", "home": "Lakers", "away": "Celtics", "home_won": True},
+            {
+                "date": "2024-01-01",
+                "home": "Lakers",
+                "away": "Warriors",
+                "home_won": True,
+            },
+            {
+                "date": "2024-01-02",
+                "home": "Warriors",
+                "away": "Lakers",
+                "home_won": False,
+            },
+            {
+                "date": "2024-01-03",
+                "home": "Lakers",
+                "away": "Celtics",
+                "home_won": True,
+            },
         ]
 
         predictions_and_ratings = []
@@ -131,14 +158,16 @@ class TestEloTemporalIntegrity(unittest.TestCase):
             prediction = elo.predict(game["home"], game["away"])
 
             # Store prediction and ratings used
-            predictions_and_ratings.append({
-                "date": game["date"],
-                "home": game["home"],
-                "away": game["away"],
-                "prediction": prediction,
-                "home_rating_at_prediction": home_rating_before,
-                "away_rating_at_prediction": away_rating_before
-            })
+            predictions_and_ratings.append(
+                {
+                    "date": game["date"],
+                    "home": game["home"],
+                    "away": game["away"],
+                    "prediction": prediction,
+                    "home_rating_at_prediction": home_rating_before,
+                    "away_rating_at_prediction": away_rating_before,
+                }
+            )
 
             # Update AFTER prediction
             elo.update(game["home"], game["away"], game["home_won"])
@@ -148,25 +177,28 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         game2_data = predictions_and_ratings[1]
 
         # Warriors rating in Game 2 should reflect their Game 1 loss
-        self.assertLess(game2_data["home_rating_at_prediction"],
-                       game1_data["away_rating_at_prediction"],
-                       "Warriors rating in Game 2 should reflect their Game 1 loss")
+        self.assertLess(
+            game2_data["home_rating_at_prediction"],
+            game1_data["away_rating_at_prediction"],
+            "Warriors rating in Game 2 should reflect their Game 1 loss",
+        )
 
         # Lakers rating in Game 2 should reflect their Game 1 win
-        self.assertGreater(game2_data["away_rating_at_prediction"],
-                          game1_data["home_rating_at_prediction"],
-                          "Lakers rating in Game 2 should reflect their Game 1 win")
+        self.assertGreater(
+            game2_data["away_rating_at_prediction"],
+            game1_data["home_rating_at_prediction"],
+            "Lakers rating in Game 2 should reflect their Game 1 win",
+        )
 
     def test_tennis_predict_before_update(self):
         """Tennis: Verify temporal integrity for individual sport."""
         elo = TennisEloRating(k_factor=32)  # Tennis doesn't have home advantage
 
-        prob1 = elo.predict("Djokovic", "Federer", tour='ATP')
-        elo.update("Djokovic", "Federer", tour='ATP')
-        prob2 = elo.predict("Djokovic", "Federer", tour='ATP')
+        prob1 = elo.predict("Djokovic", "Federer", tour="ATP")
+        elo.update("Djokovic", "Federer", tour="ATP")
+        prob2 = elo.predict("Djokovic", "Federer", tour="ATP")
 
-        self.assertGreater(prob2, prob1,
-                          "Djokovic should be stronger after winning")
+        self.assertGreater(prob2, prob1, "Djokovic should be stronger after winning")
 
     def test_lift_gain_analysis_integrity(self):
         """
@@ -199,8 +231,10 @@ class TestEloTemporalIntegrity(unittest.TestCase):
 
         # Verify predictions changed as ratings updated
         # (This validates temporal order was maintained)
-        self.assertTrue(all(0 < p < 1 for p in predictions),
-                       "All predictions should be valid probabilities")
+        self.assertTrue(
+            all(0 < p < 1 for p in predictions),
+            "All predictions should be valid probabilities",
+        )
 
     def test_production_dag_simulation(self):
         """
@@ -234,10 +268,23 @@ class TestEloTemporalIntegrity(unittest.TestCase):
             prediction = elo.predict(game["home"], game["away"])
 
             # Verify prediction uses only historical ratings
-            expected_pred = 1 / (1 + 10 ** ((current_ratings[game["away"]] -
-                                             (current_ratings[game["home"]] + 100)) / 400))
-            self.assertAlmostEqual(prediction, expected_pred, places=5,
-                                  msg="Prediction should use only historical ratings")
+            expected_pred = 1 / (
+                1
+                + 10
+                ** (
+                    (
+                        current_ratings[game["away"]]
+                        - (current_ratings[game["home"]] + 100)
+                    )
+                    / 400
+                )
+            )
+            self.assertAlmostEqual(
+                prediction,
+                expected_pred,
+                places=5,
+                msg="Prediction should use only historical ratings",
+            )
 
     def test_no_rating_contamination_across_games(self):
         """
@@ -257,10 +304,16 @@ class TestEloTemporalIntegrity(unittest.TestCase):
             elo.predict("A", "B")
 
         # Ratings should NOT have changed from predictions alone
-        self.assertEqual(elo.get_rating("A"), rating_a_after_update,
-                        "predict() should NOT modify ratings")
-        self.assertEqual(elo.get_rating("B"), rating_b_after_update,
-                        "predict() should NOT modify ratings")
+        self.assertEqual(
+            elo.get_rating("A"),
+            rating_a_after_update,
+            "predict() should NOT modify ratings",
+        )
+        self.assertEqual(
+            elo.get_rating("B"),
+            rating_b_after_update,
+            "predict() should NOT modify ratings",
+        )
 
     def test_chronological_game_order_required(self):
         """
@@ -290,8 +343,11 @@ class TestEloTemporalIntegrity(unittest.TestCase):
         wrong_rating_a = elo_wrong.get_rating("A")
 
         # Ratings should be DIFFERENT (proving order matters)
-        self.assertNotEqual(correct_rating_a, wrong_rating_a,
-                           "Game order affects final ratings - must maintain chronological order")
+        self.assertNotEqual(
+            correct_rating_a,
+            wrong_rating_a,
+            "Game order affects final ratings - must maintain chronological order",
+        )
 
 
 class TestBacktestTemporalIntegrity(unittest.TestCase):
@@ -325,11 +381,9 @@ class TestBacktestTemporalIntegrity(unittest.TestCase):
             prediction = elo.predict(home, away)
 
             # 2. Store prediction with outcome
-            backtest_results.append({
-                "date": date,
-                "prediction": prediction,
-                "actual": home_won
-            })
+            backtest_results.append(
+                {"date": date, "prediction": prediction, "actual": home_won}
+            )
 
             # 3. Update LAST (after prediction stored)
             elo.update(home, away, home_won)
@@ -357,6 +411,6 @@ def run_temporal_integrity_tests():
     return result.wasSuccessful()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     success = run_temporal_integrity_tests()
     sys.exit(0 if success else 1)

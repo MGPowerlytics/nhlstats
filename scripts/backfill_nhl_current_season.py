@@ -9,7 +9,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 # Add plugins to path
-sys.path.insert(0, '/mnt/data2/nhlstats/plugins')
+sys.path.insert(0, "/mnt/data2/nhlstats/plugins")
 
 from nhl_game_events import NHLGameEvents
 from db_loader import NHLDatabaseLoader
@@ -20,21 +20,21 @@ def backfill_nhl_current_season():
     start_date = datetime(2025, 10, 1)
     end_date = datetime.now()
 
-    print(f"=" * 60)
-    print(f"NHL 2025-26 Season Backfill")
+    print("=" * 60)
+    print("NHL 2025-26 Season Backfill")
     print(f"Date range: {start_date.date()} to {end_date.date()}")
-    print(f"=" * 60)
+    print("=" * 60)
 
     current_date = start_date
     total_games = 0
     dates_processed = 0
 
     while current_date <= end_date:
-        date_str = current_date.strftime('%Y-%m-%d')
+        date_str = current_date.strftime("%Y-%m-%d")
 
         # Check if already downloaded
-        games_dir = Path(f'data/games/{date_str}')
-        if games_dir.exists() and list(games_dir.glob('*_boxscore.json')):
+        games_dir = Path(f"data/games/{date_str}")
+        if games_dir.exists() and list(games_dir.glob("*_boxscore.json")):
             print(f"[{date_str}] Already downloaded, skipping...")
             current_date += timedelta(days=1)
             continue
@@ -47,12 +47,12 @@ def backfill_nhl_current_season():
             schedule = fetcher.get_schedule_by_date(date_str)
 
             game_ids = []
-            for week in schedule.get('gameWeek', []):
-                for game in week.get('games', []):
+            for week in schedule.get("gameWeek", []):
+                for game in week.get("games", []):
                     # Only download completed games
-                    game_state = game.get('gameState', '')
-                    if game_state in ['OFF', 'FINAL']:
-                        game_ids.append(game.get('id'))
+                    game_state = game.get("gameState", "")
+                    if game_state in ["OFF", "FINAL"]:
+                        game_ids.append(game.get("id"))
 
             if game_ids:
                 print(f"[{date_str}] Found {len(game_ids)} completed games")
@@ -71,21 +71,21 @@ def backfill_nhl_current_season():
 
         current_date += timedelta(days=1)
 
-    print(f"\n" + "=" * 60)
-    print(f"Download Complete!")
+    print("\n" + "=" * 60)
+    print("Download Complete!")
     print(f"  Dates processed: {dates_processed}")
     print(f"  Games downloaded: {total_games}")
-    print(f"=" * 60)
+    print("=" * 60)
 
     # Now load into DuckDB
-    print(f"\nLoading games into DuckDB...")
+    print("\nLoading games into DuckDB...")
 
-    with NHLDatabaseLoader('data/nhlstats.duckdb') as loader:
+    with NHLDatabaseLoader("data/nhlstats.duckdb") as loader:
         current_date = start_date
         games_loaded = 0
 
         while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
+            date_str = current_date.strftime("%Y-%m-%d")
             loaded = loader.load_date(date_str)
             games_loaded += loaded
             current_date += timedelta(days=1)

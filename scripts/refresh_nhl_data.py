@@ -1,9 +1,8 @@
 import sys
 import os
-from pathlib import Path
 
 # Add plugins to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins")))
 
 from nhl_game_events import NHLGameEvents
 from db_loader import NHLDatabaseLoader

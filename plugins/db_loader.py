@@ -4,17 +4,18 @@ Loads JSON/CSV data from daily downloads into normalized PostgreSQL schema.
 """
 
 import json
-import csv
 from pathlib import Path
 from datetime import datetime
-from typing import Optional, List, Dict, Any
+from typing import Optional
 from db_manager import DBManager, default_db
 
 
 from sqlalchemy import text
 
+
 class LegacyConnWrapper:
     """Wrapper for SQLAlchemy connection to maintain execute() syntax in tests."""
+
     def __init__(self, connection):
         self._conn = connection
 
@@ -36,17 +37,17 @@ class LegacyConnWrapper:
             res = self._conn.execute(query, params or {})
             try:
                 self._conn.commit()
-            except:
+            except Exception:
                 pass
             return res
-        except Exception as e:
+        except Exception:
             # For tests expecting duckdb exceptions, we might need more mapping
             raise
 
     def commit(self):
         try:
             self._conn.commit()
-        except:
+        except Exception:
             pass
 
     def fetchall(self):
@@ -65,7 +66,9 @@ class LegacyConnWrapper:
 class NHLDatabaseLoader:
     """Load sports data into PostgreSQL"""
 
-    def __init__(self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None):
+    def __init__(
+        self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None
+    ):
         # Store db_path for tests that check loader.db_path
         self.db_path = Path(db_path) if db_path else Path("data/nhlstats.duckdb")
         self._conn = None
@@ -104,23 +107,22 @@ class NHLDatabaseLoader:
             "CREATE TABLE IF NOT EXISTS tennis_games (game_id VARCHAR PRIMARY KEY, game_date DATE, season VARCHAR, tour VARCHAR, tournament VARCHAR, surface VARCHAR, winner VARCHAR, loser VARCHAR, score VARCHAR)",
             "CREATE TABLE IF NOT EXISTS ncaab_games (game_id VARCHAR PRIMARY KEY, game_date DATE, season INTEGER, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, away_score INTEGER, is_neutral BOOLEAN)",
             "CREATE TABLE IF NOT EXISTS unified_games (game_id VARCHAR PRIMARY KEY, sport VARCHAR NOT NULL, game_date DATE NOT NULL, season INTEGER, status VARCHAR, home_team_id VARCHAR, home_team_name VARCHAR, away_team_id VARCHAR, away_team_name VARCHAR, home_score INTEGER, away_score INTEGER, commence_time TIMESTAMP, venue VARCHAR, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
-            "CREATE TABLE IF NOT EXISTS game_odds (odds_id VARCHAR PRIMARY KEY, game_id VARCHAR NOT NULL, bookmaker VARCHAR NOT NULL, market_name VARCHAR NOT NULL, outcome_name VARCHAR, price DECIMAL(10, 4) NOT NULL, line DECIMAL(10, 4), last_update TIMESTAMP, is_pregame BOOLEAN DEFAULT TRUE, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            "CREATE TABLE IF NOT EXISTS game_odds (odds_id VARCHAR PRIMARY KEY, game_id VARCHAR NOT NULL, bookmaker VARCHAR NOT NULL, market_name VARCHAR NOT NULL, outcome_name VARCHAR, price DECIMAL(10, 4) NOT NULL, line DECIMAL(10, 4), last_update TIMESTAMP, is_pregame BOOLEAN DEFAULT TRUE, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
         ]
         for sql in tables:
             self.db.execute(sql)
 
         self._schema_initialized = True
-        print(f"✓ PostgreSQL Schema initialized.")
+        print("✓ PostgreSQL Schema initialized.")
 
     def close(self):
         """Close database connection"""
         if self._conn:
             try:
                 self._conn.close()
-            except:
+            except Exception:
                 pass
             self._conn = None
-
 
     def load_date(self, date_str: str, data_dir: Path = Path("data")):
         """Load all sports data for a specific date"""
@@ -198,43 +200,50 @@ class NHLDatabaseLoader:
         with open(file_path) as f:
             data = json.load(f)
 
-        if 'resultSets' not in data:
+        if "resultSets" not in data:
             return
 
         # Helper to get result set by name
         def get_result_set(name):
-            for rs in data['resultSets']:
-                if rs['name'] == name:
+            for rs in data["resultSets"]:
+                if rs["name"] == name:
                     return rs
             return None
 
-        header = get_result_set('GameHeader')
-        line_score = get_result_set('LineScore')
+        header = get_result_set("GameHeader")
+        line_score = get_result_set("LineScore")
 
         if not header:
             return
 
         # Map headers to indices
-        h_cols = {col: i for i, col in enumerate(header['headers'])}
-        l_cols = {col: i for i, col in enumerate(line_score['headers'])} if line_score else {}
+        h_cols = {col: i for i, col in enumerate(header["headers"])}
+        l_cols = (
+            {col: i for i, col in enumerate(line_score["headers"])}
+            if line_score
+            else {}
+        )
 
         # Create a map of game_id -> {team_id: score}
         scores_map = {}
         if line_score:
-            for row in line_score['rowSet']:
-                gid = row[l_cols['GAME_ID']]
-                tid = row[l_cols['TEAM_ID']]
-                pts = row[l_cols['PTS']]
-                if gid not in scores_map: scores_map[gid] = {}
+            for row in line_score["rowSet"]:
+                gid = row[l_cols["GAME_ID"]]
+                tid = row[l_cols["TEAM_ID"]]
+                pts = row[l_cols["PTS"]]
+                if gid not in scores_map:
+                    scores_map[gid] = {}
                 scores_map[gid][tid] = pts
 
-        for row in header['rowSet']:
+        for row in header["rowSet"]:
             try:
-                game_id = row[h_cols['GAME_ID']]
-                game_date_str = row[h_cols['GAME_DATE_EST']].split('T')[0]
-                home_id = row[h_cols['HOME_TEAM_ID']]
-                visitor_id = row[h_cols['VISITOR_TEAM_ID']]
-                home_team_code = row[h_cols['GAMECODE']].split('/')[1][-3:] # CHAORL -> ORL? No, GAMECODE is 2026.../CHAORL. Usually VisitorHome?
+                game_id = row[h_cols["GAME_ID"]]
+                game_date_str = row[h_cols["GAME_DATE_EST"]].split("T")[0]
+                home_id = row[h_cols["HOME_TEAM_ID"]]
+                visitor_id = row[h_cols["VISITOR_TEAM_ID"]]
+                row[h_cols["GAMECODE"]].split("/")[1][
+                    -3:
+                ]  # CHAORL -> ORL? No, GAMECODE is 2026.../CHAORL. Usually VisitorHome?
                 # Let's trust IDs or lookup codes if needed.
                 # Actually, LineScore has TEAM_ABBREVIATION.
 
@@ -245,34 +254,34 @@ class NHLDatabaseLoader:
                 if line_score:
                     # Find abbreviations
                     # This is inefficient but safe
-                    for ls_row in line_score['rowSet']:
-                        if ls_row[l_cols['TEAM_ID']] == home_id:
-                            home_team = ls_row[l_cols['TEAM_ABBREVIATION']]
-                        elif ls_row[l_cols['TEAM_ID']] == visitor_id:
-                            away_team = ls_row[l_cols['TEAM_ABBREVIATION']]
+                    for ls_row in line_score["rowSet"]:
+                        if ls_row[l_cols["TEAM_ID"]] == home_id:
+                            home_team = ls_row[l_cols["TEAM_ABBREVIATION"]]
+                        elif ls_row[l_cols["TEAM_ID"]] == visitor_id:
+                            away_team = ls_row[l_cols["TEAM_ABBREVIATION"]]
 
                 home_score = scores_map.get(game_id, {}).get(home_id)
                 away_score = scores_map.get(game_id, {}).get(visitor_id)
 
-                status_text = row[h_cols['GAME_STATUS_TEXT']]
+                status_text = row[h_cols["GAME_STATUS_TEXT"]]
                 # Normalize status
-                if 'Final' in status_text:
-                    status = 'Final'
-                elif 'pm' in status_text or 'am' in status_text or 'ET' in status_text:
-                    status = 'Scheduled'
+                if "Final" in status_text:
+                    status = "Final"
+                elif "pm" in status_text or "am" in status_text or "ET" in status_text:
+                    status = "Scheduled"
                 else:
-                    status = 'Live'
+                    status = "Live"
 
                 params = {
-                    'game_id': game_id,
-                    'game_date': game_date_str,
-                    'season': int(row[h_cols['SEASON']]),
-                    'game_type': 'Regular', # Simplification
-                    'home_team': home_team,
-                    'away_team': away_team,
-                    'home_score': home_score,
-                    'away_score': away_score,
-                    'status': status
+                    "game_id": game_id,
+                    "game_date": game_date_str,
+                    "season": int(row[h_cols["SEASON"]]),
+                    "game_type": "Regular",  # Simplification
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "home_score": home_score,
+                    "away_score": away_score,
+                    "status": status,
                 }
 
                 # Ensure table exists (since it was missing in init)
@@ -290,7 +299,8 @@ class NHLDatabaseLoader:
                     )
                 """)
 
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO nba_games (
                         game_id, game_date, season, game_type,
                         home_team, away_team, home_score, away_score, status
@@ -300,7 +310,9 @@ class NHLDatabaseLoader:
                         away_score = EXCLUDED.away_score,
                         status = EXCLUDED.status,
                         game_date = EXCLUDED.game_date
-                """, params)
+                """,
+                    params,
+                )
             except Exception as e:
                 print(f"    Error loading NBA game {game_id}: {e}")
 
@@ -309,24 +321,25 @@ class NHLDatabaseLoader:
         with open(file_path) as f:
             data = json.load(f)
 
-        if 'dates' not in data or not data['dates']:
+        if "dates" not in data or not data["dates"]:
             return
 
-        for game in data['dates'][0].get('games', []):
+        for game in data["dates"][0].get("games", []):
             try:
                 params = {
-                    'game_id': game['gamePk'],
-                    'game_date': game['officialDate'],
-                    'season': int(game['season']),
-                    'game_type': game['gameType'],
-                    'home_team': game['teams']['home']['team']['name'],
-                    'away_team': game['teams']['away']['team']['name'],
-                    'home_score': game['teams']['home'].get('score'),
-                    'away_score': game['teams']['away'].get('score'),
-                    'status': game['status']['abstractGameState']
+                    "game_id": game["gamePk"],
+                    "game_date": game["officialDate"],
+                    "season": int(game["season"]),
+                    "game_type": game["gameType"],
+                    "home_team": game["teams"]["home"]["team"]["name"],
+                    "away_team": game["teams"]["away"]["team"]["name"],
+                    "home_score": game["teams"]["home"].get("score"),
+                    "away_score": game["teams"]["away"].get("score"),
+                    "status": game["status"]["abstractGameState"],
                 }
 
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO mlb_games (
                         game_id, game_date, season, game_type,
                         home_team, away_team, home_score, away_score, status
@@ -335,7 +348,9 @@ class NHLDatabaseLoader:
                         home_score = EXCLUDED.home_score,
                         away_score = EXCLUDED.away_score,
                         status = EXCLUDED.status
-                """, params)
+                """,
+                    params,
+                )
             except Exception as e:
                 print(f"    Error loading MLB game {game.get('gamePk')}: {e}")
 
@@ -346,26 +361,31 @@ class NHLDatabaseLoader:
 
         for game in games:
             try:
-                gameday = game['gameday']
+                gameday = game["gameday"]
                 if isinstance(gameday, (int, float)):
-                    game_date = datetime.fromtimestamp(gameday / 1000.0).strftime('%Y-%m-%d')
+                    game_date = datetime.fromtimestamp(gameday / 1000.0).strftime(
+                        "%Y-%m-%d"
+                    )
                 else:
-                    game_date = str(gameday).split('T')[0]
+                    game_date = str(gameday).split("T")[0]
 
                 params = {
-                    'game_id': game['game_id'],
-                    'game_date': game_date,
-                    'season': game['season'],
-                    'week': game['week'],
-                    'game_type': game['game_type'],
-                    'home_team': game['home_team'],
-                    'away_team': game['away_team'],
-                    'home_score': game.get('home_score'),
-                    'away_score': game.get('away_score'),
-                    'status': 'Final' if game.get('home_score') is not None else 'Scheduled'
+                    "game_id": game["game_id"],
+                    "game_date": game_date,
+                    "season": game["season"],
+                    "week": game["week"],
+                    "game_type": game["game_type"],
+                    "home_team": game["home_team"],
+                    "away_team": game["away_team"],
+                    "home_score": game.get("home_score"),
+                    "away_score": game.get("away_score"),
+                    "status": "Final"
+                    if game.get("home_score") is not None
+                    else "Scheduled",
                 }
 
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO nfl_games (
                         game_id, game_date, season, week, game_type,
                         home_team, away_team, home_score, away_score, status
@@ -374,11 +394,15 @@ class NHLDatabaseLoader:
                         home_score = EXCLUDED.home_score,
                         away_score = EXCLUDED.away_score,
                         status = EXCLUDED.status
-                """, params)
+                """,
+                    params,
+                )
             except Exception as e:
                 print(f"    Error loading NFL game {game.get('game_id')}: {e}")
 
-    def load_epl_history(self, data_dir: Path = Path("data/epl"), target_date: Optional[str] = None):
+    def load_epl_history(
+        self, data_dir: Path = Path("data/epl"), target_date: Optional[str] = None
+    ):
         """Load all available EPL CSV data into PostgreSQL"""
         if not data_dir.exists():
             return
@@ -390,7 +414,9 @@ class NHLDatabaseLoader:
             except Exception as e:
                 print(f"  Error loading EPL file {csv_file.name}: {e}")
 
-    def load_tennis_history(self, data_dir: Path = Path("data/tennis"), target_date: Optional[str] = None):
+    def load_tennis_history(
+        self, data_dir: Path = Path("data/tennis"), target_date: Optional[str] = None
+    ):
         """Load all available Tennis CSV data into PostgreSQL"""
         if not data_dir.exists():
             return
@@ -405,31 +431,39 @@ class NHLDatabaseLoader:
     def load_ncaab_history(self, target_date: Optional[str] = None):
         """Load all available NCAAB data into PostgreSQL"""
         from ncaab_games import NCAABGames
+
         try:
             ncaab = NCAABGames()
             df = ncaab.load_games()
-            if df.empty: return
+            if df.empty:
+                return
 
             if target_date:
-                target_dt = datetime.strptime(target_date, '%Y-%m-%d')
-                df = df[df['date'] == target_dt]
-                if df.empty: return
+                target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+                df = df[df["date"] == target_dt]
+                if df.empty:
+                    return
 
             for _, row in df.iterrows():
                 try:
-                    game_date = row['date'].strftime('%Y-%m-%d')
-                    h_slug = "".join(x for x in str(row['home_team']) if x.isalnum())
-                    a_slug = "".join(x for x in str(row['away_team']) if x.isalnum())
+                    game_date = row["date"].strftime("%Y-%m-%d")
+                    h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+                    a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
                     game_id = f"NCAAB_{game_date}_{h_slug}_{a_slug}"
 
                     params = {
-                        'game_id': game_id, 'game_date': game_date, 'season': int(row['season']),
-                        'home_team': row['home_team'], 'away_team': row['away_team'],
-                        'home_score': int(row['home_score']), 'away_score': int(row['away_score']),
-                        'is_neutral': bool(row['neutral'])
+                        "game_id": game_id,
+                        "game_date": game_date,
+                        "season": int(row["season"]),
+                        "home_team": row["home_team"],
+                        "away_team": row["away_team"],
+                        "home_score": int(row["home_score"]),
+                        "away_score": int(row["away_score"]),
+                        "is_neutral": bool(row["neutral"]),
                     }
 
-                    self.db.execute("""
+                    self.db.execute(
+                        """
                         INSERT INTO ncaab_games (
                             game_id, game_date, season, home_team, away_team,
                             home_score, away_score, is_neutral
@@ -437,8 +471,10 @@ class NHLDatabaseLoader:
                         ON CONFLICT (game_id) DO UPDATE SET
                             home_score = EXCLUDED.home_score,
                             away_score = EXCLUDED.away_score
-                    """, params)
-                except:
+                    """,
+                        params,
+                    )
+                except Exception:
                     pass
         except Exception as e:
             print(f"  Error loading NCAAB history: {e}")
@@ -446,78 +482,97 @@ class NHLDatabaseLoader:
     def _load_tennis_csv(self, file_path: Path, target_date: Optional[str] = None):
         """Load Tennis CSV into PostgreSQL"""
         import pandas as pd
-        parts = file_path.stem.split('_')
-        if len(parts) < 2: return
+
+        parts = file_path.stem.split("_")
+        if len(parts) < 2:
+            return
         tour = parts[0].upper()
         season = parts[1]
 
         try:
-            df = pd.read_csv(file_path, encoding='latin1')
-        except:
+            df = pd.read_csv(file_path, encoding="latin1")
+        except Exception:
             df = pd.read_csv(file_path)
 
-        if 'Date' not in df.columns: return
-        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True, errors='coerce')
+        if "Date" not in df.columns:
+            return
+        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
 
         if target_date:
-            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
-            df = df[df['Date'] == target_dt]
-            if df.empty: return
+            target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+            df = df[df["Date"] == target_dt]
+            if df.empty:
+                return
 
         for _, row in df.iterrows():
-            if pd.isna(row['Date']) or pd.isna(row['Winner']) or pd.isna(row['Loser']):
+            if pd.isna(row["Date"]) or pd.isna(row["Winner"]) or pd.isna(row["Loser"]):
                 continue
 
-            game_date = row['Date'].strftime('%Y-%m-%d')
-            w_slug = "".join(x for x in str(row['Winner']) if x.isalnum())
-            l_slug = "".join(x for x in str(row['Loser']) if x.isalnum())
+            game_date = row["Date"].strftime("%Y-%m-%d")
+            w_slug = "".join(x for x in str(row["Winner"]) if x.isalnum())
+            l_slug = "".join(x for x in str(row["Loser"]) if x.isalnum())
             game_id = f"TENNIS_{tour}_{game_date}_{w_slug}_{l_slug}"
 
             params = {
-                'game_id': game_id, 'game_date': game_date, 'season': str(season),
-                'tour': tour, 'tournament': str(row.get('Tournament', '')),
-                'surface': str(row.get('Surface', 'Unknown')),
-                'winner': str(row['Winner']), 'loser': str(row['Loser']),
-                'score': str(row.get('Score', ''))
+                "game_id": game_id,
+                "game_date": game_date,
+                "season": str(season),
+                "tour": tour,
+                "tournament": str(row.get("Tournament", "")),
+                "surface": str(row.get("Surface", "Unknown")),
+                "winner": str(row["Winner"]),
+                "loser": str(row["Loser"]),
+                "score": str(row.get("Score", "")),
             }
 
             try:
-                self.db.execute("""
+                self.db.execute(
+                    """
                     INSERT INTO tennis_games (
                         game_id, game_date, season, tour, tournament, surface, winner, loser, score
                     ) VALUES (:game_id, :game_date, :season, :tour, :tournament, :surface, :winner, :loser, :score)
                     ON CONFLICT (game_id) DO NOTHING
-                """, params)
-            except:
+                """,
+                    params,
+                )
+            except Exception:
                 pass
 
     def _load_epl_csv(self, file_path: Path, target_date: Optional[str] = None):
         """Load EPL CSV into PostgreSQL"""
         import pandas as pd
+
         season_code = file_path.stem.replace("E0_", "")
         df = pd.read_csv(file_path)
-        df['Date'] = pd.to_datetime(df['Date'], dayfirst=True)
+        df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
 
         if target_date:
-            target_dt = datetime.strptime(target_date, '%Y-%m-%d')
-            df = df[df['Date'] == target_dt]
-            if df.empty: return
+            target_dt = datetime.strptime(target_date, "%Y-%m-%d")
+            df = df[df["Date"] == target_dt]
+            if df.empty:
+                return
 
         for _, row in df.iterrows():
-            if pd.isna(row['FTHG']): continue
-            game_date = row['Date'].strftime('%Y-%m-%d')
-            home_team = row['HomeTeam']
-            away_team = row['AwayTeam']
+            if pd.isna(row["FTHG"]):
+                continue
+            game_date = row["Date"].strftime("%Y-%m-%d")
+            home_team = row["HomeTeam"]
+            away_team = row["AwayTeam"]
             game_id = f"EPL_{game_date}_{home_team.replace(' ', '')}_{away_team.replace(' ', '')}"
 
             params = {
-                'game_id': game_id, 'game_date': game_date, 'season': season_code,
-                'home_team': home_team, 'away_team': away_team,
-                'home_score': int(row['FTHG']), 'away_score': int(row['FTAG']),
-                'result': row['FTR']
+                "game_id": game_id,
+                "game_date": game_date,
+                "season": season_code,
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_score": int(row["FTHG"]),
+                "away_score": int(row["FTAG"]),
+                "result": row["FTR"],
             }
 
-            self.db.execute("""
+            self.db.execute(
+                """
                 INSERT INTO epl_games (
                     game_id, game_date, season, home_team, away_team, home_score, away_score, result
                 ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :result)
@@ -525,38 +580,41 @@ class NHLDatabaseLoader:
                     home_score = EXCLUDED.home_score,
                     away_score = EXCLUDED.away_score,
                     result = EXCLUDED.result
-            """, params)
+            """,
+                params,
+            )
 
     def _load_boxscore(self, game_id: str, file_path: Path):
         """Load game info and stats from boxscore JSON into PostgreSQL"""
         with open(file_path) as f:
             data = json.load(f)
 
-        season_full = str(data.get('season', ''))
+        season_full = str(data.get("season", ""))
         season = int(season_full[:4]) if len(season_full) >= 4 else None
 
         params = {
-            'game_id': game_id,
-            'season': season,
-            'game_type': str(data.get('gameType')),
-            'game_date': data.get('gameDate'),
-            'start_time_utc': data.get('startTimeUTC'),
-            'venue': data.get('venue', {}).get('default'),
-            'venue_location': data.get('venueLocation', {}).get('default'),
-            'home_team_id': data['homeTeam']['id'],
-            'home_team_abbrev': data['homeTeam']['abbrev'],
-            'home_team_name': f"{data['homeTeam'].get('placeName', {}).get('default', '')} {data['homeTeam'].get('commonName', {}).get('default', '')}".strip(),
-            'away_team_id': data['awayTeam']['id'],
-            'away_team_abbrev': data['awayTeam']['abbrev'],
-            'away_team_name': f"{data['awayTeam'].get('placeName', {}).get('default', '')} {data['awayTeam'].get('commonName', {}).get('default', '')}".strip(),
-            'home_score': data['homeTeam'].get('score'),
-            'away_score': data['awayTeam'].get('score'),
-            'game_outcome_type': data.get('gameOutcome', {}).get('lastPeriodType'),
-            'game_state': data.get('gameState'),
-            'period_count': data.get('periodDescriptor', {}).get('number'),
+            "game_id": game_id,
+            "season": season,
+            "game_type": str(data.get("gameType")),
+            "game_date": data.get("gameDate"),
+            "start_time_utc": data.get("startTimeUTC"),
+            "venue": data.get("venue", {}).get("default"),
+            "venue_location": data.get("venueLocation", {}).get("default"),
+            "home_team_id": data["homeTeam"]["id"],
+            "home_team_abbrev": data["homeTeam"]["abbrev"],
+            "home_team_name": f"{data['homeTeam'].get('placeName', {}).get('default', '')} {data['homeTeam'].get('commonName', {}).get('default', '')}".strip(),
+            "away_team_id": data["awayTeam"]["id"],
+            "away_team_abbrev": data["awayTeam"]["abbrev"],
+            "away_team_name": f"{data['awayTeam'].get('placeName', {}).get('default', '')} {data['awayTeam'].get('commonName', {}).get('default', '')}".strip(),
+            "home_score": data["homeTeam"].get("score"),
+            "away_score": data["awayTeam"].get("score"),
+            "game_outcome_type": data.get("gameOutcome", {}).get("lastPeriodType"),
+            "game_state": data.get("gameState"),
+            "period_count": data.get("periodDescriptor", {}).get("number"),
         }
 
-        self.db.execute("""
+        self.db.execute(
+            """
             INSERT INTO games (
                 game_id, season, game_type, game_date, start_time_utc,
                 venue, venue_location, home_team_id, home_team_abbrev, home_team_name,
@@ -572,17 +630,25 @@ class NHLDatabaseLoader:
                 season=excluded.season, game_type=excluded.game_type,
                 game_date=excluded.game_date, home_score=excluded.home_score,
                 away_score=excluded.away_score, game_state=excluded.game_state
-        """, params)
+        """,
+            params,
+        )
 
         # Update winning/losing teams
-        if data['homeTeam'].get('score') is not None and data['awayTeam'].get('score') is not None:
-            if data['homeTeam']['score'] > data['awayTeam']['score']:
-                win_id, lose_id = data['homeTeam']['id'], data['awayTeam']['id']
+        if (
+            data["homeTeam"].get("score") is not None
+            and data["awayTeam"].get("score") is not None
+        ):
+            if data["homeTeam"]["score"] > data["awayTeam"]["score"]:
+                win_id, lose_id = data["homeTeam"]["id"], data["awayTeam"]["id"]
             else:
-                win_id, lose_id = data['awayTeam']['id'], data['homeTeam']['id']
+                win_id, lose_id = data["awayTeam"]["id"], data["homeTeam"]["id"]
 
-            self.db.execute("""
+            self.db.execute(
+                """
                 UPDATE games
                 SET winning_team_id = :win_id, losing_team_id = :lose_id
                 WHERE game_id = :game_id
-            """, {'win_id': win_id, 'lose_id': lose_id, 'game_id': game_id})
+            """,
+                {"win_id": win_id, "lose_id": lose_id, "game_id": game_id},
+            )

@@ -1,11 +1,11 @@
 import sys
 from pathlib import Path
-import re
 
 # Add plugins directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 from db_manager import default_db
 from naming_resolver import NamingResolver
+
 
 def bridge_tennis():
     print("🎾 Performing Comprehensive Tennis Name Bridging...")
@@ -32,7 +32,8 @@ def bridge_tennis():
     for ext_name in ext_names:
         # Example ext_name: "Carlos Alcaraz"
         parts = ext_name.split()
-        if len(parts) < 2: continue
+        if len(parts) < 2:
+            continue
 
         last = parts[-1]
         first_initial = parts[0][0]
@@ -47,13 +48,14 @@ def bridge_tennis():
 
         if target:
             print(f"    🔗 Mapping: '{ext_name}' -> '{target}'")
-            NamingResolver.add_mapping('TENNIS', 'the_odds_api', ext_name, target)
-            NamingResolver.add_mapping('TENNIS', 'kalshi', ext_name, target)
+            NamingResolver.add_mapping("TENNIS", "the_odds_api", ext_name, target)
+            NamingResolver.add_mapping("TENNIS", "kalshi", ext_name, target)
             # Also map the short version (just last name) if it's in Kalshi
-            NamingResolver.add_mapping('TENNIS', 'kalshi', last, target)
+            NamingResolver.add_mapping("TENNIS", "kalshi", last, target)
             matches += 1
 
     print(f"✅ Successfully bridged {matches} tennis names.")
+
 
 if __name__ == "__main__":
     bridge_tennis()

@@ -6,6 +6,7 @@ Tests the refactored Ligue1EloRating that inherits from BaseEloRating.
 import pytest
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugins.elo import BaseEloRating, Ligue1EloRating
@@ -16,25 +17,28 @@ class TestLigue1EloRatingTDD:
 
     def test_ligue1_elo_inherits_from_base(self):
         """Test that Ligue1EloRating inherits from BaseEloRating."""
-        assert issubclass(Ligue1EloRating, BaseEloRating),             "Ligue1EloRating must inherit from BaseEloRating"
+        assert issubclass(Ligue1EloRating, BaseEloRating), (
+            "Ligue1EloRating must inherit from BaseEloRating"
+        )
 
     def test_ligue1_elo_has_required_methods(self):
         """Test that Ligue1EloRating implements all abstract methods."""
         elo = Ligue1EloRating()
 
         # Check all abstract methods exist
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
-        assert hasattr(elo, 'expected_score')
-        assert hasattr(elo, 'get_all_ratings')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
+        assert hasattr(elo, "expected_score")
+        assert hasattr(elo, "get_all_ratings")
 
         # Check method signatures (basic check)
         import inspect
+
         predict_sig = inspect.signature(elo.predict)
-        assert 'home_team' in predict_sig.parameters
-        assert 'away_team' in predict_sig.parameters
-        assert 'is_neutral' in predict_sig.parameters
+        assert "home_team" in predict_sig.parameters
+        assert "away_team" in predict_sig.parameters
+        assert "is_neutral" in predict_sig.parameters
 
     def test_ligue1_elo_backward_compatibility(self):
         """Test backward compatibility with existing functionality."""
@@ -49,11 +53,11 @@ class TestLigue1EloRatingTDD:
         assert 0 <= prob <= 1
 
         # Test 3-way prediction (soccer-specific method should still work)
-        if hasattr(elo, 'predict_3way'):
+        if hasattr(elo, "predict_3way"):
             probs = elo.predict_3way("PSG", "Marseille")
-            assert 'home' in probs
-            assert 'draw' in probs
-            assert 'away' in probs
+            assert "home" in probs
+            assert "draw" in probs
+            assert "away" in probs
             assert abs(sum(probs.values()) - 1.0) < 0.001
 
     def test_ligue1_elo_update_functionality(self):

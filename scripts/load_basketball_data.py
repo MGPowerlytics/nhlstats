@@ -1,9 +1,9 @@
 import pandas as pd
-from sqlalchemy import create_engine, text
+from sqlalchemy import text
 from plugins.db_manager import DBManager
 from plugins.ncaab_games import NCAABGames
 from plugins.wncaab_games import WNCAABGames
-from datetime import datetime
+
 
 def setup_tables(db):
     print("Initializing Basketball Tables...")
@@ -58,6 +58,7 @@ def setup_tables(db):
         )
     """)
 
+
 def load_ncaab(db, target_date=None):
     print("\n--- Loading NCAAB Data ---")
     ncaab = NCAABGames()
@@ -69,12 +70,12 @@ def load_ncaab(db, target_date=None):
 
     # Filter for target date if needed (or just load everything for 2026)
     # Better to load everything to be safe
-    df_2026 = df[df['season'] == 2026]
+    df_2026 = df[df["season"] == 2026]
     print(f"Found {len(df_2026)} NCAAB games for 2026 season.")
 
     if target_date:
         target_dt = pd.to_datetime(target_date)
-        df_target = df[df['date'] == target_dt]
+        df_target = df[df["date"] == target_dt]
         print(f"Found {len(df_target)} games for {target_date}.")
 
     count = 0
@@ -83,19 +84,24 @@ def load_ncaab(db, target_date=None):
         try:
             for _, row in df_2026.iterrows():
                 try:
-                    game_date = row['date'].strftime('%Y-%m-%d')
-                    h_slug = "".join(x for x in str(row['home_team']) if x.isalnum())
-                    a_slug = "".join(x for x in str(row['away_team']) if x.isalnum())
+                    game_date = row["date"].strftime("%Y-%m-%d")
+                    h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+                    a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
                     game_id = f"NCAAB_{game_date}_{h_slug}_{a_slug}"
 
                     params = {
-                        'game_id': game_id, 'game_date': game_date, 'season': int(row['season']),
-                        'home_team': row['home_team'], 'away_team': row['away_team'],
-                        'home_score': int(row['home_score']), 'away_score': int(row['away_score']),
-                        'is_neutral': bool(row['neutral'])
+                        "game_id": game_id,
+                        "game_date": game_date,
+                        "season": int(row["season"]),
+                        "home_team": row["home_team"],
+                        "away_team": row["away_team"],
+                        "home_score": int(row["home_score"]),
+                        "away_score": int(row["away_score"]),
+                        "is_neutral": bool(row["neutral"]),
                     }
 
-                    conn.execute(text("""
+                    conn.execute(
+                        text("""
                         INSERT INTO ncaab_games (
                             game_id, game_date, season, home_team, away_team,
                             home_score, away_score, is_neutral
@@ -103,10 +109,13 @@ def load_ncaab(db, target_date=None):
                         ON CONFLICT (game_id) DO UPDATE SET
                             home_score = EXCLUDED.home_score,
                             away_score = EXCLUDED.away_score
-                    """), params)
+                    """),
+                        params,
+                    )
 
                     # Also unified_games
-                    conn.execute(text("""
+                    conn.execute(
+                        text("""
                         INSERT INTO unified_games (
                             game_id, sport, game_date, season, home_team_id, home_team_name,
                             away_team_id, away_team_name, home_score, away_score, status
@@ -115,7 +124,9 @@ def load_ncaab(db, target_date=None):
                         ON CONFLICT (game_id) DO UPDATE SET
                             home_score = EXCLUDED.home_score,
                             away_score = EXCLUDED.away_score
-                    """), params)
+                    """),
+                        params,
+                    )
 
                     count += 1
                 except Exception as e:
@@ -127,6 +138,7 @@ def load_ncaab(db, target_date=None):
             trans.rollback()
             print(f"Error executing NCAAB transaction: {e}")
 
+
 def load_wncaab(db, target_date=None):
     print("\n--- Loading WNCAAB Data ---")
     wncaab = WNCAABGames()
@@ -136,12 +148,12 @@ def load_wncaab(db, target_date=None):
         print("No WNCAAB games found.")
         return
 
-    df_2026 = df[df['season'] == 2026]
+    df_2026 = df[df["season"] == 2026]
     print(f"Found {len(df_2026)} WNCAAB games for 2026 season.")
 
     if target_date:
         target_dt = pd.to_datetime(target_date)
-        df_target = df[df['date'] == target_dt]
+        df_target = df[df["date"] == target_dt]
         print(f"Found {len(df_target)} games for {target_date}.")
 
     count = 0
@@ -150,19 +162,24 @@ def load_wncaab(db, target_date=None):
         try:
             for _, row in df_2026.iterrows():
                 try:
-                    game_date = row['date'].strftime('%Y-%m-%d')
-                    h_slug = "".join(x for x in str(row['home_team']) if x.isalnum())
-                    a_slug = "".join(x for x in str(row['away_team']) if x.isalnum())
+                    game_date = row["date"].strftime("%Y-%m-%d")
+                    h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+                    a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
                     game_id = f"WNCAAB_{game_date}_{h_slug}_{a_slug}"
 
                     params = {
-                        'game_id': game_id, 'game_date': game_date, 'season': int(row['season']),
-                        'home_team': row['home_team'], 'away_team': row['away_team'],
-                        'home_score': int(row['home_score']), 'away_score': int(row['away_score']),
-                        'is_neutral': bool(row['neutral'])
+                        "game_id": game_id,
+                        "game_date": game_date,
+                        "season": int(row["season"]),
+                        "home_team": row["home_team"],
+                        "away_team": row["away_team"],
+                        "home_score": int(row["home_score"]),
+                        "away_score": int(row["away_score"]),
+                        "is_neutral": bool(row["neutral"]),
                     }
 
-                    conn.execute(text("""
+                    conn.execute(
+                        text("""
                         INSERT INTO wncaab_games (
                             game_id, game_date, season, home_team, away_team,
                             home_score, away_score, is_neutral
@@ -170,10 +187,13 @@ def load_wncaab(db, target_date=None):
                         ON CONFLICT (game_id) DO UPDATE SET
                             home_score = EXCLUDED.home_score,
                             away_score = EXCLUDED.away_score
-                    """), params)
+                    """),
+                        params,
+                    )
 
                     # Also unified_games
-                    conn.execute(text("""
+                    conn.execute(
+                        text("""
                         INSERT INTO unified_games (
                             game_id, sport, game_date, season, home_team_id, home_team_name,
                             away_team_id, away_team_name, home_score, away_score, status
@@ -182,7 +202,9 @@ def load_wncaab(db, target_date=None):
                         ON CONFLICT (game_id) DO UPDATE SET
                             home_score = EXCLUDED.home_score,
                             away_score = EXCLUDED.away_score
-                    """), params)
+                    """),
+                        params,
+                    )
 
                     count += 1
                 except Exception as e:
@@ -193,6 +215,7 @@ def load_wncaab(db, target_date=None):
         except Exception as e:
             trans.rollback()
             print(f"Error executing WNCAAB transaction: {e}")
+
 
 if __name__ == "__main__":
     db = DBManager()

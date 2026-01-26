@@ -8,7 +8,10 @@ CRITICAL VALIDATIONS:
 4. Order cost = contracts × price (not just contracts)
 """
 
-import json, uuid, base64, requests, time
+import uuid
+import base64
+import requests
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
@@ -16,7 +19,33 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives.asymmetric import padding
 
-from order_deduper import OrderDeduper
+
+class SimpleOrderLock:
+    """Simple file-based lock to prevent duplicate orders."""
+
+    def __init__(self, lock_dir: Path):
+        self.lock_dir = lock_dir
+        self.lock_dir.mkdir(parents=True, exist_ok=True)
+
+    def reserve(self, trade_date: str, ticker: str, side: str):
+        lock_file = self.lock_dir / f"{trade_date}_{ticker}_{side}.lock"
+        if lock_file.exists():
+            # Return a reservation object with reserved=False
+            class Reservation:
+                reserved = False
+                reason = "already locked"
+                lock_path = lock_file
+
+            return Reservation()
+        else:
+            lock_file.touch()
+
+            class Reservation:
+                reserved = True
+                reason = "ok"
+                lock_path = lock_file
+
+            return Reservation()
 
 
 class KalshiBetting:
@@ -30,12 +59,18 @@ class KalshiBetting:
         dedupe_dir: Optional[str] = None,
     ):
         self.api_key_id = api_key_id
-        self.max_bet_size, self.min_bet_size, self.max_position_pct = max_bet_size, 2.0, 0.05
+        self.max_bet_size, self.min_bet_size, self.max_position_pct = (
+            max_bet_size,
+            2.0,
+            0.05,
+        )
         self.base_url = (
-            "https://api.elections.kalshi.com" if production else "https://demo-api.kalshi.co"
+            "https://api.elections.kalshi.com"
+            if production
+            else "https://demo-api.kalshi.co"
         )
         self.odds_api_key = odds_api_key
-        self._deduper = OrderDeduper(Path(dedupe_dir or "data/order_dedup"))
+        self._deduper = SimpleOrderLock(Path(dedupe_dir or "data/order_dedup"))
         print("🔐 Loading private key...")
         with open(private_key_path, "rb") as f:
             self.private_key = serialization.load_pem_private_key(
@@ -48,7 +83,9 @@ class KalshiBetting:
         message = f"{timestamp}{method}{path_without_query}".encode("utf-8")
         signature = self.private_key.sign(
             message,
-            padding.PSS(mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH),
+            padding.PSS(
+                mgf=padding.MGF1(hashes.SHA256()), salt_length=padding.PSS.DIGEST_LENGTH
+            ),
             hashes.SHA256(),
         )
         return base64.b64encode(signature).decode("utf-8")
@@ -63,7 +100,9 @@ class KalshiBetting:
         }
 
     def _get(self, path: str) -> Dict:
-        response = requests.get(self.base_url + path, headers=self._get_headers("GET", path))
+        response = requests.get(
+            self.base_url + path, headers=self._get_headers("GET", path)
+        )
         response.raise_for_status()
         return response.json()
 
@@ -104,14 +143,18 @@ class KalshiBetting:
             print(f"⚠️  Failed to get market {ticker}: {e}")
             return None
 
-    def verify_game_not_started(self, home_team: str, away_team: str, sport: str) -> bool:
+    def verify_game_not_started(
+        self, home_team: str, away_team: str, sport: str
+    ) -> bool:
         """
         Verify game has not started using The Odds API.
         This is CRITICAL - Kalshi market status 'active' does NOT mean game hasn't started.
         Returns True if game has NOT started, False if it has.
         """
         if not self.odds_api_key:
-            print(f"   ⚠️  No Odds API key - cannot verify game start time (proceeding anyway)")
+            print(
+                "   ⚠️  No Odds API key - cannot verify game start time (proceeding anyway)"
+            )
             return True
 
         try:
@@ -153,7 +196,9 @@ class KalshiBetting:
                 ):
                     # Check if game has scores (started or completed)
                     if game.get("scores") or game.get("completed"):
-                        print(f"   ❌ Game has STARTED/COMPLETED: {game.get('commence_time')}")
+                        print(
+                            f"   ❌ Game has STARTED/COMPLETED: {game.get('commence_time')}"
+                        )
                         return False
 
             # Game not found in started/completed games
@@ -174,14 +219,17 @@ class KalshiBetting:
             return datetime.now(timezone.utc) >= datetime.fromisoformat(
                 close_time.replace("Z", "+00:00")
             )
-        except:
+        except Exception:
             return False
 
-    def calculate_bet_size(self, confidence: float, edge: float, balance: float) -> float:
+    def calculate_bet_size(
+        self, confidence: float, edge: float, balance: float
+    ) -> float:
         bet_size = balance * (edge / 4.0)
         return round(
             max(
-                self.min_bet_size, min(self.max_bet_size, balance * self.max_position_pct, bet_size)
+                self.min_bet_size,
+                min(self.max_bet_size, balance * self.max_position_pct, bet_size),
             ),
             2,
         )
@@ -236,7 +284,9 @@ class KalshiBetting:
             trade_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
         # 1. Local Filesystem Lock (Deduper)
-        reservation = self._deduper.reserve(trade_date=trade_date, ticker=ticker, side=side)
+        reservation = self._deduper.reserve(
+            trade_date=trade_date, ticker=ticker, side=side
+        )
         if not reservation.reserved:
             print(f"   ⚠️  Skipping: {ticker} locally locked ({reservation.reason})")
             return None
@@ -254,7 +304,7 @@ class KalshiBetting:
                 # Release the local lock since we didn't actually bet
                 try:
                     reservation.lock_path.unlink()
-                except:
+                except Exception:
                     pass
                 return None
 
@@ -318,19 +368,19 @@ class KalshiBetting:
             if sport_filter and rec.get("sport", "").upper() not in [
                 s.upper() for s in sport_filter
             ]:
-                skipped.append({"rec": rec, "reason": f"Sport filter"})
+                skipped.append({"rec": rec, "reason": "Sport filter"})
                 continue
             elo_prob = rec.get("elo_prob", 0)
             if elo_prob < min_confidence:
-                skipped.append({"rec": rec, "reason": f"Low confidence"})
+                skipped.append({"rec": rec, "reason": "Low confidence"})
                 continue
             edge = rec.get("edge", 0)
             if edge < min_edge:
-                skipped.append({"rec": rec, "reason": f"Low edge"})
+                skipped.append({"rec": rec, "reason": "Low edge"})
                 continue
             ticker = rec.get("ticker")
             if not ticker:
-                errors.append(f"No ticker")
+                errors.append("No ticker")
                 continue
             market = self.get_market_details(ticker)
             if not market:
@@ -340,7 +390,9 @@ class KalshiBetting:
             # CRITICAL: Verify game has not started using The Odds API
             sport = rec.get("sport", "NBA")
             if sport.lower() != "tennis":
-                if not self.verify_game_not_started(rec["home_team"], rec["away_team"], sport):
+                if not self.verify_game_not_started(
+                    rec["home_team"], rec["away_team"], sport
+                ):
                     skipped.append({"rec": rec, "reason": "Game already started"})
                     continue
 
@@ -349,7 +401,7 @@ class KalshiBetting:
                 continue
             bet_size = self.calculate_bet_size(elo_prob, edge, balance)
             if bet_size < self.min_bet_size:
-                skipped.append({"rec": rec, "reason": f"Insufficient balance"})
+                skipped.append({"rec": rec, "reason": "Insufficient balance"})
                 continue
 
             # Determine side (YES or NO)
@@ -359,11 +411,14 @@ class KalshiBetting:
                 # If YES player matches our bet_on, we bet YES, otherwise NO
                 ticker_parts = ticker.split("-")
                 if len(ticker_parts) >= 3:
-                    yes_player_abbr = ticker_parts[-1]  # Last part is YES player abbreviation
-                    bet_on_upper = rec["bet_on"].upper()
+                    yes_player_abbr = ticker_parts[
+                        -1
+                    ]  # Last part is YES player abbreviation
+                    rec["bet_on"].upper()
                     # Check if our player's name is in the YES abbreviation
                     if any(
-                        word[:3].upper() == yes_player_abbr[:3] for word in rec["bet_on"].split()
+                        word[:3].upper() == yes_player_abbr[:3]
+                        for word in rec["bet_on"].split()
                     ):
                         side = "yes"
                     else:
@@ -394,17 +449,29 @@ class KalshiBetting:
                 result = self.place_bet(ticker, side, bet_size, trade_date=trade_date)
                 if result:
                     placed.append(
-                        {"rec": rec, "bet_size": bet_size, "side": side, "result": result}
+                        {
+                            "rec": rec,
+                            "bet_size": bet_size,
+                            "side": side,
+                            "result": result,
+                        }
                     )
                     balance -= bet_size
                 else:
                     errors.append(f"Failed: {ticker}")
             else:
-                print(f"   [DRY RUN] Would place bet")
-                placed.append({"rec": rec, "bet_size": bet_size, "side": side, "dry_run": True})
+                print("   [DRY RUN] Would place bet")
+                placed.append(
+                    {"rec": rec, "bet_size": bet_size, "side": side, "dry_run": True}
+                )
                 balance -= bet_size
             time.sleep(1)
-        return {"placed": placed, "skipped": skipped, "errors": errors, "balance": balance}
+        return {
+            "placed": placed,
+            "skipped": skipped,
+            "errors": errors,
+            "balance": balance,
+        }
 
 
 if __name__ == "__main__":

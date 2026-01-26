@@ -7,7 +7,6 @@ import requests
 import json
 import time
 from pathlib import Path
-from datetime import datetime
 
 
 class MLBGames:
@@ -29,8 +28,10 @@ class MLBGames:
 
                 # Handle rate limiting
                 if response.status_code == 429:
-                    wait_time = (2 ** attempt) * 3  # 3, 6, 12, 24, 48 seconds
-                    print(f"Rate limited. Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
+                    wait_time = (2**attempt) * 3  # 3, 6, 12, 24, 48 seconds
+                    print(
+                        f"Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}"
+                    )
                     time.sleep(wait_time)
                     continue
 
@@ -43,7 +44,7 @@ class MLBGames:
             except requests.exceptions.RequestException as e:
                 if attempt == max_retries - 1:
                     raise
-                wait_time = (2 ** attempt) * 3
+                wait_time = (2**attempt) * 3
                 print(f"Request failed: {e}. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
 
@@ -56,9 +57,9 @@ class MLBGames:
         """
         url = f"{self.BASE_URL}/schedule"
         params = {
-            'sportId': 1,  # MLB
-            'date': date_str,
-            'hydrate': 'team,linescore,decisions'
+            "sportId": 1,  # MLB
+            "date": date_str,
+            "hydrate": "team,linescore,decisions",
         }
 
         return self._make_request(url, params)
@@ -81,15 +82,15 @@ class MLBGames:
         # Get schedule
         schedule = self.get_schedule_for_date(date_str)
         schedule_file = self.output_dir / f"schedule_{date_str}.json"
-        with open(schedule_file, 'w') as f:
+        with open(schedule_file, "w") as f:
             json.dump(schedule, f, indent=2)
         print(f"  Saved schedule to {schedule_file}")
 
         # Get game IDs
         game_ids = []
-        if 'dates' in schedule and len(schedule['dates']) > 0:
-            for game in schedule['dates'][0].get('games', []):
-                game_ids.append(game['gamePk'])
+        if "dates" in schedule and len(schedule["dates"]) > 0:
+            for game in schedule["dates"][0].get("games", []):
+                game_ids.append(game["gamePk"])
 
         print(f"  Found {len(game_ids)} games")
 
@@ -101,13 +102,13 @@ class MLBGames:
                 # Get game feed
                 game_data = self.get_game_data(game_id)
                 game_file = self.output_dir / f"game_{game_id}.json"
-                with open(game_file, 'w') as f:
+                with open(game_file, "w") as f:
                     json.dump(game_data, f, indent=2)
 
                 # Get boxscore
                 boxscore = self.get_game_boxscore(game_id)
                 boxscore_file = self.output_dir / f"boxscore_{game_id}.json"
-                with open(boxscore_file, 'w') as f:
+                with open(boxscore_file, "w") as f:
                     json.dump(boxscore, f, indent=2)
 
                 # Rate limiting

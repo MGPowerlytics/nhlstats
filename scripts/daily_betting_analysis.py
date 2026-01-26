@@ -4,7 +4,6 @@ Daily betting analysis - Quick command to check all opportunities.
 """
 
 import subprocess
-import sys
 from datetime import datetime
 from pathlib import Path
 
@@ -28,7 +27,9 @@ def run_analysis():
 
     if not bet_files:
         print("⚠️  No Kalshi bets found for today!")
-        print("Run the Airflow DAG first: docker exec <scheduler> airflow dags trigger multi_sport_betting_workflow")
+        print(
+            "Run the Airflow DAG first: docker exec <scheduler> airflow dags trigger multi_sport_betting_workflow"
+        )
         return
 
     print(f"✓ Found Kalshi bets for: {', '.join(bet_files)}\n")
@@ -37,8 +38,7 @@ def run_analysis():
     print("📥 Fetching BetMGM odds...")
     print()
     result = subprocess.run(
-        ["python", "plugins/betmgm_integration.py"],
-        capture_output=False
+        ["python", "plugins/betmgm_integration.py"], capture_output=False
     )
 
     if result.returncode != 0:
@@ -49,8 +49,7 @@ def run_analysis():
     print("\n" + "=" * 80)
     print()
     result = subprocess.run(
-        ["python", "compare_betting_markets.py", today],
-        capture_output=False
+        ["python", "compare_betting_markets.py", today], capture_output=False
     )
 
     if result.returncode != 0:

@@ -5,12 +5,9 @@ Production-ready Elo rating system for NBA predictions.
 Inherits from BaseEloRating for unified interface.
 """
 
-from .base_elo_rating import BaseEloRating
-from typing import Dict, Optional, Union
-import json
-from pathlib import Path
+from plugins.elo.base_elo_rating import BaseEloRating
+from typing import Dict, Union
 import pandas as pd
-import numpy as np
 
 
 class NBAEloRating(BaseEloRating):
@@ -28,7 +25,7 @@ class NBAEloRating(BaseEloRating):
         self,
         k_factor: float = 20.0,
         home_advantage: float = 100.0,
-        initial_rating: float = 1500.0
+        initial_rating: float = 1500.0,
     ) -> None:
         """
         Initialize NBA Elo rating system.
@@ -41,7 +38,7 @@ class NBAEloRating(BaseEloRating):
         super().__init__(
             k_factor=k_factor,
             home_advantage=home_advantage,
-            initial_rating=initial_rating
+            initial_rating=initial_rating,
         )
         self.game_history = []
         self.team_history: Dict[str, list] = {}
@@ -73,7 +70,9 @@ class NBAEloRating(BaseEloRating):
         """
         return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning.
 
@@ -99,7 +98,7 @@ class NBAEloRating(BaseEloRating):
         away_team: str,
         home_won: Union[bool, float] = None,
         is_neutral: bool = False,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Update Elo ratings after a game result.
@@ -112,10 +111,10 @@ class NBAEloRating(BaseEloRating):
             **kwargs: Additional arguments
         """
         # Alias home_win
-        if home_won is None and 'home_win' in kwargs:
-            home_won = kwargs['home_win']
+        if home_won is None and "home_win" in kwargs:
+            home_won = kwargs["home_win"]
         elif home_won is None:
-             raise ValueError("Must provide home_won")
+            raise ValueError("Must provide home_won")
 
         if home_team == away_team:
             raise ValueError("Home and away teams cannot be the same")
@@ -145,14 +144,16 @@ class NBAEloRating(BaseEloRating):
         self.ratings[away_team] = away_rating - change
 
         # Record game history
-        self.game_history.append({
-            'home_team': home_team,
-            'away_team': away_team,
-            'home_won': bool(home_won),
-            'home_rating_before': home_rating,
-            'away_rating_before': away_rating,
-            'change': change
-        })
+        self.game_history.append(
+            {
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_won": bool(home_won),
+                "home_rating_before": home_rating,
+                "away_rating_before": away_rating,
+                "change": change,
+            }
+        )
 
         return change
 
@@ -165,7 +166,9 @@ class NBAEloRating(BaseEloRating):
         """
         return self.ratings.copy()
 
-    def legacy_update(self, home_team: str, away_team: str, home_won: bool, **kwargs) -> None:
+    def legacy_update(
+        self, home_team: str, away_team: str, home_won: bool, **kwargs
+    ) -> None:
         """
         Legacy update method for backward compatibility.
 
@@ -176,7 +179,9 @@ class NBAEloRating(BaseEloRating):
         """
         self.update(home_team, away_team, home_won, is_neutral=False, **kwargs)
 
-    def evaluate_on_games(self, games: pd.DataFrame) -> Dict[str, Union[float, pd.DataFrame]]:
+    def evaluate_on_games(
+        self, games: pd.DataFrame
+    ) -> Dict[str, Union[float, pd.DataFrame]]:
         """
         Evaluate Elo predictions on historical games.
 
@@ -188,33 +193,36 @@ class NBAEloRating(BaseEloRating):
         """
         results = []
         for _, row in games.iterrows():
-            pred = self.predict(row['home_team'], row['away_team'])
-            results.append({
-                'home_team': row['home_team'],
-                'away_team': row['away_team'],
-                'home_won': row['home_won'],
-                'prediction': pred,
-                'correct': (pred > 0.5) == row['home_won']
-            })
+            pred = self.predict(row["home_team"], row["away_team"])
+            results.append(
+                {
+                    "home_team": row["home_team"],
+                    "away_team": row["away_team"],
+                    "home_won": row["home_won"],
+                    "prediction": pred,
+                    "correct": (pred > 0.5) == row["home_won"],
+                }
+            )
 
         df = pd.DataFrame(results)
-        accuracy = df['correct'].mean() if not df.empty else 0.0
+        accuracy = df["correct"].mean() if not df.empty else 0.0
 
         auc = 0.5
-        if not df.empty and 'prediction' in df.columns and 'home_won' in df.columns:
+        if not df.empty and "prediction" in df.columns and "home_won" in df.columns:
             try:
                 from sklearn.metrics import roc_auc_score
+
                 # Ensure we have both classes
-                if len(df['home_won'].unique()) > 1:
-                    auc = roc_auc_score(df['home_won'].astype(int), df['prediction'])
+                if len(df["home_won"].unique()) > 1:
+                    auc = roc_auc_score(df["home_won"].astype(int), df["prediction"])
             except ImportError:
                 pass
             except Exception:
                 pass
 
         return {
-            'accuracy': accuracy,
-            'auc': auc,
-            'actuals': df['home_won'] if not df.empty else [],
-            'predictions': df
+            "accuracy": accuracy,
+            "auc": auc,
+            "actuals": df["home_won"] if not df.empty else [],
+            "predictions": df,
         }

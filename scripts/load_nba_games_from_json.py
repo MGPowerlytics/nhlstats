@@ -16,66 +16,74 @@ def parse_scoreboard_json(file_path: Path) -> List[Dict[str, Any]]:
     games = []
 
     # NBA API format: resultSets array with different data
-    if 'resultSets' not in data:
+    if "resultSets" not in data:
         return games
 
     # Find the GameHeader and LineScore result sets
     game_header = None
     line_score = None
 
-    for rs in data['resultSets']:
-        if rs.get('name') == 'GameHeader':
+    for rs in data["resultSets"]:
+        if rs.get("name") == "GameHeader":
             game_header = rs
-        elif rs.get('name') == 'LineScore':
+        elif rs.get("name") == "LineScore":
             line_score = rs
 
     if not game_header or not line_score:
         return games
 
     # Parse game headers
-    game_header_cols = {col: idx for idx, col in enumerate(game_header['headers'])}
+    game_header_cols = {col: idx for idx, col in enumerate(game_header["headers"])}
 
-    for row in game_header['rowSet']:
-        game_id = str(row[game_header_cols['GAME_ID']])
-        game_date_str = str(row[game_header_cols['GAME_DATE_EST']])
-        game_status = str(row[game_header_cols['GAME_STATUS_TEXT']])
+    for row in game_header["rowSet"]:
+        game_id = str(row[game_header_cols["GAME_ID"]])
+        game_date_str = str(row[game_header_cols["GAME_DATE_EST"]])
+        game_status = str(row[game_header_cols["GAME_STATUS_TEXT"]])
 
         # Parse date (format: 2024-10-22T00:00:00)
         try:
-            game_date = datetime.strptime(game_date_str[:10], '%Y-%m-%d').date()
-        except:
+            game_date = datetime.strptime(game_date_str[:10], "%Y-%m-%d").date()
+        except Exception:
             continue
 
         # Find team scores from LineScore
-        line_score_cols = {col: idx for idx, col in enumerate(line_score['headers'])}
+        line_score_cols = {col: idx for idx, col in enumerate(line_score["headers"])}
         team_scores = []
 
-        for ls_row in line_score['rowSet']:
-            if str(ls_row[line_score_cols['GAME_ID']]) == game_id:
-                team_scores.append({
-                    'team_id': ls_row[line_score_cols['TEAM_ID']],
-                    'team_abbr': ls_row[line_score_cols['TEAM_ABBREVIATION']],
-                    'team_name': ls_row[line_score_cols['TEAM_CITY_NAME']] + ' ' + ls_row[line_score_cols['TEAM_NAME']],
-                    'pts': ls_row[line_score_cols['PTS']],
-                })
+        for ls_row in line_score["rowSet"]:
+            if str(ls_row[line_score_cols["GAME_ID"]]) == game_id:
+                team_scores.append(
+                    {
+                        "team_id": ls_row[line_score_cols["TEAM_ID"]],
+                        "team_abbr": ls_row[line_score_cols["TEAM_ABBREVIATION"]],
+                        "team_name": ls_row[line_score_cols["TEAM_CITY_NAME"]]
+                        + " "
+                        + ls_row[line_score_cols["TEAM_NAME"]],
+                        "pts": ls_row[line_score_cols["PTS"]],
+                    }
+                )
 
         if len(team_scores) == 2:
             # First team is usually away, second is home
             away_team = team_scores[0]
             home_team = team_scores[1]
 
-            games.append({
-                'game_id': game_id,
-                'game_date': game_date,
-                'season': f"{game_date.year}-{game_date.year + 1}" if game_date.month >= 10 else f"{game_date.year - 1}-{game_date.year}",
-                'game_status': game_status,
-                'home_team_id': home_team['team_id'],
-                'away_team_id': away_team['team_id'],
-                'home_team_name': home_team['team_name'],
-                'away_team_name': away_team['team_name'],
-                'home_score': home_team['pts'],
-                'away_score': away_team['pts'],
-            })
+            games.append(
+                {
+                    "game_id": game_id,
+                    "game_date": game_date,
+                    "season": f"{game_date.year}-{game_date.year + 1}"
+                    if game_date.month >= 10
+                    else f"{game_date.year - 1}-{game_date.year}",
+                    "game_status": game_status,
+                    "home_team_id": home_team["team_id"],
+                    "away_team_id": away_team["team_id"],
+                    "home_team_name": home_team["team_name"],
+                    "away_team_name": away_team["team_name"],
+                    "home_score": home_team["pts"],
+                    "away_score": away_team["pts"],
+                }
+            )
 
     return games
 
@@ -105,8 +113,11 @@ def load_nba_games_to_duckdb(
 
     # Find all date directories
     import re
-    date_pattern = re.compile(r'^\d{4}-\d{2}-\d{2}$')
-    date_dirs = [d for d in nba_dir.iterdir() if d.is_dir() and date_pattern.match(d.name)]
+
+    date_pattern = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+    date_dirs = [
+        d for d in nba_dir.iterdir() if d.is_dir() and date_pattern.match(d.name)
+    ]
     date_dirs.sort()
 
     # Filter by date range if specified
@@ -159,23 +170,26 @@ def load_nba_games_to_duckdb(
     """)
 
     # Insert games
-    con.executemany("""
+    con.executemany(
+        """
         INSERT INTO nba_games VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    """, [
-        (
-            g['game_id'],
-            g['game_date'],
-            g['season'],
-            g['game_status'],
-            g['home_team_id'],
-            g['away_team_id'],
-            g['home_team_name'],
-            g['away_team_name'],
-            g['home_score'],
-            g['away_score'],
-        )
-        for g in all_games
-    ])
+    """,
+        [
+            (
+                g["game_id"],
+                g["game_date"],
+                g["season"],
+                g["game_status"],
+                g["home_team_id"],
+                g["away_team_id"],
+                g["home_team_name"],
+                g["away_team_name"],
+                g["home_score"],
+                g["away_score"],
+            )
+            for g in all_games
+        ],
+    )
 
     con.close()
 

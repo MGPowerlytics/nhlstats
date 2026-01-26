@@ -7,15 +7,16 @@ import sys
 from pathlib import Path
 
 # Add plugins directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 from elo import MLBEloRating, BaseEloRating
 
 
 def test_mlb_elo_inheritance():
     """Test that MLBEloRating inherits from BaseEloRating (should pass after refactoring)."""
-    assert BaseEloRating in MLBEloRating.__bases__, \
+    assert BaseEloRating in MLBEloRating.__bases__, (
         f"MLBEloRating does not inherit from BaseEloRating. Bases: {MLBEloRating.__bases__}"
+    )
 
 
 def test_mlb_elo_abstract_methods():
@@ -24,7 +25,13 @@ def test_mlb_elo_abstract_methods():
     elo = MLBEloRating()
 
     # Check required methods exist
-    required_methods = ['predict', 'update', 'get_rating', 'expected_score', 'get_all_ratings']
+    required_methods = [
+        "predict",
+        "update",
+        "get_rating",
+        "expected_score",
+        "get_all_ratings",
+    ]
     for method_name in required_methods:
         assert hasattr(elo, method_name), f"Missing method: {method_name}"
 
@@ -34,20 +41,22 @@ def test_mlb_elo_abstract_methods():
     # predict should accept is_neutral parameter
     sig = inspect.signature(elo.predict)
     params = list(sig.parameters.keys())
-    assert 'home_team' in params
-    assert 'away_team' in params
-    assert 'is_neutral' in params or 'is_neutral' in str(sig), \
+    assert "home_team" in params
+    assert "away_team" in params
+    assert "is_neutral" in params or "is_neutral" in str(sig), (
         f"predict method missing is_neutral parameter. Signature: {sig}"
+    )
 
     # update should accept is_neutral parameter
     sig = inspect.signature(elo.update)
     params = list(sig.parameters.keys())
     # BaseEloRating update signature: update(home_team, away_team, home_won, is_neutral=False)
-    assert 'home_team' in params
-    assert 'away_team' in params
-    assert 'home_won' in params
-    assert 'is_neutral' in params or 'is_neutral' in str(sig), \
+    assert "home_team" in params
+    assert "away_team" in params
+    assert "home_won" in params
+    assert "is_neutral" in params or "is_neutral" in str(sig), (
         f"update method missing is_neutral parameter. Signature: {sig}"
+    )
 
 
 def test_mlb_elo_backward_compatibility():

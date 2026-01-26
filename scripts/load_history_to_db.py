@@ -8,7 +8,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 # Add plugins to path
-sys.path.append('/mnt/data2/nhlstats/plugins')
+sys.path.append("/mnt/data2/nhlstats/plugins")
 from db_loader import NHLDatabaseLoader
 
 
@@ -24,7 +24,7 @@ def load_historical_data():
 
     with NHLDatabaseLoader(db_path="data/nhlstats.duckdb") as loader:
         while current_date <= end_date:
-            date_str = current_date.strftime('%Y-%m-%d')
+            date_str = current_date.strftime("%Y-%m-%d")
 
             try:
                 loader.load_date(date_str, data_dir=Path("data"))
@@ -39,10 +39,10 @@ def load_historical_data():
             if dates_processed % 100 == 0:
                 print(f"[Progress] Loaded data for {dates_processed} dates\n")
 
-    print(f"\n" + "="*60)
-    print(f"Data Load Complete!")
+    print("\n" + "=" * 60)
+    print("Data Load Complete!")
     print(f"  Total dates processed: {dates_processed}")
-    print("="*60)
+    print("=" * 60)
 
 
 def verify_data_counts():
@@ -65,18 +65,30 @@ def verify_data_counts():
         print("\nDate Ranges:")
 
         if nhl_count > 0:
-            nhl_min_date = loader.conn.execute("SELECT MIN(game_date) FROM games").fetchone()[0]
-            nhl_max_date = loader.conn.execute("SELECT MAX(game_date) FROM games").fetchone()[0]
+            nhl_min_date = loader.conn.execute(
+                "SELECT MIN(game_date) FROM games"
+            ).fetchone()[0]
+            nhl_max_date = loader.conn.execute(
+                "SELECT MAX(game_date) FROM games"
+            ).fetchone()[0]
             print(f"  NHL: {nhl_min_date} to {nhl_max_date}")
 
         if mlb_count > 0:
-            mlb_min_date = loader.conn.execute("SELECT MIN(game_date) FROM mlb_games").fetchone()[0]
-            mlb_max_date = loader.conn.execute("SELECT MAX(game_date) FROM mlb_games").fetchone()[0]
+            mlb_min_date = loader.conn.execute(
+                "SELECT MIN(game_date) FROM mlb_games"
+            ).fetchone()[0]
+            mlb_max_date = loader.conn.execute(
+                "SELECT MAX(game_date) FROM mlb_games"
+            ).fetchone()[0]
             print(f"  MLB: {mlb_min_date} to {mlb_max_date}")
 
         if nfl_count > 0:
-            nfl_min_date = loader.conn.execute("SELECT MIN(game_date) FROM nfl_games").fetchone()[0]
-            nfl_max_date = loader.conn.execute("SELECT MAX(game_date) FROM nfl_games").fetchone()[0]
+            nfl_min_date = loader.conn.execute(
+                "SELECT MIN(game_date) FROM nfl_games"
+            ).fetchone()[0]
+            nfl_max_date = loader.conn.execute(
+                "SELECT MAX(game_date) FROM nfl_games"
+            ).fetchone()[0]
             print(f"  NFL: {nfl_min_date} to {nfl_max_date}")
 
 

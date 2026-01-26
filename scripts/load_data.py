@@ -2,7 +2,8 @@
 import sys
 from pathlib import Path
 from datetime import datetime, timedelta
-sys.path.append('/mnt/data2/nhlstats/plugins')
+
+sys.path.append("/mnt/data2/nhlstats/plugins")
 from db_loader import NHLDatabaseLoader
 
 start_date = datetime(2021, 1, 1)
@@ -16,7 +17,7 @@ print(f"Starting data load from {start_date.date()} to {end_date.date()}\n")
 
 with NHLDatabaseLoader(db_path="data/nhlstats.duckdb") as loader:
     while current_date <= end_date:
-        date_str = current_date.strftime('%Y-%m-%d')
+        date_str = current_date.strftime("%Y-%m-%d")
 
         try:
             loader.load_date(date_str, data_dir=Path("data"))

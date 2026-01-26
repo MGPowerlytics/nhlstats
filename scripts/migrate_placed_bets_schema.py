@@ -67,7 +67,7 @@ def migrate_schema():
     """)
 
     print(f"\n📊 Table now has {len(result)} columns:")
-    for i, col in enumerate(result['column_name'], 1):
+    for i, col in enumerate(result["column_name"], 1):
         print(f"  {i:2d}. {col}")
 
 

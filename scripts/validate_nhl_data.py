@@ -4,12 +4,13 @@ Comprehensive validation of NHL game data for Elo rating accuracy.
 """
 
 import duckdb
-from datetime import datetime, timedelta
+from datetime import datetime
 from collections import defaultdict
 import sys
 
+
 class NHLDataValidator:
-    def __init__(self, db_path='data/nhlstats.duckdb'):
+    def __init__(self, db_path="data/nhlstats.duckdb"):
         self.db_path = db_path
         self.conn = None
         self.issues = []
@@ -63,7 +64,7 @@ class NHLDataValidator:
             ORDER BY count DESC
         """).fetchall()
 
-        print(f"\n  Games by state:")
+        print("\n  Games by state:")
         for state, count in results:
             print(f"    {state:15} {count:6,} games")
 
@@ -76,7 +77,10 @@ class NHLDataValidator:
         print(f"\n✓ Completed games (OFF/FINAL): {completed:,}")
 
         if completed < total_games * 0.5:
-            self.add_warning("BASIC", f"Only {completed/total_games*100:.1f}% of games are completed")
+            self.add_warning(
+                "BASIC",
+                f"Only {completed / total_games * 100:.1f}% of games are completed",
+            )
 
     def validate_seasons(self):
         """Validate season data"""
@@ -96,20 +100,29 @@ class NHLDataValidator:
             ORDER BY season DESC
         """).fetchall()
 
-        print(f"\n{'Season':<8} {'Total':>7} {'Complete':>9} {'Teams':>6} {'Date Range':>25}")
+        print(
+            f"\n{'Season':<8} {'Total':>7} {'Complete':>9} {'Teams':>6} {'Date Range':>25}"
+        )
         print("-" * 70)
 
         for season, total, completed, start, end, teams in results:
-            print(f"{season:<8} {total:>7,} {completed:>9,} {teams:>6} {start} to {end}")
+            print(
+                f"{season:<8} {total:>7,} {completed:>9,} {teams:>6} {start} to {end}"
+            )
 
             # Expected games per season (82 games * 32 teams / 2)
             expected_min = 1200  # Rough minimum for full season
             if completed > 0 and completed < expected_min and season < 2026:
-                self.add_warning("SEASON", f"Season {season} has only {completed} completed games (expected ~1312)")
+                self.add_warning(
+                    "SEASON",
+                    f"Season {season} has only {completed} completed games (expected ~1312)",
+                )
 
             # Expected 32 teams (or 31 before Seattle joined)
             if teams < 30:
-                self.add_issue("SEASON", f"Season {season} has only {teams} teams (expected 30-32)")
+                self.add_issue(
+                    "SEASON", f"Season {season} has only {teams} teams (expected 30-32)"
+                )
 
     def validate_teams(self):
         """Validate team data"""
@@ -135,7 +148,7 @@ class NHLDataValidator:
             team_games[team] += games
 
         print(f"\n✓ Found {len(team_games)} unique teams")
-        print(f"\nGames per team:")
+        print("\nGames per team:")
 
         sorted_teams = sorted(team_games.items(), key=lambda x: x[1], reverse=True)
         for team, games in sorted_teams:
@@ -151,7 +164,9 @@ class NHLDataValidator:
 
         # Check for large variance (might indicate missing data)
         if max_games > min_games * 2:
-            self.add_warning("TEAMS", f"Large variance in games per team: {min_games} to {max_games}")
+            self.add_warning(
+                "TEAMS", f"Large variance in games per team: {min_games} to {max_games}"
+            )
 
         # Current season validation
         current_season = 2024
@@ -172,7 +187,10 @@ class NHLDataValidator:
             current_team_games[team] += games
 
         if len(current_team_games) < 30:
-            self.add_warning("TEAMS", f"Current season {current_season} has only {len(current_team_games)} teams")
+            self.add_warning(
+                "TEAMS",
+                f"Current season {current_season} has only {len(current_team_games)} teams",
+            )
 
     def validate_date_gaps(self):
         """Check for unexpected date gaps"""
@@ -193,12 +211,14 @@ class NHLDataValidator:
             self.add_issue("DATES", "No completed games found")
             return
 
-        dates_with_games = [(datetime.strptime(str(d), '%Y-%m-%d').date(), cnt) for d, cnt in results]
+        dates_with_games = [
+            (datetime.strptime(str(d), "%Y-%m-%d").date(), cnt) for d, cnt in results
+        ]
 
         # Find gaps > 7 days (potential missing data)
         large_gaps = []
         for i in range(1, len(dates_with_games)):
-            prev_date, _ = dates_with_games[i-1]
+            prev_date, _ = dates_with_games[i - 1]
             curr_date, _ = dates_with_games[i]
             gap_days = (curr_date - prev_date).days
 
@@ -214,7 +234,9 @@ class NHLDataValidator:
                 if start.month >= 6 and end.month <= 9:
                     continue  # Expected off-season
                 else:
-                    self.add_warning("DATES", f"Unexpected {days}-day gap: {start} to {end}")
+                    self.add_warning(
+                        "DATES", f"Unexpected {days}-day gap: {start} to {end}"
+                    )
         else:
             print("\n✓ No unexpected date gaps found")
 
@@ -225,7 +247,10 @@ class NHLDataValidator:
             print(f"\n✓ Most recent game: {most_recent} ({days_ago} days ago)")
 
             if days_ago > 3:
-                self.add_warning("DATES", f"Most recent game is {days_ago} days old - data may be stale")
+                self.add_warning(
+                    "DATES",
+                    f"Most recent game is {days_ago} days old - data may be stale",
+                )
 
     def validate_scores(self):
         """Validate score data"""
@@ -243,7 +268,9 @@ class NHLDataValidator:
         missing_scores = result[0]
         if missing_scores > 0:
             print(f"\n❌ {missing_scores} completed games missing scores")
-            self.add_issue("SCORES", f"{missing_scores} completed games have NULL scores")
+            self.add_issue(
+                "SCORES", f"{missing_scores} completed games have NULL scores"
+            )
         else:
             print("\n✓ All completed games have scores")
 
@@ -259,9 +286,9 @@ class NHLDataValidator:
             ORDER BY total_goals
         """).fetchall()
 
-        print(f"\n  Total goals distribution:")
+        print("\n  Total goals distribution:")
         for goals, games in results[:15]:  # Show 0-14 goals
-            bar = '█' * (games // 100)
+            bar = "█" * (games // 100)
             print(f"    {goals:2} goals: {games:5,} games {bar}")
 
         # Suspiciously high scores
@@ -276,7 +303,7 @@ class NHLDataValidator:
         """).fetchall()
 
         if result:
-            print(f"\n  High-scoring games (verify these are correct):")
+            print("\n  High-scoring games (verify these are correct):")
             for gid, date, home, away, hs, aws in result:
                 print(f"    {date}: {home} {hs} - {aws} {away}")
 
@@ -314,7 +341,9 @@ class NHLDataValidator:
             print(f"\n❌ Found {len(result)} duplicate matchups:")
             for date, home, away, count in result[:10]:
                 print(f"    {date}: {home} vs {away} ({count} entries)")
-            self.add_issue("DUPLICATES", f"{len(result)} duplicate matchups on same date")
+            self.add_issue(
+                "DUPLICATES", f"{len(result)} duplicate matchups on same date"
+            )
         else:
             print("\n✓ No duplicate matchups on same date")
 
@@ -334,10 +363,12 @@ class NHLDataValidator:
         """).fetchall()
 
         if results:
-            print(f"\n⚠️  Teams with inconsistent names:")
+            print("\n⚠️  Teams with inconsistent names:")
             for abbrev, count, names in results:
                 print(f"    {abbrev}: {names}")
-            self.add_warning("CONSISTENCY", f"{len(results)} teams have inconsistent names")
+            self.add_warning(
+                "CONSISTENCY", f"{len(results)} teams have inconsistent names"
+            )
         else:
             print("\n✓ Team names are consistent")
 
@@ -384,9 +415,11 @@ class NHLDataValidator:
         except Exception as e:
             print(f"\n❌ Validation failed with error: {e}")
             import traceback
+
             traceback.print_exc()
             return 1
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     validator = NHLDataValidator()
     sys.exit(validator.run_all_validations())

@@ -7,10 +7,8 @@ Following TDD to fix betting errors:
 """
 
 import pytest
-import json
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock, mock_open
-from datetime import datetime, timezone
 import sys
 
 # Add plugins to path

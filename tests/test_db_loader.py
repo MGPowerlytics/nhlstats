@@ -2,13 +2,9 @@
 
 import pytest
 import sys
-import json
 from pathlib import Path
-from datetime import datetime
-from unittest.mock import patch, MagicMock
-import tempfile
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestNHLDatabaseLoader:
@@ -26,7 +22,7 @@ class TestNHLDatabaseLoader:
         loader = NHLDatabaseLoader(db_path=temp_db)
 
         # db_path is set for backward compatibility
-        assert 'test.duckdb' in str(loader.db_path)
+        assert "test.duckdb" in str(loader.db_path)
         assert loader._conn is None
 
     def test_context_manager(self, temp_db):
@@ -49,16 +45,18 @@ class TestNHLDatabaseLoader:
         loader.connect()
 
         # Check tables exist using Postgres query
-        result = loader.conn.execute(text("""
+        result = loader.conn.execute(
+            text("""
             SELECT tablename FROM pg_tables
             WHERE schemaname = 'public'
-        """))
+        """)
+        )
         table_names = [row[0] for row in result]
 
-        assert 'games' in table_names
-        assert 'teams' in table_names
-        assert 'mlb_games' in table_names
-        assert 'nfl_games' in table_names
+        assert "games" in table_names
+        assert "teams" in table_names
+        assert "mlb_games" in table_names
+        assert "nfl_games" in table_names
 
         loader.close()
 
@@ -86,7 +84,7 @@ class TestNHLDatabaseLoader:
         loader.close()
 
         # With Postgres, close() closes the internal connection
-        assert loader._conn is None or hasattr(loader._conn, 'closed')
+        assert loader._conn is None or hasattr(loader._conn, "closed")
 
 
 class TestDatabaseSchema:
@@ -109,12 +107,12 @@ class TestDatabaseSchema:
 
             column_names = [c[0] for c in columns]
 
-            assert 'game_id' in column_names
-            assert 'game_date' in column_names
-            assert 'home_team_name' in column_names
-            assert 'away_team_name' in column_names
-            assert 'home_score' in column_names
-            assert 'away_score' in column_names
+            assert "game_id" in column_names
+            assert "game_date" in column_names
+            assert "home_team_name" in column_names
+            assert "away_team_name" in column_names
+            assert "home_score" in column_names
+            assert "away_score" in column_names
 
     def test_teams_table_schema(self, temp_db):
         """Test teams table has correct schema."""
@@ -128,9 +126,9 @@ class TestDatabaseSchema:
 
             column_names = [c[0] for c in columns]
 
-            assert 'team_id' in column_names
-            assert 'team_abbrev' in column_names
-            assert 'team_name' in column_names
+            assert "team_id" in column_names
+            assert "team_abbrev" in column_names
+            assert "team_name" in column_names
 
     def test_mlb_games_table_schema(self, temp_db):
         """Test mlb_games table has correct schema."""
@@ -144,12 +142,12 @@ class TestDatabaseSchema:
 
             column_names = [c[0] for c in columns]
 
-            assert 'game_id' in column_names
-            assert 'game_date' in column_names
-            assert 'home_team' in column_names
-            assert 'away_team' in column_names
-            assert 'home_score' in column_names
-            assert 'away_score' in column_names
+            assert "game_id" in column_names
+            assert "game_date" in column_names
+            assert "home_team" in column_names
+            assert "away_team" in column_names
+            assert "home_score" in column_names
+            assert "away_score" in column_names
 
     def test_nfl_games_table_schema(self, temp_db):
         """Test nfl_games table has correct schema."""
@@ -163,11 +161,11 @@ class TestDatabaseSchema:
 
             column_names = [c[0] for c in columns]
 
-            assert 'game_id' in column_names
-            assert 'game_date' in column_names
-            assert 'home_team' in column_names
-            assert 'away_team' in column_names
-            assert 'week' in column_names
+            assert "game_id" in column_names
+            assert "game_date" in column_names
+            assert "home_team" in column_names
+            assert "away_team" in column_names
+            assert "week" in column_names
 
 
 class TestDataInsertion:
@@ -188,13 +186,17 @@ class TestDataInsertion:
             loader.conn.execute(text("DELETE FROM games WHERE game_id = '2024010101'"))
 
             # Insert a game
-            loader.conn.execute(text("""
+            loader.conn.execute(
+                text("""
                 INSERT INTO games (game_id, game_date, home_team_name, away_team_name, home_score, away_score)
                 VALUES ('2024010101', '2024-01-01', 'Toronto Maple Leafs', 'Boston Bruins', 4, 2)
-            """))
+            """)
+            )
 
             # Verify insertion
-            result = loader.conn.execute(text("SELECT COUNT(*) FROM games WHERE game_id = '2024010101'")).fetchone()
+            result = loader.conn.execute(
+                text("SELECT COUNT(*) FROM games WHERE game_id = '2024010101'")
+            ).fetchone()
             assert result[0] == 1
 
     def test_insert_duplicate_game_fails(self, temp_db):
@@ -211,31 +213,41 @@ class TestDataInsertion:
 
         # Skip in test environment - conftest adds ON CONFLICT DO NOTHING
         if os.environ.get("POSTGRES_HOST") != "postgres":
-            pytest.skip("Test requires production PostgreSQL - conftest translates INSERT to ON CONFLICT DO NOTHING")
+            pytest.skip(
+                "Test requires production PostgreSQL - conftest translates INSERT to ON CONFLICT DO NOTHING"
+            )
 
         # Check if PRIMARY KEY exists on games table
         with NHLDatabaseLoader(db_path=temp_db) as loader:
-            result = loader.conn.execute(text("""
+            result = loader.conn.execute(
+                text("""
                 SELECT COUNT(*) FROM information_schema.table_constraints
                 WHERE table_name = 'games' AND constraint_type = 'PRIMARY KEY'
-            """)).fetchone()
+            """)
+            ).fetchone()
 
             if result[0] == 0:
-                pytest.skip("PRIMARY KEY constraint not present on games table - skipping duplicate test")
+                pytest.skip(
+                    "PRIMARY KEY constraint not present on games table - skipping duplicate test"
+                )
 
             # Clear any existing test data
             loader.conn.execute(text("DELETE FROM games WHERE game_id = '2024010102'"))
 
-            loader.conn.execute(text("""
+            loader.conn.execute(
+                text("""
                 INSERT INTO games (game_id, game_date, home_team_name, away_team_name)
                 VALUES ('2024010102', '2024-01-01', 'Toronto', 'Boston')
-            """))
+            """)
+            )
 
             with pytest.raises(IntegrityError):
-                loader.conn.execute(text("""
+                loader.conn.execute(
+                    text("""
                     INSERT INTO games (game_id, game_date, home_team_name, away_team_name)
                     VALUES ('2024010102', '2024-01-01', 'Toronto', 'Boston')
-                """))
+                """)
+                )
 
     def test_insert_team(self, temp_db):
         """Test inserting a team record."""
@@ -246,13 +258,17 @@ class TestDataInsertion:
             # Clear any existing test data
             loader.conn.execute(text("DELETE FROM teams WHERE team_id = 10"))
 
-            loader.conn.execute(text("""
+            loader.conn.execute(
+                text("""
                 INSERT INTO teams (team_id, team_abbrev, team_name, team_common_name)
                 VALUES (10, 'TOR', 'Toronto Maple Leafs', 'Maple Leafs')
-            """))
+            """)
+            )
 
-            result = loader.conn.execute(text("SELECT team_name FROM teams WHERE team_id = 10")).fetchone()
-            assert result[0] == 'Toronto Maple Leafs'
+            result = loader.conn.execute(
+                text("SELECT team_name FROM teams WHERE team_id = 10")
+            ).fetchone()
+            assert result[0] == "Toronto Maple Leafs"
 
 
 class TestDataQuerying:
@@ -270,13 +286,15 @@ class TestDataQuerying:
             # Clear any existing data
             loader.conn.execute(text("DELETE FROM games"))
             # Insert test games
-            loader.conn.execute(text("""
+            loader.conn.execute(
+                text("""
                 INSERT INTO games (game_id, game_date, home_team_name, away_team_name, home_score, away_score)
                 VALUES
                     ('2024010101', '2024-01-01', 'Toronto Maple Leafs', 'Boston Bruins', 4, 2),
                     ('2024010102', '2024-01-01', 'Montreal Canadiens', 'Ottawa Senators', 3, 5),
                     ('2024010201', '2024-01-02', 'Toronto Maple Leafs', 'Montreal Canadiens', 2, 1)
-            """))
+            """)
+            )
 
         return db_path
 
@@ -295,9 +313,11 @@ class TestDataQuerying:
         from sqlalchemy import text
 
         with NHLDatabaseLoader(db_path=populated_db) as loader:
-            result = loader.conn.execute(text("""
+            result = loader.conn.execute(
+                text("""
                 SELECT COUNT(*) FROM games WHERE game_date = '2024-01-01'
-            """)).fetchone()
+            """)
+            ).fetchone()
             assert result[0] == 2
 
     def test_query_games_by_team(self, populated_db):
@@ -306,10 +326,12 @@ class TestDataQuerying:
         from sqlalchemy import text
 
         with NHLDatabaseLoader(db_path=populated_db) as loader:
-            result = loader.conn.execute(text("""
+            result = loader.conn.execute(
+                text("""
                 SELECT COUNT(*) FROM games
                 WHERE home_team_name = 'Toronto Maple Leafs' OR away_team_name = 'Toronto Maple Leafs'
-            """)).fetchone()
+            """)
+            ).fetchone()
             assert result[0] == 2
 
     def test_query_home_wins(self, populated_db):
@@ -318,9 +340,11 @@ class TestDataQuerying:
         from sqlalchemy import text
 
         with NHLDatabaseLoader(db_path=populated_db) as loader:
-            result = loader.conn.execute(text("""
+            result = loader.conn.execute(
+                text("""
                 SELECT COUNT(*) FROM games WHERE home_score > away_score
-            """)).fetchone()
+            """)
+            ).fetchone()
             assert result[0] == 2  # Toronto (4-2) and Toronto (2-1)
 
 
@@ -343,7 +367,6 @@ class TestDatabasePathHandling:
     def test_relative_path(self, tmp_path):
         """Test using relative path - Postgres uses central DB."""
         from db_loader import NHLDatabaseLoader
-        import os
 
         # With Postgres, path is ignored, just verify loader works
         loader = NHLDatabaseLoader(db_path="test.duckdb")

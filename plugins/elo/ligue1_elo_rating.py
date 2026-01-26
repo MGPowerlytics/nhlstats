@@ -7,9 +7,9 @@ Inherits from BaseEloRating for unified interface.
 """
 
 import math
-from typing import Dict, Tuple, Union
+from typing import Dict, Union
 
-from .base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import BaseEloRating
 
 
 class Ligue1EloRating(BaseEloRating):
@@ -20,7 +20,12 @@ class Ligue1EloRating(BaseEloRating):
     Inherits from BaseEloRating for unified interface.
     """
 
-    def __init__(self, k_factor: float = 20.0, home_advantage: float = 60.0, initial_rating: float = 1500.0):
+    def __init__(
+        self,
+        k_factor: float = 20.0,
+        home_advantage: float = 60.0,
+        initial_rating: float = 1500.0,
+    ):
         """
         Initialize Ligue 1 Elo rating system.
 
@@ -29,9 +34,15 @@ class Ligue1EloRating(BaseEloRating):
             home_advantage: Elo points added for home field (60 for soccer)
             initial_rating: Starting rating for new teams (1500 is standard)
         """
-        super().__init__(k_factor=k_factor, home_advantage=home_advantage, initial_rating=initial_rating)
+        super().__init__(
+            k_factor=k_factor,
+            home_advantage=home_advantage,
+            initial_rating=initial_rating,
+        )
 
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning (ignoring draws).
 
@@ -57,7 +68,7 @@ class Ligue1EloRating(BaseEloRating):
         home_team: str,
         away_team: str,
         home_won: Union[bool, float],
-        is_neutral: bool = False
+        is_neutral: bool = False,
     ) -> None:
         """
         Update ratings after a match.
@@ -74,7 +85,9 @@ class Ligue1EloRating(BaseEloRating):
         # Apply home advantage if not neutral
         adjusted_home_rating = home_rating
         if not is_neutral:
-            adjusted_home_rating = self._apply_home_advantage(home_rating, is_neutral=False)
+            adjusted_home_rating = self._apply_home_advantage(
+                home_rating, is_neutral=False
+            )
 
         # Expected scores (with home advantage)
         expected_home = self.expected_score(adjusted_home_rating, away_rating)
@@ -156,7 +169,7 @@ class Ligue1EloRating(BaseEloRating):
         # home win probability typically higher than draw probability. This results
         # in 44.1% accuracy but strong home bias (85% home predictions vs 39% actual).
         # Increasing draw coefficients improves distribution but lowers accuracy.
-        draw_prob = 0.25 * math.exp(-(rating_diff / 200) ** 2)
+        draw_prob = 0.25 * math.exp(-((rating_diff / 200) ** 2))
         draw_prob = max(0.05, min(0.30, draw_prob))  # Clamp between 5-30%
 
         # Calculate win probabilities from remaining probability
@@ -166,18 +179,16 @@ class Ligue1EloRating(BaseEloRating):
         home_prob = base_home_prob * remaining_prob
         away_prob = (1.0 - base_home_prob) * remaining_prob
 
-        return {
-            'home': home_prob,
-            'draw': draw_prob,
-            'away': away_prob
-        }
+        return {"home": home_prob, "draw": draw_prob, "away": away_prob}
 
     def predict_probs(self, home_team: str, away_team: str) -> Dict[str, float]:
         """Alias for predict_3way for consistency."""
         return self.predict_3way(home_team, away_team)
 
     # Legacy update method for backward compatibility
-    def legacy_update(self, home_team: str, away_team: str, outcome: str) -> Dict[str, float]:
+    def legacy_update(
+        self, home_team: str, away_team: str, outcome: str
+    ) -> Dict[str, float]:
         """
         Legacy update method for backward compatibility.
 
@@ -190,9 +201,9 @@ class Ligue1EloRating(BaseEloRating):
             Dictionary with rating changes and new ratings
         """
         # Convert legacy outcome to home_won
-        if outcome == 'home':
+        if outcome == "home":
             home_won = True
-        elif outcome == 'away':
+        elif outcome == "away":
             home_won = False
         else:  # draw
             home_won = 0.5
@@ -202,16 +213,18 @@ class Ligue1EloRating(BaseEloRating):
 
         # Return legacy format
         return {
-            'home_team': home_team,
-            'away_team': away_team,
-            'home_rating_change': self.k_factor * (0.5 if outcome == 'draw' else (1.0 if outcome == 'home' else 0.0)),
-            'away_rating_change': self.k_factor * (0.5 if outcome == 'draw' else (1.0 if outcome == 'away' else 0.0)),
-            'home_new_rating': self.ratings[home_team],
-            'away_new_rating': self.ratings[away_team]
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_rating_change": self.k_factor
+            * (0.5 if outcome == "draw" else (1.0 if outcome == "home" else 0.0)),
+            "away_rating_change": self.k_factor
+            * (0.5 if outcome == "draw" else (1.0 if outcome == "away" else 0.0)),
+            "home_new_rating": self.ratings[home_team],
+            "away_new_rating": self.ratings[away_team],
         }
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # Test the system
     elo = Ligue1EloRating()
 
@@ -219,20 +232,24 @@ if __name__ == '__main__':
 
     # Simulate some matches
     matches = [
-        ('PSG', 'Marseille', 'home'),
-        ('Lyon', 'Monaco', 'draw'),
-        ('Lille', 'Nice', 'away'),
-        ('PSG', 'Lyon', 'home'),
+        ("PSG", "Marseille", "home"),
+        ("Lyon", "Monaco", "draw"),
+        ("Lille", "Nice", "away"),
+        ("PSG", "Lyon", "home"),
     ]
 
     for home, away, outcome in matches:
         probs = elo.predict_3way(home, away)
         print(f"{away} @ {home}")
-        print(f"  Prediction: H: {probs['home']:.1%}, D: {probs['draw']:.1%}, A: {probs['away']:.1%}")
+        print(
+            f"  Prediction: H: {probs['home']:.1%}, D: {probs['draw']:.1%}, A: {probs['away']:.1%}"
+        )
 
         result = elo.legacy_update(home, away, outcome)
         print(f"  Actual: {outcome.upper()}")
-        print(f"  Rating changes: {home} {result['home_rating_change']:+.1f}, {away} {result['away_rating_change']:+.1f}")
+        print(
+            f"  Rating changes: {home} {result['home_rating_change']:+.1f}, {away} {result['away_rating_change']:+.1f}"
+        )
         print()
 
     print("\nFinal Ratings:")

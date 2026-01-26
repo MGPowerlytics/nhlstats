@@ -8,7 +8,7 @@ Performance: 59.3% accuracy, 0.591 AUC (matches XGBoost with 1/30th the complexi
 import json
 from pathlib import Path
 from datetime import datetime
-from .base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import BaseEloRating
 from typing import Dict, Optional, Union
 
 
@@ -28,7 +28,7 @@ class NHLEloRating(BaseEloRating):
         k_factor: float = 20.0,
         home_advantage: float = 100.0,
         initial_rating: float = 1500.0,
-        recency_weight: float = 1.0
+        recency_weight: float = 1.0,
     ) -> None:
         """
         Initialize NHL Elo rating system.
@@ -42,7 +42,7 @@ class NHLEloRating(BaseEloRating):
         super().__init__(
             k_factor=k_factor,
             home_advantage=home_advantage,
-            initial_rating=initial_rating
+            initial_rating=initial_rating,
         )
         self.recency_weight = recency_weight
         self.game_history = []
@@ -75,7 +75,9 @@ class NHLEloRating(BaseEloRating):
         """
         return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning.
 
@@ -104,7 +106,7 @@ class NHLEloRating(BaseEloRating):
         home_score: Optional[float] = None,
         away_score: Optional[float] = None,
         game_date: Optional[datetime] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Update Elo ratings after a game with recency weighting.
@@ -119,10 +121,10 @@ class NHLEloRating(BaseEloRating):
             game_date: Date of the game (optional)
         """
         # Alias home_win
-        if home_won is None and 'home_win' in kwargs:
-            home_won = kwargs['home_win']
+        if home_won is None and "home_win" in kwargs:
+            home_won = kwargs["home_win"]
         elif home_won is None:
-             raise ValueError("Must provide home_won")
+            raise ValueError("Must provide home_won")
 
         # Get current ratings
         home_rating = self.get_rating(home_team)
@@ -144,7 +146,9 @@ class NHLEloRating(BaseEloRating):
         # Apply recency weighting if we have game dates
         if game_date and self.last_game_date:
             days_diff = (game_date - self.last_game_date).days
-            recency_factor = max(0.5, min(1.5, 1.0 + self.recency_weight * (days_diff / 365.0)))
+            recency_factor = max(
+                0.5, min(1.5, 1.0 + self.recency_weight * (days_diff / 365.0))
+            )
             change *= recency_factor
 
         # Apply changes (remove home advantage first)
@@ -155,15 +159,17 @@ class NHLEloRating(BaseEloRating):
         self.ratings[away_team] = away_rating - change
 
         # Update game history
-        self.game_history.append({
-            'home_team': home_team,
-            'away_team': away_team,
-            'home_won': bool(home_won),
-            'home_score': home_score,
-            'away_score': away_score,
-            'game_date': game_date,
-            'change': change
-        })
+        self.game_history.append(
+            {
+                "home_team": home_team,
+                "away_team": away_team,
+                "home_won": bool(home_won),
+                "home_score": home_score,
+                "away_score": away_score,
+                "game_date": game_date,
+                "change": change,
+            }
+        )
 
         if game_date:
             self.last_game_date = game_date
@@ -179,7 +185,9 @@ class NHLEloRating(BaseEloRating):
         """
         return self.ratings.copy()
 
-    def legacy_update(self, home_team: str, away_team: str, home_won: bool = None, **kwargs) -> None:
+    def legacy_update(
+        self, home_team: str, away_team: str, home_won: bool = None, **kwargs
+    ) -> None:
         """
         Legacy update method for backward compatibility.
 
@@ -199,25 +207,29 @@ class NHLEloRating(BaseEloRating):
         """
         path = Path(filepath)
         if path.exists():
-            with open(path, 'r') as f:
+            with open(path, "r") as f:
                 data = json.load(f)
-                self.ratings = data.get('ratings', {})
+                self.ratings = data.get("ratings", {})
                 self.ratings = {k: float(v) for k, v in self.ratings.items()}
 
                 # Load parameters
-                params = data.get('parameters', {})
+                params = data.get("parameters", {})
                 if params:
-                    self.k_factor = params.get('k_factor', self.k_factor)
-                    self.home_advantage = params.get('home_advantage', self.home_advantage)
-                    self.initial_rating = params.get('initial_rating', self.initial_rating)
+                    self.k_factor = params.get("k_factor", self.k_factor)
+                    self.home_advantage = params.get(
+                        "home_advantage", self.home_advantage
+                    )
+                    self.initial_rating = params.get(
+                        "initial_rating", self.initial_rating
+                    )
 
                 # Load history if present
-                self.game_history = data.get('game_history', [])
+                self.game_history = data.get("game_history", [])
                 # Parse dates in history
                 for rec in self.game_history:
-                    if rec.get('game_date'):
+                    if rec.get("game_date"):
                         try:
-                            rec['game_date'] = datetime.fromisoformat(rec['game_date'])
+                            rec["game_date"] = datetime.fromisoformat(rec["game_date"])
                         except (ValueError, TypeError):
                             pass
             return True
@@ -235,21 +247,21 @@ class NHLEloRating(BaseEloRating):
         history_serializable = []
         for record in self.game_history:
             rec = record.copy()
-            if rec.get('game_date') and isinstance(rec['game_date'], datetime):
-                rec['game_date'] = rec['game_date'].isoformat()
+            if rec.get("game_date") and isinstance(rec["game_date"], datetime):
+                rec["game_date"] = rec["game_date"].isoformat()
             history_serializable.append(rec)
 
         data = {
-            'parameters': {
-                'k_factor': self.k_factor,
-                'home_advantage': self.home_advantage,
-                'initial_rating': self.initial_rating
+            "parameters": {
+                "k_factor": self.k_factor,
+                "home_advantage": self.home_advantage,
+                "initial_rating": self.initial_rating,
             },
-            'ratings': self.ratings,
-            'game_history': history_serializable,
-            'timestamp': datetime.now().isoformat()
+            "ratings": self.ratings,
+            "game_history": history_serializable,
+            "timestamp": datetime.now().isoformat(),
         }
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(data, f, indent=2)
         return True
 
@@ -262,7 +274,9 @@ class NHLEloRating(BaseEloRating):
         """
         for team in self.ratings:
             current = self.ratings[team]
-            reverted = self.initial_rating + (current - self.initial_rating) * reversion_factor
+            reverted = (
+                self.initial_rating + (current - self.initial_rating) * reversion_factor
+            )
             self.ratings[team] = reverted
 
     def export_history(self, filepath: Union[str, Path]) -> None:
@@ -277,11 +291,11 @@ class NHLEloRating(BaseEloRating):
         history_serializable = []
         for record in self.game_history:
             rec = record.copy()
-            if rec.get('game_date'):
-                rec['game_date'] = rec['game_date'].isoformat()
+            if rec.get("game_date"):
+                rec["game_date"] = rec["game_date"].isoformat()
             history_serializable.append(rec)
 
-        with open(path, 'w') as f:
+        with open(path, "w") as f:
             json.dump(history_serializable, f, indent=2)
 
     def get_recent_games(self, n: int = 10) -> list:

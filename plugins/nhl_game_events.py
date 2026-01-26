@@ -6,7 +6,6 @@ Download NHL game event data including shots, goals, hits, and other events with
 import requests
 import json
 import time
-from datetime import datetime
 from pathlib import Path
 
 
@@ -30,8 +29,10 @@ class NHLGameEvents:
 
                 # Handle rate limiting
                 if response.status_code == 429:
-                    wait_time = (2 ** attempt) * 2  # 2, 4, 8, 16, 32 seconds
-                    print(f"Rate limited. Waiting {wait_time}s before retry {attempt+1}/{max_retries}")
+                    wait_time = (2**attempt) * 2  # 2, 4, 8, 16, 32 seconds
+                    print(
+                        f"Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}"
+                    )
                     time.sleep(wait_time)
                     continue
 
@@ -40,7 +41,7 @@ class NHLGameEvents:
             except requests.exceptions.RequestException as e:
                 if attempt == max_retries - 1:
                     raise
-                wait_time = (2 ** attempt) * 2
+                wait_time = (2**attempt) * 2
                 print(f"Request failed: {e}. Retrying in {wait_time}s...")
                 time.sleep(wait_time)
 
@@ -85,7 +86,7 @@ class NHLGameEvents:
         # Get play-by-play data
         play_by_play = self.get_game_data(game_id)
         pbp_file = self.output_dir / f"{game_id}_playbyplay.json"
-        with open(pbp_file, 'w') as f:
+        with open(pbp_file, "w") as f:
             json.dump(play_by_play, f, indent=2)
         print(f"  Saved play-by-play to {pbp_file}")
 
@@ -93,7 +94,7 @@ class NHLGameEvents:
         if include_boxscore:
             boxscore = self.get_game_boxscore(game_id)
             box_file = self.output_dir / f"{game_id}_boxscore.json"
-            with open(box_file, 'w') as f:
+            with open(box_file, "w") as f:
                 json.dump(boxscore, f, indent=2)
             print(f"  Saved boxscore to {box_file}")
 
@@ -108,9 +109,9 @@ class NHLGameEvents:
         schedule = self.get_season_schedule(season)
 
         game_ids = []
-        for week in schedule.get('gameWeek', []):
-            for game in week.get('games', []):
-                gid = game.get('id')
+        for week in schedule.get("gameWeek", []):
+            for game in week.get("games", []):
+                gid = game.get("id")
                 # Filter by game type if specified
                 if game_type and str(gid)[4:6] == game_type:
                     game_ids.append(gid)
@@ -135,9 +136,9 @@ class NHLGameEvents:
         schedule = self.get_schedule_by_date(date_str)
 
         game_ids = []
-        for week in schedule.get('gameWeek', []):
-            for game in week.get('games', []):
-                gid = game.get('id')
+        for week in schedule.get("gameWeek", []):
+            for game in week.get("games", []):
+                gid = game.get("id")
                 game_ids.append(gid)
 
         if not game_ids:
@@ -159,26 +160,26 @@ class NHLGameEvents:
         """Extract shot attempts with coordinates from play-by-play data."""
         shots = []
 
-        plays = play_by_play.get('plays', [])
+        plays = play_by_play.get("plays", [])
         for play in plays:
-            event_type = play.get('typeDescKey')
+            event_type = play.get("typeDescKey")
 
             # Shot events include: shot-on-goal, missed-shot, blocked-shot, goal
-            if event_type in ['shot-on-goal', 'missed-shot', 'blocked-shot', 'goal']:
-                details = play.get('details', {})
+            if event_type in ["shot-on-goal", "missed-shot", "blocked-shot", "goal"]:
+                details = play.get("details", {})
                 shot_data = {
-                    'event_id': play.get('eventId'),
-                    'period': play.get('periodDescriptor', {}).get('number'),
-                    'time_in_period': play.get('timeInPeriod'),
-                    'time_remaining': play.get('timeRemaining'),
-                    'event_type': event_type,
-                    'x_coord': details.get('xCoord'),
-                    'y_coord': details.get('yCoord'),
-                    'zone_code': details.get('zoneCode'),
-                    'shot_type': details.get('shotType'),
-                    'shooter': details.get('shootingPlayerId'),
-                    'goalie': details.get('goalieInNetId'),
-                    'team': play.get('teamId'),
+                    "event_id": play.get("eventId"),
+                    "period": play.get("periodDescriptor", {}).get("number"),
+                    "time_in_period": play.get("timeInPeriod"),
+                    "time_remaining": play.get("timeRemaining"),
+                    "event_type": event_type,
+                    "x_coord": details.get("xCoord"),
+                    "y_coord": details.get("yCoord"),
+                    "zone_code": details.get("zoneCode"),
+                    "shot_type": details.get("shotType"),
+                    "shooter": details.get("shootingPlayerId"),
+                    "goalie": details.get("goalieInNetId"),
+                    "team": play.get("teamId"),
                 }
                 shots.append(shot_data)
 
@@ -198,7 +199,7 @@ def main():
     # fetcher.download_season("20232024", game_type="02")
 
     # Example 3: Extract shot data from downloaded game
-    with open(f"data/games/{game_id}_playbyplay.json", 'r') as f:
+    with open(f"data/games/{game_id}_playbyplay.json", "r") as f:
         play_by_play = json.load(f)
 
     shots = fetcher.extract_shot_data(play_by_play)

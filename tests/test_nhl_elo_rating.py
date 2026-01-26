@@ -1,12 +1,12 @@
 """
 Tests for NHLEloRating class.
 """
+
 import json
 import pytest
-from datetime import datetime
-from pathlib import Path
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugins.elo import NHLEloRating
@@ -57,7 +57,7 @@ class TestNHLEloRatingBasic:
         game_record = elo.game_history[-1]
         assert game_record["home_team"] == "Maple Leafs"
         assert game_record["away_team"] == "Bruins"
-        assert game_record["home_won"] == True
+        assert game_record["home_won"]
 
 
 class TestNHLSpecificFeatures:
@@ -67,22 +67,22 @@ class TestNHLSpecificFeatures:
         """Test loading ratings from file."""
         filepath = tmp_path / "ratings.json"
         data = {
-            'parameters': {
-                'k_factor': 25,
-                'home_advantage': 80,
-                'initial_rating': 1500
+            "parameters": {
+                "k_factor": 25,
+                "home_advantage": 80,
+                "initial_rating": 1500,
             },
-            'ratings': {"Toronto": 1650, "Boston": 1350},
-            'last_updated': '2024-01-01T00:00:00'
+            "ratings": {"Toronto": 1650, "Boston": 1350},
+            "last_updated": "2024-01-01T00:00:00",
         }
 
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(data, f)
 
         elo = NHLEloRating()
         result = elo.load_ratings(str(filepath))
 
-        assert result == True
+        assert result
         assert elo.k_factor == 25
         assert elo.home_advantage == 80
         assert elo.ratings["Toronto"] == 1650
@@ -95,7 +95,7 @@ class TestNHLSpecificFeatures:
 
         result = elo.load_ratings(str(filepath))
 
-        assert result == False
+        assert not result
         assert elo.ratings == {}
 
     def test_export_history(self, tmp_path):
@@ -122,15 +122,15 @@ class TestNHLSpecificFeatures:
         filepath = tmp_path / "save_test.json"
         result = elo.save_ratings(str(filepath))
 
-        assert result == True
+        assert result
         assert filepath.exists()
 
         with open(filepath) as f:
             saved_data = json.load(f)
 
-        assert saved_data['parameters']['k_factor'] == 25
-        assert saved_data['parameters']['home_advantage'] == 80
-        assert saved_data['ratings']['Toronto'] == 1650
+        assert saved_data["parameters"]["k_factor"] == 25
+        assert saved_data["parameters"]["home_advantage"] == 80
+        assert saved_data["ratings"]["Toronto"] == 1650
 
     def test_apply_season_reversion(self):
         """Test season reversion logic."""
@@ -139,7 +139,7 @@ class TestNHLSpecificFeatures:
             "Toronto": 1650,
             "Boston": 1350,
             "Montreal": 1550,
-            "Ottawa": 1450
+            "Ottawa": 1450,
         }
 
         # Store initial ratings
@@ -167,7 +167,7 @@ class TestNHLSpecificFeatures:
         recent_games = elo.get_recent_games(n=2)
         assert len(recent_games) == 2
         assert recent_games[0]["home_team"] == "Vancouver"  # Most recent
-        assert recent_games[1]["home_team"] == "Montreal"   # Second most recent
+        assert recent_games[1]["home_team"] == "Montreal"  # Second most recent
 
 
 class TestNHLIntegration:

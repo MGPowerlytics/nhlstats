@@ -1,9 +1,11 @@
 """
 TDD tests for WNCAABEloRating refactoring to inherit from BaseEloRating.
 """
+
 import pytest
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugins.elo import BaseEloRating, WNCAABEloRating
@@ -30,24 +32,25 @@ class TestWNCAABEloInheritance:
         elo = WNCAABEloRating()
 
         # Check all abstract methods exist
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
-        assert hasattr(elo, 'expected_score')
-        assert hasattr(elo, 'get_all_ratings')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
+        assert hasattr(elo, "expected_score")
+        assert hasattr(elo, "get_all_ratings")
 
         # Check method signatures (basic check)
         import inspect
+
         predict_sig = inspect.signature(elo.predict)
-        assert 'home_team' in predict_sig.parameters
-        assert 'away_team' in predict_sig.parameters
-        assert 'is_neutral' in predict_sig.parameters
+        assert "home_team" in predict_sig.parameters
+        assert "away_team" in predict_sig.parameters
+        assert "is_neutral" in predict_sig.parameters
 
         update_sig = inspect.signature(elo.update)
-        assert 'home_team' in update_sig.parameters
-        assert 'away_team' in update_sig.parameters
-        assert 'home_win' in update_sig.parameters
-        assert 'is_neutral' in update_sig.parameters
+        assert "home_team" in update_sig.parameters
+        assert "away_team" in update_sig.parameters
+        assert "home_win" in update_sig.parameters
+        assert "is_neutral" in update_sig.parameters
 
 
 class TestWNCAABEloFunctionality:
@@ -69,7 +72,9 @@ class TestWNCAABEloFunctionality:
 
         # Neutral site
         prob_neutral = elo.predict("TeamA", "TeamB", is_neutral=True)
-        assert prob_neutral < prob  # Without home advantage, probability should be lower
+        assert (
+            prob_neutral < prob
+        )  # Without home advantage, probability should be lower
 
     def test_update_basic(self):
         """Test basic update functionality."""

@@ -3,11 +3,9 @@
 import pytest
 import sys
 from pathlib import Path
-from unittest.mock import patch, MagicMock
 import pandas as pd
-import tempfile
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestExpectedTeams:
@@ -17,58 +15,58 @@ class TestExpectedTeams:
         """Test NBA has 30 teams."""
         from data_validation import EXPECTED_TEAMS
 
-        assert len(EXPECTED_TEAMS['nba']) == 30
+        assert len(EXPECTED_TEAMS["nba"]) == 30
 
     def test_expected_teams_nhl_count(self):
         """Test NHL has 32+ teams (includes Utah)."""
         from data_validation import EXPECTED_TEAMS
 
-        assert len(EXPECTED_TEAMS['nhl']) >= 32
+        assert len(EXPECTED_TEAMS["nhl"]) >= 32
 
     def test_expected_teams_mlb_count(self):
         """Test MLB has 30 teams."""
         from data_validation import EXPECTED_TEAMS
 
-        assert len(EXPECTED_TEAMS['mlb']) == 30
+        assert len(EXPECTED_TEAMS["mlb"]) == 30
 
     def test_expected_teams_nfl_count(self):
         """Test NFL has 32 teams."""
         from data_validation import EXPECTED_TEAMS
 
-        assert len(EXPECTED_TEAMS['nfl']) == 32
+        assert len(EXPECTED_TEAMS["nfl"]) == 32
 
     def test_nba_teams_valid(self):
         """Test some NBA teams are present."""
         from data_validation import EXPECTED_TEAMS
 
-        nba_teams = EXPECTED_TEAMS['nba']
-        assert 'Lakers' in nba_teams
-        assert 'Celtics' in nba_teams
-        assert 'Warriors' in nba_teams
+        nba_teams = EXPECTED_TEAMS["nba"]
+        assert "Lakers" in nba_teams
+        assert "Celtics" in nba_teams
+        assert "Warriors" in nba_teams
 
     def test_nhl_teams_valid(self):
         """Test some NHL teams are present."""
         from data_validation import EXPECTED_TEAMS
 
-        nhl_teams = EXPECTED_TEAMS['nhl']
-        assert 'Boston Bruins' in nhl_teams
-        assert 'Toronto Maple Leafs' in nhl_teams
+        nhl_teams = EXPECTED_TEAMS["nhl"]
+        assert "Boston Bruins" in nhl_teams
+        assert "Toronto Maple Leafs" in nhl_teams
 
     def test_mlb_teams_valid(self):
         """Test some MLB teams are present."""
         from data_validation import EXPECTED_TEAMS
 
-        mlb_teams = EXPECTED_TEAMS['mlb']
-        assert 'New York Yankees' in mlb_teams
-        assert 'Los Angeles Dodgers' in mlb_teams
+        mlb_teams = EXPECTED_TEAMS["mlb"]
+        assert "New York Yankees" in mlb_teams
+        assert "Los Angeles Dodgers" in mlb_teams
 
     def test_nfl_teams_valid(self):
         """Test some NFL teams are present."""
         from data_validation import EXPECTED_TEAMS
 
-        nfl_teams = EXPECTED_TEAMS['nfl']
-        assert 'Kansas City Chiefs' in nfl_teams
-        assert 'Dallas Cowboys' in nfl_teams
+        nfl_teams = EXPECTED_TEAMS["nfl"]
+        assert "Kansas City Chiefs" in nfl_teams
+        assert "Dallas Cowboys" in nfl_teams
 
 
 class TestSeasonInfo:
@@ -78,34 +76,34 @@ class TestSeasonInfo:
         """Test NBA season info."""
         from data_validation import SEASON_INFO
 
-        nba = SEASON_INFO['nba']
-        assert nba['games_per_team'] == 82
-        assert nba['total_games_per_season'] == 1230
-        assert nba['start_month'] == 10
+        nba = SEASON_INFO["nba"]
+        assert nba["games_per_team"] == 82
+        assert nba["total_games_per_season"] == 1230
+        assert nba["start_month"] == 10
 
     def test_nhl_season_info(self):
         """Test NHL season info."""
         from data_validation import SEASON_INFO
 
-        nhl = SEASON_INFO['nhl']
-        assert nhl['games_per_team'] == 82
-        assert nhl['total_games_per_season'] == 1312
+        nhl = SEASON_INFO["nhl"]
+        assert nhl["games_per_team"] == 82
+        assert nhl["total_games_per_season"] == 1312
 
     def test_mlb_season_info(self):
         """Test MLB season info."""
         from data_validation import SEASON_INFO
 
-        mlb = SEASON_INFO['mlb']
-        assert mlb['games_per_team'] == 162
-        assert mlb['total_games_per_season'] == 2430
+        mlb = SEASON_INFO["mlb"]
+        assert mlb["games_per_team"] == 162
+        assert mlb["total_games_per_season"] == 2430
 
     def test_nfl_season_info(self):
         """Test NFL season info."""
         from data_validation import SEASON_INFO
 
-        nfl = SEASON_INFO['nfl']
-        assert nfl['games_per_team'] == 17
-        assert nfl['total_games_per_season'] == 272
+        nfl = SEASON_INFO["nfl"]
+        assert nfl["games_per_team"] == 17
+        assert nfl["total_games_per_season"] == 272
 
 
 class TestValidationReport:
@@ -115,9 +113,9 @@ class TestValidationReport:
         """Test ValidationReport initialization."""
         from data_validation import DataValidationReport
 
-        report = DataValidationReport(sport='nba')
+        report = DataValidationReport(sport="nba")
 
-        assert report.sport == 'nba'
+        assert report.sport == "nba"
         assert report.errors == []
         assert report.warnings == []
         assert report.stats == {}
@@ -126,8 +124,8 @@ class TestValidationReport:
         """Test adding error to report."""
         from data_validation import DataValidationReport
 
-        report = DataValidationReport(sport='nba')
-        report.add_check("Missing data", False, "No games found", severity='error')
+        report = DataValidationReport(sport="nba")
+        report.add_check("Missing data", False, "No games found", severity="error")
 
         assert len(report.errors) == 1
 
@@ -135,8 +133,8 @@ class TestValidationReport:
         """Test adding warning to report."""
         from data_validation import DataValidationReport
 
-        report = DataValidationReport(sport='nba')
-        report.add_check("Low count", False, "Only 5 games", severity='warning')
+        report = DataValidationReport(sport="nba")
+        report.add_check("Low count", False, "Only 5 games", severity="warning")
 
         assert len(report.warnings) == 1
 
@@ -144,19 +142,19 @@ class TestValidationReport:
         """Test adding stat to report."""
         from data_validation import DataValidationReport
 
-        report = DataValidationReport(sport='nba')
+        report = DataValidationReport(sport="nba")
         report.add_stat("total_games", 1230)
 
-        assert report.stats['total_games'] == 1230
+        assert report.stats["total_games"] == 1230
 
     def test_has_errors(self):
         """Test has_errors check."""
         from data_validation import DataValidationReport
 
-        report = DataValidationReport(sport='nba')
+        report = DataValidationReport(sport="nba")
         assert len(report.errors) == 0
 
-        report.add_check("Test", False, "Error", severity='error')
+        report.add_check("Test", False, "Error", severity="error")
         assert len(report.errors) == 1
 
 
@@ -179,7 +177,7 @@ class TestDataValidators:
 
         is_valid = score >= 0
 
-        assert is_valid == True
+        assert is_valid
 
     def test_validate_score_negative_invalid(self):
         """Test negative score is invalid."""
@@ -187,7 +185,7 @@ class TestDataValidators:
 
         is_valid = score >= 0
 
-        assert is_valid == False
+        assert not is_valid
 
     def test_validate_team_name_not_empty(self):
         """Test team name is not empty."""
@@ -195,7 +193,7 @@ class TestDataValidators:
 
         is_valid = len(team.strip()) > 0
 
-        assert is_valid == True
+        assert is_valid
 
     def test_validate_game_id_format(self):
         """Test game ID format."""
@@ -203,7 +201,7 @@ class TestDataValidators:
 
         is_valid = len(game_id) > 0 and game_id.isalnum()
 
-        assert is_valid == True
+        assert is_valid
 
 
 class TestNullValidation:
@@ -211,24 +209,22 @@ class TestNullValidation:
 
     def test_find_null_values(self):
         """Test finding null values in DataFrame."""
-        df = pd.DataFrame({
-            'team': ['Lakers', None, 'Celtics'],
-            'score': [110, 105, None]
-        })
+        df = pd.DataFrame(
+            {"team": ["Lakers", None, "Celtics"], "score": [110, 105, None]}
+        )
 
         null_counts = df.isnull().sum()
 
-        assert null_counts['team'] == 1
-        assert null_counts['score'] == 1
+        assert null_counts["team"] == 1
+        assert null_counts["score"] == 1
 
     def test_null_percentage(self):
         """Test calculating null percentage."""
-        df = pd.DataFrame({
-            'team': ['Lakers', None, 'Celtics', None],
-            'score': [110, 105, 108, 112]
-        })
+        df = pd.DataFrame(
+            {"team": ["Lakers", None, "Celtics", None], "score": [110, 105, 108, 112]}
+        )
 
-        null_pct = df['team'].isnull().sum() / len(df) * 100
+        null_pct = df["team"].isnull().sum() / len(df) * 100
 
         assert null_pct == 50.0
 
@@ -238,17 +234,17 @@ class TestTeamCoverage:
 
     def test_missing_teams(self):
         """Test finding missing teams."""
-        expected = ['Lakers', 'Celtics', 'Warriors', 'Heat']
-        actual = ['Lakers', 'Celtics', 'Warriors']
+        expected = ["Lakers", "Celtics", "Warriors", "Heat"]
+        actual = ["Lakers", "Celtics", "Warriors"]
 
         missing = set(expected) - set(actual)
 
-        assert missing == {'Heat'}
+        assert missing == {"Heat"}
 
     def test_all_teams_present(self):
         """Test when all teams are present."""
-        expected = ['Lakers', 'Celtics']
-        actual = ['Lakers', 'Celtics', 'Warriors']
+        expected = ["Lakers", "Celtics"]
+        actual = ["Lakers", "Celtics", "Warriors"]
 
         missing = set(expected) - set(actual)
 
@@ -331,12 +327,14 @@ class TestDataQuality:
 
     def test_duplicate_detection(self):
         """Test detecting duplicate entries."""
-        df = pd.DataFrame({
-            'game_id': ['001', '002', '001', '003'],
-            'home_team': ['Lakers', 'Celtics', 'Lakers', 'Heat']
-        })
+        df = pd.DataFrame(
+            {
+                "game_id": ["001", "002", "001", "003"],
+                "home_team": ["Lakers", "Celtics", "Lakers", "Heat"],
+            }
+        )
 
-        duplicates = df[df.duplicated(subset=['game_id'], keep=False)]
+        duplicates = df[df.duplicated(subset=["game_id"], keep=False)]
 
         assert len(duplicates) == 2
 
@@ -362,7 +360,7 @@ class TestCrossValidation:
 
         is_consistent = source_a_score == source_b_score
 
-        assert is_consistent == True
+        assert is_consistent
 
 
 class TestSeasonValidation:
@@ -377,7 +375,7 @@ class TestSeasonValidation:
 
         is_regular_season = 10 <= game_date.month or game_date.month <= 4
 
-        assert is_regular_season == True
+        assert is_regular_season
 
     def test_playoff_dates_nba(self):
         """Test NBA playoff dates."""
@@ -388,7 +386,7 @@ class TestSeasonValidation:
 
         is_playoff = game_date.month in [4, 5, 6]
 
-        assert is_playoff == True
+        assert is_playoff
 
     def test_offseason_detection(self):
         """Test offseason detection."""
@@ -399,4 +397,4 @@ class TestSeasonValidation:
 
         is_offseason = game_date.month in [7, 8, 9]
 
-        assert is_offseason == True
+        assert is_offseason

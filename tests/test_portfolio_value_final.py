@@ -13,16 +13,15 @@ import os
 import sys
 from pathlib import Path
 import pytest
+from plugins.db_manager import DBManager
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Skip unless running against production database
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration test requires production PostgreSQL database"
+    reason="Integration test requires production PostgreSQL database",
 )
-
-from plugins.db_manager import DBManager
 
 
 def test_portfolio_value_matches_kalshi():
@@ -78,41 +77,41 @@ def test_portfolio_value_matches_kalshi():
 
     portfolio_value = cash + open_value
 
-    print(f"\n📊 Portfolio Value Calculation:")
+    print("\n📊 Portfolio Value Calculation:")
     print(f"   Data as of: {timestamp}")
-    print(f"")
+    print("")
     print(f"   Cash Balance:        ${cash:>10,.2f}")
     print(f"   + Open Positions:    ${open_value:>10,.2f}  ({num_open} open bets)")
-    print(f"   {'='*40}")
+    print(f"   {'=' * 40}")
     print(f"   Portfolio Value:     ${portfolio_value:>10,.2f}")
 
     # Compare to user's reported balance
     user_balance = 80.69
     difference = abs(portfolio_value - user_balance)
 
-    print(f"\n✅ Verification:")
+    print("\n✅ Verification:")
     print(f"   User's Kalshi Balance:  ${user_balance:>10,.2f}")
     print(f"   Dashboard Shows:        ${portfolio_value:>10,.2f}")
     print(f"   Difference:             ${difference:>10,.2f}")
 
     if difference < 0.01:
-        print(f"\n🎯 PERFECT MATCH! Dashboard exactly matches Kalshi!")
+        print("\n🎯 PERFECT MATCH! Dashboard exactly matches Kalshi!")
         status = "EXACT MATCH"
     elif difference < 1.00:
-        print(f"\n✅ EXCELLENT! Within $1.00 (likely rounding or timing)")
+        print("\n✅ EXCELLENT! Within $1.00 (likely rounding or timing)")
         status = "EXCELLENT"
     elif difference < 5.00:
-        print(f"\n✅ GOOD! Within $5.00 (snapshot may be stale)")
+        print("\n✅ GOOD! Within $5.00 (snapshot may be stale)")
         status = "GOOD"
     else:
-        print(f"\n⚠️  Difference > $5.00 - may need fresh snapshot")
+        print("\n⚠️  Difference > $5.00 - may need fresh snapshot")
         status = "NEEDS REFRESH"
 
-    print(f"\n📋 Summary:")
+    print("\n📋 Summary:")
     print(f"   Status: {status}")
-    print(f"   Portfolio value correctly calculated: ✅")
-    print(f"   Includes cash balance: ✅")
-    print(f"   Includes open positions: ✅")
+    print("   Portfolio value correctly calculated: ✅")
+    print("   Includes cash balance: ✅")
+    print("   Includes open positions: ✅")
     print(f"   Matches Kalshi account: {'✅' if difference < 5.0 else '⚠️'}")
 
     print("\n" + "=" * 80)

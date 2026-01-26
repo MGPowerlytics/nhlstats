@@ -1,13 +1,11 @@
 """Tests for NHL Game Events and other game modules."""
 
-import pytest
 import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-import tempfile
 import json
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestNHLGameEventsInit:
@@ -18,7 +16,7 @@ class TestNHLGameEventsInit:
         from nhl_game_events import NHLGameEvents
 
         output_dir = tmp_path / "games"
-        events = NHLGameEvents(output_dir=str(output_dir))
+        NHLGameEvents(output_dir=str(output_dir))
 
         assert output_dir.exists()
 
@@ -27,7 +25,7 @@ class TestNHLGameEventsInit:
         from nhl_game_events import NHLGameEvents
 
         output_dir = tmp_path / "games"
-        events = NHLGameEvents(output_dir=str(output_dir), date_folder="2024-01-15")
+        NHLGameEvents(output_dir=str(output_dir), date_folder="2024-01-15")
 
         assert (output_dir / "2024-01-15").exists()
 
@@ -47,24 +45,26 @@ class TestNHLGameEventsInit:
 class TestNHLMakeRequest:
     """Test HTTP request handling."""
 
-    @patch('nhl_game_events.requests.get')
+    @patch("nhl_game_events.requests.get")
     def test_make_request_success(self, mock_get, tmp_path):
         """Test successful request."""
         from nhl_game_events import NHLGameEvents
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {'data': 'test'}
+        mock_response.json.return_value = {"data": "test"}
         mock_get.return_value = mock_response
 
         events = NHLGameEvents(output_dir=str(tmp_path / "games"))
         result = events._make_request("https://test.com")
 
-        assert result == {'data': 'test'}
+        assert result == {"data": "test"}
 
-    @patch('nhl_game_events.requests.get')
-    @patch('nhl_game_events.time.sleep')
-    def test_make_request_rate_limited_then_success(self, mock_sleep, mock_get, tmp_path):
+    @patch("nhl_game_events.requests.get")
+    @patch("nhl_game_events.time.sleep")
+    def test_make_request_rate_limited_then_success(
+        self, mock_sleep, mock_get, tmp_path
+    ):
         """Test rate limit handling."""
         from nhl_game_events import NHLGameEvents
 
@@ -73,14 +73,14 @@ class TestNHLMakeRequest:
 
         success = MagicMock()
         success.status_code = 200
-        success.json.return_value = {'data': 'success'}
+        success.json.return_value = {"data": "success"}
 
         mock_get.side_effect = [rate_limited, success]
 
         events = NHLGameEvents(output_dir=str(tmp_path / "games"))
         result = events._make_request("https://test.com", max_retries=2)
 
-        assert result == {'data': 'success'}
+        assert result == {"data": "success"}
 
 
 class TestNHLSchedule:
@@ -113,7 +113,7 @@ class TestNCAABGamesInit:
         from ncaab_games import NCAABGames
 
         data_dir = tmp_path / "ncaab"
-        games = NCAABGames(data_dir=str(data_dir))
+        NCAABGames(data_dir=str(data_dir))
 
         assert data_dir.exists()
 
@@ -234,7 +234,7 @@ class TestGameDataParsing:
 
         season = game_id[:4]
         game_type = game_id[4:6]  # 02 = regular season
-        game_num = game_id[6:]
+        game_id[6:]
 
         assert season == "2023"
         assert game_type == "02"
@@ -244,20 +244,17 @@ class TestGameDataParsing:
         from datetime import datetime
 
         time_str = "2024-01-15T19:30:00Z"
-        game_time = datetime.fromisoformat(time_str.replace('Z', '+00:00'))
+        game_time = datetime.fromisoformat(time_str.replace("Z", "+00:00"))
 
         assert game_time.hour == 19
 
     def test_parse_final_score(self):
         """Test parsing final score."""
-        score = {
-            'home': 4,
-            'away': 2
-        }
+        score = {"home": 4, "away": 2}
 
-        home_won = score['home'] > score['away']
+        home_won = score["home"] > score["away"]
 
-        assert home_won == True
+        assert home_won
 
 
 class TestEventTypes:
@@ -265,33 +262,30 @@ class TestEventTypes:
 
     def test_nhl_event_types(self):
         """Test NHL event types."""
-        event_types = ['GOAL', 'SHOT', 'HIT', 'FACEOFF', 'PENALTY', 'BLOCKED_SHOT']
+        event_types = ["GOAL", "SHOT", "HIT", "FACEOFF", "PENALTY", "BLOCKED_SHOT"]
 
-        assert 'GOAL' in event_types
-        assert 'SHOT' in event_types
+        assert "GOAL" in event_types
+        assert "SHOT" in event_types
 
     def test_parse_goal_event(self):
         """Test parsing goal event."""
         event = {
-            'eventType': 'GOAL',
-            'period': 2,
-            'timeInPeriod': '12:30',
-            'scorer': 'Player Name',
-            'team': 'Toronto Maple Leafs'
+            "eventType": "GOAL",
+            "period": 2,
+            "timeInPeriod": "12:30",
+            "scorer": "Player Name",
+            "team": "Toronto Maple Leafs",
         }
 
-        assert event['eventType'] == 'GOAL'
-        assert event['period'] == 2
+        assert event["eventType"] == "GOAL"
+        assert event["period"] == 2
 
     def test_parse_shot_coordinates(self):
         """Test parsing shot coordinates."""
-        event = {
-            'eventType': 'SHOT',
-            'coordinates': {'x': 50, 'y': 20}
-        }
+        event = {"eventType": "SHOT", "coordinates": {"x": 50, "y": 20}}
 
-        assert event['coordinates']['x'] == 50
-        assert event['coordinates']['y'] == 20
+        assert event["coordinates"]["x"] == 50
+        assert event["coordinates"]["y"] == 20
 
 
 class TestDataSaving:
@@ -299,13 +293,13 @@ class TestDataSaving:
 
     def test_json_save(self, tmp_path):
         """Test saving JSON data."""
-        data = {'games': [{'id': 1}, {'id': 2}]}
+        data = {"games": [{"id": 1}, {"id": 2}]}
         file_path = tmp_path / "games.json"
 
-        with open(file_path, 'w') as f:
+        with open(file_path, "w") as f:
             json.dump(data, f)
 
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             loaded = json.load(f)
 
         assert loaded == data
@@ -314,10 +308,10 @@ class TestDataSaving:
         """Test saving CSV data."""
         import csv
 
-        data = [['home', 'away', 'score'], ['Lakers', 'Celtics', '110-105']]
+        data = [["home", "away", "score"], ["Lakers", "Celtics", "110-105"]]
         file_path = tmp_path / "games.csv"
 
-        with open(file_path, 'w', newline='') as f:
+        with open(file_path, "w", newline="") as f:
             writer = csv.writer(f)
             writer.writerows(data)
 
@@ -330,7 +324,7 @@ class TestRetryLogic:
     def test_exponential_backoff_values(self):
         """Test exponential backoff values."""
         base = 2
-        retries = [base * (2 ** i) for i in range(5)]
+        retries = [base * (2**i) for i in range(5)]
 
         assert retries == [2, 4, 8, 16, 32]
 

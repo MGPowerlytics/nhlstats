@@ -1,9 +1,11 @@
 """
 TDD tests for NCAABEloRating refactoring to inherit from BaseEloRating.
 """
+
 import pytest
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugins.elo import BaseEloRating, NCAABEloRating
@@ -30,24 +32,25 @@ class TestNCAABEloInheritance:
         elo = NCAABEloRating()
 
         # Check all abstract methods exist
-        assert hasattr(elo, 'predict')
-        assert hasattr(elo, 'update')
-        assert hasattr(elo, 'get_rating')
-        assert hasattr(elo, 'expected_score')
-        assert hasattr(elo, 'get_all_ratings')
+        assert hasattr(elo, "predict")
+        assert hasattr(elo, "update")
+        assert hasattr(elo, "get_rating")
+        assert hasattr(elo, "expected_score")
+        assert hasattr(elo, "get_all_ratings")
 
         # Check method signatures (basic check)
         import inspect
+
         predict_sig = inspect.signature(elo.predict)
-        assert 'home_team' in predict_sig.parameters
-        assert 'away_team' in predict_sig.parameters
-        assert 'is_neutral' in predict_sig.parameters
+        assert "home_team" in predict_sig.parameters
+        assert "away_team" in predict_sig.parameters
+        assert "is_neutral" in predict_sig.parameters
 
         update_sig = inspect.signature(elo.update)
-        assert 'home_team' in update_sig.parameters
-        assert 'away_team' in update_sig.parameters
-        assert 'home_win' in update_sig.parameters
-        assert 'is_neutral' in update_sig.parameters
+        assert "home_team" in update_sig.parameters
+        assert "away_team" in update_sig.parameters
+        assert "home_win" in update_sig.parameters
+        assert "is_neutral" in update_sig.parameters
 
 
 class TestNCAABEloFunctionality:
@@ -69,47 +72,41 @@ class TestNCAABEloFunctionality:
 
         # Neutral site
         prob_neutral = elo.predict("TeamA", "TeamB", is_neutral=True)
-        assert prob_neutral < prob  # Without home advantage, probability should be lower
+        assert (
+            prob_neutral < prob
+        )  # Without home advantage, probability should be lower
 
         def test_update_basic(self):
-
             """Test basic update functionality."""
 
             elo = NCAABEloRating(k_factor=20)
 
             elo.ratings = {"TeamA": 1600, "TeamB": 1400}
 
-
-
             initial_rating_a = elo.get_rating("TeamA")
 
             initial_rating_b = elo.get_rating("TeamB")
-
-
 
             # TeamA wins at home
 
             change = elo.update("TeamA", "TeamB", home_win=1.0, is_neutral=False)
 
+            assert (
+                elo.get_rating("TeamA") > initial_rating_a
+            )  # Winner's rating increases
 
-
-            assert elo.get_rating("TeamA") > initial_rating_a  # Winner's rating increases
-
-            assert elo.get_rating("TeamB") < initial_rating_b  # Loser's rating decreases
+            assert (
+                elo.get_rating("TeamB") < initial_rating_b
+            )  # Loser's rating decreases
 
             assert abs(change) > 0  # Some change occurred
 
-
-
         def test_expected_score_method(self):
-
             """Test the expected_score method (should be added during refactoring)."""
 
             elo = NCAABEloRating()
 
             elo.ratings = {"TeamA": 1600, "TeamB": 1400}
-
-
 
             # expected_score should return the same as predict for home team win probability
 
@@ -121,9 +118,7 @@ class TestNCAABEloFunctionality:
 
             assert expected > 0.5
 
-            predicted = elo.predict("TeamA", "TeamB", is_neutral=False)
-
-
+            elo.predict("TeamA", "TeamB", is_neutral=False)
 
             # They should be very close (might be exactly the same implementation)
 

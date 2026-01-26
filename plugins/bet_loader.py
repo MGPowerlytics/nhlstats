@@ -4,15 +4,16 @@ Load bet recommendations into PostgreSQL for historical analysis.
 
 import json
 from pathlib import Path
-from datetime import datetime
-from typing import Optional, List, Dict
+from typing import Optional
 from db_manager import DBManager, default_db
 
 
 class BetLoader:
     """Loads bet recommendations into PostgreSQL."""
 
-    def __init__(self, db_path: Optional[str] = None, db_manager: DBManager = default_db):
+    def __init__(
+        self, db_path: Optional[str] = None, db_manager: DBManager = default_db
+    ):
         # Store db_path for tests
         self.db_path = Path(db_path) if db_path else Path("data/nhlstats.duckdb")
         self.db = db_manager
@@ -72,12 +73,19 @@ class BetLoader:
             bet_id = f"{sport}_{date_str}_{i}_{home_team}_{away_team}"
 
             params = {
-                'bet_id': bet_id, 'sport': sport, 'date_str': date_str,
-                'home_team': home_team, 'away_team': away_team,
-                'bet_on': bet["bet_on"], 'elo_prob': bet["elo_prob"],
-                'market_prob': bet["market_prob"], 'edge': bet["edge"],
-                'confidence': bet["confidence"], 'yes_ask': bet.get("yes_ask"),
-                'no_ask': bet.get("no_ask"), 'ticker': bet.get("ticker")
+                "bet_id": bet_id,
+                "sport": sport,
+                "date_str": date_str,
+                "home_team": home_team,
+                "away_team": away_team,
+                "bet_on": bet["bet_on"],
+                "elo_prob": bet["elo_prob"],
+                "market_prob": bet["market_prob"],
+                "edge": bet["edge"],
+                "confidence": bet["confidence"],
+                "yes_ask": bet.get("yes_ask"),
+                "no_ask": bet.get("no_ask"),
+                "ticker": bet.get("ticker"),
             }
 
             # Allow DB exceptions to bubble up (fail loud)
@@ -96,7 +104,7 @@ class BetLoader:
                     edge = EXCLUDED.edge,
                     confidence = EXCLUDED.confidence
                 """,
-                params
+                params,
             )
             loaded += 1
 
@@ -121,14 +129,13 @@ class BetLoader:
             query += " WHERE 1=1"
             if start_date:
                 query += " AND recommendation_date >= :start_date"
-                params['start_date'] = start_date
+                params["start_date"] = start_date
             if end_date:
                 query += " AND recommendation_date <= :end_date"
-                params['end_date'] = end_date
+                params["end_date"] = end_date
 
         query += " GROUP BY sport, recommendation_date ORDER BY recommendation_date DESC, sport"
         return self.db.fetch_df(query, params).values.tolist()
-
 
 
 if __name__ == "__main__":

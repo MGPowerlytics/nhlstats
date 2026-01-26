@@ -24,7 +24,7 @@ deliverables = {
     "Test Infrastructure": [
         ("tests/smoke/", "Smoke test directory"),
         ("tests/integration/", "Integration test directory"),
-    ]
+    ],
 }
 
 all_passed = True
@@ -47,15 +47,22 @@ print("-" * 30)
 
 try:
     # Check database manager
-    from plugins.db_manager import DBManager
+    import plugins.db_manager
+
+    _ = plugins.db_manager
     print("  ✓ Database manager import")
 
     # Check Elo system
     from plugins.elo import BaseEloRating, NBAEloRating
+
+    _ = BaseEloRating
+    _ = NBAEloRating
     print("  ✓ Elo system import")
 
     # Check DAG
     from dags.multi_sport_betting_workflow import SPORTS_CONFIG
+
+    _ = SPORTS_CONFIG
     print(f"  ✓ DAG configuration ({len(SPORTS_CONFIG)} sports)")
 
 except ImportError as e:

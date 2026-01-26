@@ -3,9 +3,7 @@ Tests for plugin import compatibility.
 Ensures plugins can be imported both directly and via plugins. prefix.
 """
 
-import pytest
 import sys
-from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 

@@ -2,12 +2,11 @@
 Simple test for NBAEloRating before refactoring.
 """
 
-import pytest
 import sys
 from pathlib import Path
 
 # Add plugins directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 from elo import NBAEloRating
 
@@ -18,16 +17,16 @@ def test_nba_elo_current_state():
     elo = NBAEloRating()
 
     # Check basic attributes
-    assert hasattr(elo, 'k_factor')
-    assert hasattr(elo, 'home_advantage')
-    assert hasattr(elo, 'initial_rating')
-    assert hasattr(elo, 'ratings')
+    assert hasattr(elo, "k_factor")
+    assert hasattr(elo, "home_advantage")
+    assert hasattr(elo, "initial_rating")
+    assert hasattr(elo, "ratings")
 
     # Check methods
-    assert hasattr(elo, 'predict')
-    assert hasattr(elo, 'update')
-    assert hasattr(elo, 'get_rating')
-    assert hasattr(elo, 'expected_score')
+    assert hasattr(elo, "predict")
+    assert hasattr(elo, "update")
+    assert hasattr(elo, "get_rating")
+    assert hasattr(elo, "expected_score")
 
     # Test basic functionality
     rating = elo.get_rating("Test Team")

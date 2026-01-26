@@ -3,10 +3,8 @@
 import pytest
 import sys
 from pathlib import Path
-from datetime import datetime, timezone
-from unittest.mock import patch, MagicMock
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestOddsAPI:
@@ -16,27 +14,27 @@ class TestOddsAPI:
     def mock_response(self):
         """Create a mock API response."""
         return {
-            'id': 'game123',
-            'sport_key': 'basketball_nba',
-            'sport_title': 'NBA',
-            'commence_time': '2024-12-25T20:00:00Z',
-            'home_team': 'Los Angeles Lakers',
-            'away_team': 'Boston Celtics',
-            'bookmakers': [
+            "id": "game123",
+            "sport_key": "basketball_nba",
+            "sport_title": "NBA",
+            "commence_time": "2024-12-25T20:00:00Z",
+            "home_team": "Los Angeles Lakers",
+            "away_team": "Boston Celtics",
+            "bookmakers": [
                 {
-                    'key': 'draftkings',
-                    'title': 'DraftKings',
-                    'markets': [
+                    "key": "draftkings",
+                    "title": "DraftKings",
+                    "markets": [
                         {
-                            'key': 'h2h',
-                            'outcomes': [
-                                {'name': 'Los Angeles Lakers', 'price': -110},
-                                {'name': 'Boston Celtics', 'price': -110}
-                            ]
+                            "key": "h2h",
+                            "outcomes": [
+                                {"name": "Los Angeles Lakers", "price": -110},
+                                {"name": "Boston Celtics", "price": -110},
+                            ],
                         }
-                    ]
+                    ],
                 }
-            ]
+            ],
         }
 
     def test_american_odds_to_probability_negative(self):
@@ -88,51 +86,52 @@ class TestOddsAPIClient:
     @pytest.fixture
     def mock_client(self):
         """Create a mock OddsAPI client."""
+
         class MockOddsAPIClient:
             def __init__(self, api_key):
                 self.api_key = api_key
-                self.base_url = 'https://api.the-odds-api.com/v4'
+                self.base_url = "https://api.the-odds-api.com/v4"
 
             def get_sport_key(self, sport):
                 sport_map = {
-                    'NBA': 'basketball_nba',
-                    'NHL': 'icehockey_nhl',
-                    'MLB': 'baseball_mlb',
-                    'NFL': 'americanfootball_nfl',
-                    'NCAAB': 'basketball_ncaab'
+                    "NBA": "basketball_nba",
+                    "NHL": "icehockey_nhl",
+                    "MLB": "baseball_mlb",
+                    "NFL": "americanfootball_nfl",
+                    "NCAAB": "basketball_ncaab",
                 }
                 return sport_map.get(sport.upper())
 
-        return MockOddsAPIClient('test_api_key')
+        return MockOddsAPIClient("test_api_key")
 
     def test_get_sport_key_nba(self, mock_client):
         """Test getting sport key for NBA."""
-        assert mock_client.get_sport_key('NBA') == 'basketball_nba'
+        assert mock_client.get_sport_key("NBA") == "basketball_nba"
 
     def test_get_sport_key_nhl(self, mock_client):
         """Test getting sport key for NHL."""
-        assert mock_client.get_sport_key('NHL') == 'icehockey_nhl'
+        assert mock_client.get_sport_key("NHL") == "icehockey_nhl"
 
     def test_get_sport_key_mlb(self, mock_client):
         """Test getting sport key for MLB."""
-        assert mock_client.get_sport_key('MLB') == 'baseball_mlb'
+        assert mock_client.get_sport_key("MLB") == "baseball_mlb"
 
     def test_get_sport_key_nfl(self, mock_client):
         """Test getting sport key for NFL."""
-        assert mock_client.get_sport_key('NFL') == 'americanfootball_nfl'
+        assert mock_client.get_sport_key("NFL") == "americanfootball_nfl"
 
     def test_get_sport_key_ncaab(self, mock_client):
         """Test getting sport key for NCAAB."""
-        assert mock_client.get_sport_key('NCAAB') == 'basketball_ncaab'
+        assert mock_client.get_sport_key("NCAAB") == "basketball_ncaab"
 
     def test_get_sport_key_case_insensitive(self, mock_client):
         """Test that sport key lookup is case insensitive."""
-        assert mock_client.get_sport_key('nba') == 'basketball_nba'
-        assert mock_client.get_sport_key('Nba') == 'basketball_nba'
+        assert mock_client.get_sport_key("nba") == "basketball_nba"
+        assert mock_client.get_sport_key("Nba") == "basketball_nba"
 
     def test_get_sport_key_unknown(self, mock_client):
         """Test getting sport key for unknown sport."""
-        assert mock_client.get_sport_key('UNKNOWN') is None
+        assert mock_client.get_sport_key("UNKNOWN") is None
 
 
 class TestOddsMatching:
@@ -141,7 +140,7 @@ class TestOddsMatching:
     def test_team_name_normalization(self):
         """Test normalizing team names for matching."""
         name = "Los Angeles Lakers"
-        normalized = name.lower().replace(' ', '')
+        normalized = name.lower().replace(" ", "")
         assert normalized == "losangeleslakers"
 
     def test_team_name_matching_exact(self):
@@ -169,38 +168,41 @@ class TestGameStatusCheck:
     def test_game_not_started_no_scores(self):
         """Test that game without scores is not started."""
         game = {
-            'home_team': 'Lakers',
-            'away_team': 'Celtics',
-            'scores': None,
-            'completed': False
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "scores": None,
+            "completed": False,
         }
 
-        started = game.get('scores') is not None or game.get('completed', False)
-        assert started == False
+        started = game.get("scores") is not None or game.get("completed", False)
+        assert not started
 
     def test_game_started_has_scores(self):
         """Test that game with scores has started."""
         game = {
-            'home_team': 'Lakers',
-            'away_team': 'Celtics',
-            'scores': [{'name': 'Lakers', 'score': '55'}],
-            'completed': False
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "scores": [{"name": "Lakers", "score": "55"}],
+            "completed": False,
         }
 
-        started = game.get('scores') is not None or game.get('completed', False)
-        assert started == True
+        started = game.get("scores") is not None or game.get("completed", False)
+        assert started
 
     def test_game_completed(self):
         """Test that completed game is detected."""
         game = {
-            'home_team': 'Lakers',
-            'away_team': 'Celtics',
-            'scores': [{'name': 'Lakers', 'score': '110'}, {'name': 'Celtics', 'score': '105'}],
-            'completed': True
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "scores": [
+                {"name": "Lakers", "score": "110"},
+                {"name": "Celtics", "score": "105"},
+            ],
+            "completed": True,
         }
 
-        started = game.get('scores') is not None or game.get('completed', False)
-        assert started == True
+        started = game.get("scores") is not None or game.get("completed", False)
+        assert started
 
 
 class TestOddsCalculation:
@@ -255,7 +257,7 @@ class TestOddsCalculation:
         # Kelly = (p * b - q) / b
         # where p = probability of winning, b = odds received, q = probability of losing
         p = 0.60  # 60% win probability
-        b = 1.0   # Even money (bet $1 to win $1)
+        b = 1.0  # Even money (bet $1 to win $1)
         q = 0.40  # 40% loss probability
 
         kelly = (p * b - q) / b

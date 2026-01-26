@@ -1,11 +1,12 @@
 """
 Tests for NBAEloRating class.
 """
-import json
+
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 import sys
 import os
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from plugins.elo import NBAEloRating
@@ -113,14 +114,14 @@ class TestLoadNBAGamesFromJson:
         nba_dir = tmp_path / "nba"
         nba_dir.mkdir()
 
-        with patch('plugins.elo.nba_elo_rating.Path') as mock_path:
+        with patch("plugins.elo.nba_elo_rating.Path") as mock_path:
             mock_path.return_value = nba_dir
             # This would need proper mocking of the function
             # For now, we test that the function handles missing data gracefully
 
     def test_load_with_no_data_directory(self):
         """Test graceful handling when data directory doesn't exist."""
-        with patch('plugins.elo.nba_elo_rating.Path') as mock_path:
+        with patch("plugins.elo.nba_elo_rating.Path") as mock_path:
             mock_path.return_value.iterdir.side_effect = FileNotFoundError
             # Function should handle this gracefully
 
@@ -164,10 +165,13 @@ class TestNBASpecificFeatures:
 
         # Create mock games as a DataFrame
         import pandas as pd
-        games = pd.DataFrame([
-            {"home_team": "Lakers", "away_team": "Celtics", "home_won": True},
-            {"home_team": "Celtics", "away_team": "Lakers", "home_won": False},
-        ])
+
+        games = pd.DataFrame(
+            [
+                {"home_team": "Lakers", "away_team": "Celtics", "home_won": True},
+                {"home_team": "Celtics", "away_team": "Lakers", "home_won": False},
+            ]
+        )
 
         # This method should calculate accuracy, log loss, etc.
         results = elo.evaluate_on_games(games)

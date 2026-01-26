@@ -7,7 +7,6 @@ All sport-specific Elo classes should inherit from this base class.
 
 from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union
-import math
 
 
 class BaseEloRating(ABC):
@@ -22,7 +21,7 @@ class BaseEloRating(ABC):
         self,
         k_factor: float = 20.0,
         home_advantage: float = 100.0,
-        initial_rating: float = 1500.0
+        initial_rating: float = 1500.0,
     ) -> None:
         """
         Initialize Elo rating system.
@@ -38,7 +37,9 @@ class BaseEloRating(ABC):
         self.ratings: Dict[str, float] = {}
 
     @abstractmethod
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning.
 
@@ -59,7 +60,7 @@ class BaseEloRating(ABC):
         away_team: str,
         home_won: Union[bool, float],
         is_neutral: bool = False,
-        **kwargs
+        **kwargs,
     ) -> None:
         """
         Update Elo ratings after a game result.
@@ -73,7 +74,13 @@ class BaseEloRating(ABC):
         """
         pass
 
-    def legacy_update(self, home_team: str, away_team: str, home_won: Union[bool, float] = None, **kwargs) -> None:
+    def legacy_update(
+        self,
+        home_team: str,
+        away_team: str,
+        home_won: Union[bool, float] = None,
+        **kwargs,
+    ) -> None:
         """
         Legacy update method for backward compatibility.
         """
@@ -82,13 +89,27 @@ class BaseEloRating(ABC):
     # Alias for backward compatibility
     update_legacy = legacy_update
 
-    def update_with_scores(self, home_team: str, away_team: str, home_score: float, away_score: float, **kwargs) -> None:
+    def update_with_scores(
+        self,
+        home_team: str,
+        away_team: str,
+        home_score: float,
+        away_score: float,
+        **kwargs,
+    ) -> None:
         """
         Update with scores (backward compatibility).
         """
         # Determine winner from scores
         home_won = home_score > away_score
-        self.update(home_team, away_team, home_won, home_score=home_score, away_score=away_score, **kwargs)
+        self.update(
+            home_team,
+            away_team,
+            home_won,
+            home_score=home_score,
+            away_score=away_score,
+            **kwargs,
+        )
 
     @abstractmethod
     def get_rating(self, team: str) -> float:
@@ -127,7 +148,9 @@ class BaseEloRating(ABC):
         """
         pass
 
-    def _apply_home_advantage(self, home_rating: float, is_neutral: bool = False) -> float:
+    def _apply_home_advantage(
+        self, home_rating: float, is_neutral: bool = False
+    ) -> float:
         """
         Apply home advantage to rating.
 
@@ -143,10 +166,7 @@ class BaseEloRating(ABC):
         return home_rating + self.home_advantage
 
     def _calculate_rating_change(
-        self,
-        expected: float,
-        actual: float,
-        k_factor: Optional[float] = None
+        self, expected: float, actual: float, k_factor: Optional[float] = None
     ) -> float:
         """
         Calculate rating change based on expected vs actual result.

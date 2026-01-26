@@ -1,18 +1,26 @@
-import json
-from pathlib import Path
-from datetime import datetime
 from typing import Union
-from .base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import BaseEloRating
+
+
 class WNCAABEloRating(BaseEloRating):
     """Women's NCAA Basketball Elo Rating System."""
+
     def __init__(self, k_factor=20, home_advantage=100, initial_rating=1500):
-        super().__init__(k_factor=k_factor, home_advantage=home_advantage, initial_rating=initial_rating)
+        super().__init__(
+            k_factor=k_factor,
+            home_advantage=home_advantage,
+            initial_rating=initial_rating,
+        )
         self.ratings = {}
+
     def get_rating(self, team):
         if team not in self.ratings:
             self.ratings[team] = self.initial_rating
         return self.ratings[team]
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """Predict home team win probability."""
         rh = self.get_rating(home_team)
         ra = self.get_rating(away_team)
@@ -27,6 +35,7 @@ class WNCAABEloRating(BaseEloRating):
         Calculate expected score (probability of team A winning).
         """
         return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
+
     def update(
         self,
         home_team: str,
@@ -34,15 +43,15 @@ class WNCAABEloRating(BaseEloRating):
         home_won: Union[bool, float] = None,
         is_neutral: bool = False,
         home_win: Union[bool, float] = None,
-        **kwargs
+        **kwargs,
     ) -> None:
         # Handle aliasing
         if home_won is None and home_win is not None:
             home_won = home_win
-        elif home_won is None and 'home_win' in kwargs:
-            home_won = kwargs['home_win']
+        elif home_won is None and "home_win" in kwargs:
+            home_won = kwargs["home_win"]
         elif home_won is None:
-             raise ValueError("Must provide home_won")
+            raise ValueError("Must provide home_won")
 
         home_rating = self.get_rating(home_team)
         away_rating = self.get_rating(away_team)
@@ -61,17 +70,31 @@ class WNCAABEloRating(BaseEloRating):
         self.ratings[away_team] = away_rating - change
 
         return change
+
     def get_all_ratings(self):
         """Return dictionary of all team ratings."""
         return self.ratings.copy()
-    def legacy_update(self, home_team: str, away_team: str, home_won: bool = None, is_neutral: bool = False, **kwargs):
+
+    def legacy_update(
+        self,
+        home_team: str,
+        away_team: str,
+        home_won: bool = None,
+        is_neutral: bool = False,
+        **kwargs,
+    ):
         """
         Legacy update method for backward compatibility.
         Same as update() for WNCAAB.
         """
-        return self.update(home_team, away_team, home_won, is_neutral=is_neutral, **kwargs)
+        return self.update(
+            home_team, away_team, home_won, is_neutral=is_neutral, **kwargs
+        )
+
+
 def calculate_current_elo_ratings():
     from wncaab_games import WNCAABGames
+
     wncaab = WNCAABGames()
     df = wncaab.load_games()
     elo = WNCAABEloRating()
@@ -97,6 +120,8 @@ def calculate_current_elo_ratings():
             res = 0.0
         elo.update(game["home_team"], game["away_team"], res, is_neutral=neutral)
     return elo
+
+
 if __name__ == "__main__":
     elo = calculate_current_elo_ratings()
     print("Top 10 WNCAAB Teams:")

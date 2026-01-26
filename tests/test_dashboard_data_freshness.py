@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "dashboard"))
 # Skip these tests unless running against production database
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration tests require production PostgreSQL database"
+    reason="Integration tests require production PostgreSQL database",
 )
 
 
@@ -67,9 +67,9 @@ def test_placed_bets_table_has_recent_updates():
             f"(latest_update: {latest_update}, today: {today})"
         )
 
-    assert (
-        recent_updates > 0
-    ), f"Should have bets updated in last 2 days, found {recent_updates}"
+    assert recent_updates > 0, (
+        f"Should have bets updated in last 2 days, found {recent_updates}"
+    )
 
 
 def test_dashboard_can_show_settlement_data_from_today():
@@ -114,9 +114,9 @@ def test_dashboard_can_show_settlement_data_from_today():
         "settlement_date"
     ].unique()
 
-    assert (
-        len(recent_settlement_dates) > 0
-    ), "Should have settlement dates from last 2 days"
+    assert len(recent_settlement_dates) > 0, (
+        "Should have settlement dates from last 2 days"
+    )
 
 
 def test_bet_sync_does_not_fail():
@@ -126,9 +126,9 @@ def test_bet_sync_does_not_fail():
     from bet_tracker import sync_bets_to_database
 
     # Verify function exists
-    assert callable(
-        sync_bets_to_database
-    ), "sync_bets_to_database should be a callable function"
+    assert callable(sync_bets_to_database), (
+        "sync_bets_to_database should be a callable function"
+    )
 
 
 def test_dashboard_shows_recent_settlement_activity():
@@ -170,6 +170,7 @@ def test_placed_bets_table_structure():
     """Test that placed_bets table exists with expected columns."""
     from db_manager import DBManager
     from plugins.bet_tracker import create_bets_table
+
     db = DBManager()
     create_bets_table(db)
     # Insert dummy bet row for test isolation
@@ -204,13 +205,11 @@ def test_placed_bets_table_structure():
 
 
 def test_bet_sync_successfully_updates_database():
-    from plugins.bet_tracker import create_bets_table
-    create_bets_table(DBManager())
     """Test that bet tracker creates/updates the placed_bets table."""
     from db_manager import DBManager
+    from plugins.bet_tracker import create_bets_table
 
     db = DBManager()
-    from plugins.bet_tracker import create_bets_table
     create_bets_table(db)
     # Insert dummy bet row for test isolation
     db.execute("""

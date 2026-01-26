@@ -2,9 +2,7 @@
 Mock Kalshi API for integration testing.
 """
 
-import json
 from datetime import datetime
-from typing import Dict, List, Optional, Any
 
 
 class MockKalshiAPI:
@@ -41,7 +39,7 @@ class MockKalshiAPI:
                 "close_time": "2026-01-24T23:00:00Z",
                 "volume": 1200,
                 "open_interest": 1800,
-            }
+            },
         ]
 
         nhl_markets = [
@@ -95,7 +93,7 @@ class MockKalshiAPI:
         return {
             "markets": filtered_markets[:limit],
             "cursor": None,
-            "has_more": len(filtered_markets) > limit
+            "has_more": len(filtered_markets) > limit,
         }
 
     def get_market_details(self, ticker):
@@ -109,7 +107,7 @@ class MockKalshiAPI:
             "balance": self.balance,
             "available_balance": self.balance * 0.9,
             "total_balance": self.balance,
-            "currency": "USD"
+            "currency": "USD",
         }
 
     def place_order(self, ticker, side, amount, price):
@@ -143,10 +141,7 @@ class MockKalshiAPI:
         self.orders.append(order)
         self.balance -= order_cost
 
-        return {
-            "order": order,
-            "message": "Order placed successfully"
-        }
+        return {"order": order, "message": "Order placed successfully"}
 
     def get_order(self, order_id):
         for order in self.orders:
@@ -198,12 +193,11 @@ if __name__ == "__main__":
     print(f"Balance: ${balance['balance']:.2f}")
 
     order = api.place_order(
-        ticker="KXNBAGAME-260124-LALDAL-YES",
-        side="yes",
-        amount=10.0,
-        price=65
+        ticker="KXNBAGAME-260124-LALDAL-YES", side="yes", amount=10.0, price=65
     )
-    print(f"Order placed: {order.get('order', {}).get('order_id') if 'order' in order else 'Failed'}")
+    print(
+        f"Order placed: {order.get('order', {}).get('order_id') if 'order' in order else 'Failed'}"
+    )
 
     print("=" * 50)
     print("Mock API test complete")

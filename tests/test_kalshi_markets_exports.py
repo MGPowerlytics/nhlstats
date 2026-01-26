@@ -1,10 +1,10 @@
 import sys
 from pathlib import Path
-import pytest
 
 # Add plugins to path
 plugins_dir = Path(__file__).parent.parent / "plugins"
 sys.path.insert(0, str(plugins_dir))
+
 
 def test_kalshi_markets_exports():
     """Verify that all required fetch_X_markets functions behave correctly and exist."""
@@ -23,5 +23,9 @@ def test_kalshi_markets_exports():
     ]
 
     for func_name in required_functions:
-        assert hasattr(kalshi_markets, func_name), f"Missing function {func_name} in kalshi_markets.py"
-        assert callable(getattr(kalshi_markets, func_name)), f"{func_name} is not callable"
+        assert hasattr(kalshi_markets, func_name), (
+            f"Missing function {func_name} in kalshi_markets.py"
+        )
+        assert callable(getattr(kalshi_markets, func_name)), (
+            f"{func_name} is not callable"
+        )

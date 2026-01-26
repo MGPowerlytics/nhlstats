@@ -1,30 +1,29 @@
 """Tests for Elo rating modules - actual functions"""
 
-import pytest
-import pandas as pd
-import numpy as np
-
 
 class TestNBAEloRating:
     """Test NBAEloRating class"""
 
     def test_init(self):
         from plugins.elo import NBAEloRating
+
         elo = NBAEloRating()
         assert elo.k_factor == 20
         assert elo.home_advantage == 100
 
     def test_predict(self):
         from plugins.elo import NBAEloRating
+
         elo = NBAEloRating()
-        prob = elo.predict('Lakers', 'Celtics')
+        prob = elo.predict("Lakers", "Celtics")
         assert 0 < prob < 1
 
     def test_update(self):
         from plugins.elo import NBAEloRating
+
         elo = NBAEloRating()
-        elo.update('Lakers', 'Celtics', home_won=True)
-        assert elo.get_rating('Lakers') > 1500
+        elo.update("Lakers", "Celtics", home_won=True)
+        assert elo.get_rating("Lakers") > 1500
 
 
 class TestNHLEloRating:
@@ -32,13 +31,15 @@ class TestNHLEloRating:
 
     def test_init(self):
         from plugins.elo import NHLEloRating
+
         elo = NHLEloRating()
         assert elo.home_advantage == 100.0
 
     def test_predict(self):
         from plugins.elo import NHLEloRating
+
         elo = NHLEloRating()
-        prob = elo.predict('Boston Bruins', 'Toronto Maple Leafs')
+        prob = elo.predict("Boston Bruins", "Toronto Maple Leafs")
         assert 0 < prob < 1
 
 
@@ -47,20 +48,23 @@ class TestMLBEloRating:
 
     def test_init(self):
         from plugins.elo import MLBEloRating
+
         elo = MLBEloRating()
         assert elo.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import MLBEloRating
+
         elo = MLBEloRating()
-        prob = elo.predict('Red Sox', 'Yankees')
+        prob = elo.predict("Red Sox", "Yankees")
         assert 0 < prob < 1
 
     def test_update(self):
         from plugins.elo import MLBEloRating
+
         elo = MLBEloRating()
-        elo.update('Red Sox', 'Yankees', 5, 3)
-        assert elo.get_rating('Red Sox') > 1500
+        elo.update("Red Sox", "Yankees", 5, 3)
+        assert elo.get_rating("Red Sox") > 1500
 
 
 class TestNFLEloRating:
@@ -68,20 +72,23 @@ class TestNFLEloRating:
 
     def test_init(self):
         from plugins.elo import NFLEloRating
+
         elo = NFLEloRating()
         assert elo.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import NFLEloRating
+
         elo = NFLEloRating()
-        prob = elo.predict('Chiefs', '49ers')
+        prob = elo.predict("Chiefs", "49ers")
         assert 0 < prob < 1
 
     def test_update(self):
         from plugins.elo import NFLEloRating
+
         elo = NFLEloRating()
-        elo.update('Chiefs', '49ers', 31, 24)
-        assert elo.get_rating('Chiefs') > 1500
+        elo.update("Chiefs", "49ers", 31, 24)
+        assert elo.get_rating("Chiefs") > 1500
 
 
 class TestNCAABEloRating:
@@ -89,13 +96,15 @@ class TestNCAABEloRating:
 
     def test_init(self):
         from plugins.elo import NCAABEloRating
+
         elo = NCAABEloRating()
         assert elo.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import NCAABEloRating
+
         elo = NCAABEloRating()
-        prob = elo.predict('Duke', 'UNC')
+        prob = elo.predict("Duke", "UNC")
         assert 0 < prob < 1
 
 
@@ -104,20 +113,23 @@ class TestTennisEloRating:
 
     def test_init(self):
         from plugins.elo import TennisEloRating
+
         elo = TennisEloRating()
         assert elo.k_factor > 0
 
     def test_predict(self):
         from plugins.elo import TennisEloRating
+
         elo = TennisEloRating()
-        prob = elo.predict('Djokovic', 'Federer')
+        prob = elo.predict("Djokovic", "Federer")
         assert 0 < prob < 1
 
     def test_update(self):
         from plugins.elo import TennisEloRating
+
         elo = TennisEloRating()
-        elo.update('Djokovic', 'Federer')
-        assert elo.get_rating('Djokovic') > 1500
+        elo.update("Djokovic", "Federer")
+        assert elo.get_rating("Djokovic") > 1500
 
 
 class TestEPLEloRating:
@@ -125,13 +137,15 @@ class TestEPLEloRating:
 
     def test_init(self):
         from plugins.elo import EPLEloRating
+
         elo = EPLEloRating()
         assert elo.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import EPLEloRating
+
         elo = EPLEloRating()
-        prob = elo.predict('Man City', 'Liverpool')
+        prob = elo.predict("Man City", "Liverpool")
         assert 0 < prob < 1
 
 
@@ -140,13 +154,15 @@ class TestLigue1EloRating:
 
     def test_init(self):
         from plugins.elo import Ligue1EloRating
+
         elo = Ligue1EloRating()
         assert elo.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import Ligue1EloRating
+
         elo = Ligue1EloRating()
-        prob = elo.predict('PSG', 'Marseille')
+        prob = elo.predict("PSG", "Marseille")
         assert 0 < prob < 1
 
 
@@ -155,6 +171,7 @@ class TestGlicko2Rating:
 
     def test_init(self):
         from glicko2_rating import Glicko2Rating
+
         rating = Glicko2Rating()
         assert rating is not None
 
@@ -163,6 +180,4 @@ class TestModuleImports:
     """Test all Elo rating modules can be imported"""
 
     def test_all_modules(self):
-        from plugins.elo import NBAEloRating, MLBEloRating, NFLEloRating, NCAABEloRating
-
         assert True  # All imports succeeded

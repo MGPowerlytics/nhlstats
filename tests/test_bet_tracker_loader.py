@@ -4,11 +4,9 @@ import pytest
 import sys
 import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import tempfile
-import duckdb
+from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestBetTrackerSQL:
@@ -23,7 +21,11 @@ class TestBetTrackerSQL:
         create_bets_table()
 
         # Verify table exists by querying it
-        result = default_db.engine.connect().execute(text("SELECT * FROM placed_bets LIMIT 0")).fetchall()
+        result = (
+            default_db.engine.connect()
+            .execute(text("SELECT * FROM placed_bets LIMIT 0"))
+            .fetchall()
+        )
         assert result == []
 
     def test_placed_bets_columns(self, tmp_path):
@@ -35,15 +37,21 @@ class TestBetTrackerSQL:
         create_bets_table()
 
         # Check column names using Postgres
-        result = default_db.engine.connect().execute(text(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'placed_bets'"
-        )).fetchall()
+        result = (
+            default_db.engine.connect()
+            .execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'placed_bets'"
+                )
+            )
+            .fetchall()
+        )
         column_names = [c[0] for c in result]
 
-        assert 'bet_id' in column_names
-        assert 'sport' in column_names
-        assert 'ticker' in column_names
-        assert 'status' in column_names
+        assert "bet_id" in column_names
+        assert "sport" in column_names
+        assert "ticker" in column_names
+        assert "status" in column_names
 
 
 class TestBetLoaderInit:
@@ -55,10 +63,14 @@ class TestBetLoaderInit:
         from db_manager import default_db
         from sqlalchemy import text
 
-        loader = BetLoader(db_path=str(tmp_path / "test.duckdb"))
+        BetLoader(db_path=str(tmp_path / "test.duckdb"))
 
         # Verify table exists by querying it
-        result = default_db.engine.connect().execute(text("SELECT * FROM bet_recommendations LIMIT 0")).fetchall()
+        result = (
+            default_db.engine.connect()
+            .execute(text("SELECT * FROM bet_recommendations LIMIT 0"))
+            .fetchall()
+        )
         assert result == []
 
     def test_bet_recommendations_columns(self, tmp_path):
@@ -67,18 +79,24 @@ class TestBetLoaderInit:
         from db_manager import default_db
         from sqlalchemy import text
 
-        loader = BetLoader(db_path=str(tmp_path / "test.duckdb"))
+        BetLoader(db_path=str(tmp_path / "test.duckdb"))
 
         # Check column names using Postgres
-        result = default_db.engine.connect().execute(text(
-            "SELECT column_name FROM information_schema.columns WHERE table_name = 'bet_recommendations'"
-        )).fetchall()
+        result = (
+            default_db.engine.connect()
+            .execute(
+                text(
+                    "SELECT column_name FROM information_schema.columns WHERE table_name = 'bet_recommendations'"
+                )
+            )
+            .fetchall()
+        )
         column_names = [c[0] for c in result]
 
-        assert 'bet_id' in column_names
-        assert 'sport' in column_names
-        assert 'elo_prob' in column_names
-        assert 'edge' in column_names
+        assert "bet_id" in column_names
+        assert "sport" in column_names
+        assert "elo_prob" in column_names
+        assert "edge" in column_names
 
 
 class TestBetLoading:
@@ -91,24 +109,24 @@ class TestBetLoading:
         db_path = tmp_path / "test.duckdb"
         loader = BetLoader(db_path=str(db_path))
 
-        with patch('bet_loader.Path') as mock_path:
+        with patch("bet_loader.Path") as mock_path:
             mock_path.return_value.exists.return_value = False
 
-            count = loader.load_bets_for_date('nba', '2024-01-15')
+            count = loader.load_bets_for_date("nba", "2024-01-15")
 
             assert count == 0
 
     def test_bet_id_generation(self):
         """Test bet ID generation."""
-        sport = 'nba'
-        date_str = '2024-01-15'
-        home_team = 'Lakers'
-        away_team = 'Celtics'
+        sport = "nba"
+        date_str = "2024-01-15"
+        home_team = "Lakers"
+        away_team = "Celtics"
 
-        bet_id = f"{sport}_{date_str}_{home_team}_{away_team}".lower().replace(' ', '_')
+        bet_id = f"{sport}_{date_str}_{home_team}_{away_team}".lower().replace(" ", "_")
 
-        assert 'nba' in bet_id
-        assert '2024-01-15' in bet_id
+        assert "nba" in bet_id
+        assert "2024-01-15" in bet_id
 
 
 class TestBetDataStructure:
@@ -117,32 +135,34 @@ class TestBetDataStructure:
     def test_bet_json_structure(self):
         """Test bet JSON structure."""
         bet = {
-            'home_team': 'Lakers',
-            'away_team': 'Celtics',
-            'bet_on': 'home',
-            'elo_prob': 0.65,
-            'market_prob': 0.55,
-            'edge': 0.10,
-            'confidence': 'HIGH',
-            'ticker': 'KXNBA-TEST',
-            'yes_ask': 55,
-            'no_ask': 48
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "bet_on": "home",
+            "elo_prob": 0.65,
+            "market_prob": 0.55,
+            "edge": 0.10,
+            "confidence": "HIGH",
+            "ticker": "KXNBA-TEST",
+            "yes_ask": 55,
+            "no_ask": 48,
         }
 
-        assert bet['elo_prob'] > bet['market_prob']
-        assert bet['edge'] == pytest.approx(bet['elo_prob'] - bet['market_prob'], abs=0.001)
+        assert bet["elo_prob"] > bet["market_prob"]
+        assert bet["edge"] == pytest.approx(
+            bet["elo_prob"] - bet["market_prob"], abs=0.001
+        )
 
     def test_bet_status_transitions(self):
         """Test valid bet status transitions."""
         valid_transitions = {
-            'open': ['won', 'lost', 'void'],
-            'won': [],  # Terminal
-            'lost': [],  # Terminal
-            'void': []  # Terminal
+            "open": ["won", "lost", "void"],
+            "won": [],  # Terminal
+            "lost": [],  # Terminal
+            "void": [],  # Terminal
         }
 
-        assert 'won' in valid_transitions['open']
-        assert len(valid_transitions['won']) == 0
+        assert "won" in valid_transitions["open"]
+        assert len(valid_transitions["won"]) == 0
 
 
 class TestMarketStatusQueries:
@@ -150,15 +170,15 @@ class TestMarketStatusQueries:
 
     def test_market_status_values(self):
         """Test valid market status values."""
-        statuses = ['open', 'closed', 'finalized']
+        statuses = ["open", "closed", "finalized"]
 
-        assert 'finalized' in statuses
+        assert "finalized" in statuses
 
     def test_market_result_values(self):
         """Test valid market result values."""
-        results = ['yes', 'no', None]
+        results = ["yes", "no", None]
 
-        assert 'yes' in results
+        assert "yes" in results
         assert None in results
 
 
@@ -169,7 +189,6 @@ class TestProfitCalculations:
         """Test profit for won YES bet."""
         contracts = 10
         price_cents = 55
-        result = 'yes'
 
         # YES won: profit = contracts * (100 - price) cents
         profit_cents = contracts * (100 - price_cents)
@@ -181,7 +200,6 @@ class TestProfitCalculations:
         """Test profit for lost YES bet."""
         contracts = 10
         price_cents = 55
-        result = 'no'
 
         # YES lost: profit = -contracts * price cents
         profit_cents = -contracts * price_cents
@@ -193,7 +211,6 @@ class TestProfitCalculations:
         """Test profit for won NO bet."""
         contracts = 10
         price_cents = 45
-        result = 'no'
 
         # NO won: profit = contracts * (100 - price) cents
         profit_cents = contracts * (100 - price_cents)
@@ -217,21 +234,21 @@ class TestQueryBuilding:
 
     def test_insert_query_format(self):
         """Test INSERT query format."""
-        table = 'bet_recommendations'
-        columns = ['bet_id', 'sport', 'recommendation_date']
+        table = "bet_recommendations"
+        columns = ["bet_id", "sport", "recommendation_date"]
 
         query = f"""
-            INSERT INTO {table} ({', '.join(columns)})
+            INSERT INTO {table} ({", ".join(columns)})
             VALUES (?, ?, ?)
         """
 
-        assert 'INSERT INTO' in query
-        assert 'VALUES' in query
+        assert "INSERT INTO" in query
+        assert "VALUES" in query
 
     def test_select_by_date_query(self):
         """Test SELECT by date query."""
-        sport = 'nba'
-        date_str = '2024-01-15'
+        sport = "nba"
+        date_str = "2024-01-15"
 
         query = f"""
             SELECT * FROM bet_recommendations
@@ -243,8 +260,8 @@ class TestQueryBuilding:
 
     def test_update_status_query(self):
         """Test UPDATE status query."""
-        bet_id = 'nba_2024-01-15_lakers_celtics'
-        new_status = 'won'
+        bet_id = "nba_2024-01-15_lakers_celtics"
+        new_status = "won"
 
         query = f"""
             UPDATE placed_bets
@@ -252,8 +269,8 @@ class TestQueryBuilding:
             WHERE bet_id = '{bet_id}'
         """
 
-        assert 'UPDATE' in query
-        assert 'SET status' in query
+        assert "UPDATE" in query
+        assert "SET status" in query
 
 
 class TestDateRangeQueries:
@@ -281,8 +298,8 @@ class TestDateRangeQueries:
             WHERE placed_date >= '{start_date}' AND placed_date <= '{today}'
         """
 
-        assert 'placed_date >=' in query
-        assert 'placed_date <=' in query
+        assert "placed_date >=" in query
+        assert "placed_date <=" in query
 
 
 class TestAggregationQueries:
@@ -301,9 +318,9 @@ class TestAggregationQueries:
             GROUP BY sport
         """
 
-        assert 'COUNT(*)' in query
-        assert 'SUM(' in query
-        assert 'GROUP BY' in query
+        assert "COUNT(*)" in query
+        assert "SUM(" in query
+        assert "GROUP BY" in query
 
     def test_profit_summary_query(self):
         """Test profit summary query."""
@@ -318,8 +335,8 @@ class TestAggregationQueries:
             GROUP BY sport
         """
 
-        assert 'SUM(profit_dollars)' in query
-        assert 'roi_pct' in query
+        assert "SUM(profit_dollars)" in query
+        assert "roi_pct" in query
 
 
 class TestErrorHandling:
@@ -327,11 +344,11 @@ class TestErrorHandling:
 
     def test_file_not_found_handling(self):
         """Test handling file not found."""
-        file_path = Path('/nonexistent/path/bets.json')
+        file_path = Path("/nonexistent/path/bets.json")
 
         exists = file_path.exists()
 
-        assert exists == False
+        assert not exists
 
     def test_json_decode_error_handling(self):
         """Test handling invalid JSON."""

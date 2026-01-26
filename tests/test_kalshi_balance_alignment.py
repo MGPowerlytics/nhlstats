@@ -21,17 +21,15 @@ import os
 import sys
 from pathlib import Path
 import pytest
+from plugins.db_manager import DBManager
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 # Skip unless running against production database
 pytestmark = pytest.mark.skipif(
     os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration test requires production PostgreSQL database"
+    reason="Integration test requires production PostgreSQL database",
 )
-
-from plugins.db_manager import DBManager
-from datetime import datetime
 
 
 def test_understand_total_invested():
@@ -67,18 +65,18 @@ def test_understand_total_invested():
         WHERE status IN ('won', 'lost')
     """)
 
-    total_invested = float(settled_bets_df.iloc[0]['total_invested'])
-    total_pnl = float(settled_bets_df.iloc[0]['total_pnl'])
+    total_invested = float(settled_bets_df.iloc[0]["total_invested"])
+    total_pnl = float(settled_bets_df.iloc[0]["total_pnl"])
 
-    print(f"📈 Dashboard Metrics (Settled Bets Only):")
+    print("📈 Dashboard Metrics (Settled Bets Only):")
     print(f"   Total Invested: ${total_invested:.2f}")
     print(f"   Total P&L: ${total_pnl:.2f}")
     print()
 
     # This is what it SHOULD show
     print("❌ PROBLEM IDENTIFIED:")
-    print(f"   'Total Invested' shows cost of settled bets only")
-    print(f"   This doesn't match Kalshi balance!")
+    print("   'Total Invested' shows cost of settled bets only")
+    print("   This doesn't match Kalshi balance!")
     print()
 
 
@@ -101,10 +99,10 @@ def test_get_actual_kalshi_balance():
     """)
 
     if not snapshot_df.empty:
-        latest_balance = float(snapshot_df.iloc[0]['portfolio_value'])
-        snapshot_time = snapshot_df.iloc[0]['snapshot_hour_utc']
+        latest_balance = float(snapshot_df.iloc[0]["portfolio_value"])
+        snapshot_time = snapshot_df.iloc[0]["snapshot_hour_utc"]
 
-        print(f"\n💰 ACTUAL Kalshi Account Balance:")
+        print("\n💰 ACTUAL Kalshi Account Balance:")
         print(f"   ${latest_balance:.2f}")
         print(f"   As of: {snapshot_time}")
         print()
@@ -113,9 +111,11 @@ def test_get_actual_kalshi_balance():
         user_reported_balance = 80.69
 
         if abs(latest_balance - user_reported_balance) < 1.0:
-            print(f"✅ Portfolio snapshot matches user's Kalshi balance")
+            print("✅ Portfolio snapshot matches user's Kalshi balance")
         else:
-            print(f"⚠️  Portfolio snapshot (${latest_balance:.2f}) != User balance (${user_reported_balance:.2f})")
+            print(
+                f"⚠️  Portfolio snapshot (${latest_balance:.2f}) != User balance (${user_reported_balance:.2f})"
+            )
             print(f"   Difference: ${abs(latest_balance - user_reported_balance):.2f}")
         print()
     else:
@@ -155,13 +155,13 @@ def test_what_dashboard_should_show():
     """)
 
     if not snapshot_df.empty and not pnl_df.empty:
-        current_balance = float(snapshot_df.iloc[0]['current_balance'])
-        total_pnl = float(pnl_df.iloc[0]['total_pnl'])
+        current_balance = float(snapshot_df.iloc[0]["current_balance"])
+        total_pnl = float(pnl_df.iloc[0]["total_pnl"])
 
         # Calculate implied initial deposit
         implied_initial_deposit = current_balance - total_pnl
 
-        print(f"\n🎯 CORRECT Dashboard Metrics:")
+        print("\n🎯 CORRECT Dashboard Metrics:")
         print(f"   Portfolio Value (Kalshi Balance): ${current_balance:.2f}")
         print(f"   Total P&L (Won - Lost): ${total_pnl:.2f}")
         print(f"   Implied Initial Deposit: ${implied_initial_deposit:.2f}")
@@ -170,9 +170,9 @@ def test_what_dashboard_should_show():
         user_balance = 80.69
         if abs(current_balance - user_balance) < 1.0:
             print(f"✅ Dashboard SHOULD show Portfolio Value: ${user_balance:.2f}")
-            print(f"   This matches user's actual Kalshi balance")
+            print("   This matches user's actual Kalshi balance")
         else:
-            print(f"⚠️  Sync issue detected")
+            print("⚠️  Sync issue detected")
         print()
 
 
@@ -193,10 +193,14 @@ def test_check_open_bets_capital():
     """)
 
     if not open_bets_df.empty:
-        num_open = int(open_bets_df.iloc[0]['num_open_bets'])
-        capital_at_risk = float(open_bets_df.iloc[0]['capital_at_risk']) if open_bets_df.iloc[0]['capital_at_risk'] else 0.0
+        num_open = int(open_bets_df.iloc[0]["num_open_bets"])
+        capital_at_risk = (
+            float(open_bets_df.iloc[0]["capital_at_risk"])
+            if open_bets_df.iloc[0]["capital_at_risk"]
+            else 0.0
+        )
 
-        print(f"\n📊 Open Bets Analysis:")
+        print("\n📊 Open Bets Analysis:")
         print(f"   Number of open bets: {num_open}")
         print(f"   Capital at risk: ${capital_at_risk:.2f}")
         print()
@@ -210,9 +214,9 @@ def test_check_open_bets_capital():
         """)
 
         if not snapshot_df.empty:
-            current_balance = float(snapshot_df.iloc[0]['balance'])
+            current_balance = float(snapshot_df.iloc[0]["balance"])
             print(f"   Current Kalshi balance: ${current_balance:.2f}")
-            print(f"   Includes value of open positions")
+            print("   Includes value of open positions")
         print()
 
 

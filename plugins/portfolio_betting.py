@@ -87,9 +87,9 @@ class PortfolioBettingManager:
             output_dir = Path("data/portfolio")
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        print(f'\n{"="*80}')
+        print(f"\n{'=' * 80}")
         print(f"PORTFOLIO BETTING - {date_str}")
-        print(f'{"="*80}')
+        print(f"{'=' * 80}")
         print(f"Bankroll: ${self.bankroll:,.2f}")
         print(f"Dry Run: {self.dry_run}\n")
 
@@ -144,9 +144,9 @@ class PortfolioBettingManager:
             print("No bets to place.")
             return results
 
-        print(f'\n{"─"*80}')
-        print(f"PLACING BETS")
-        print(f'{"─"*80}\n')
+        print(f"\n{'─' * 80}")
+        print("PLACING BETS")
+        print(f"{'─' * 80}\n")
 
         for i, alloc in enumerate(allocations, 1):
             opp = alloc.opportunity
@@ -157,7 +157,7 @@ class PortfolioBettingManager:
             # Check if market is still active
             market_details = self.kalshi_client.get_market_details(opp.ticker)
             if not market_details:
-                print(f"   ❌ Cannot fetch market details")
+                print("   ❌ Cannot fetch market details")
                 results["errors"].append(
                     {"ticker": opp.ticker, "error": "Cannot fetch market details"}
                 )
@@ -179,12 +179,12 @@ class PortfolioBettingManager:
 
                     close_dt = datetime.fromisoformat(close_time.replace("Z", "+00:00"))
                     if datetime.now(timezone.utc) >= close_dt:
-                        print(f"   ⚠️  Market closed")
+                        print("   ⚠️  Market closed")
                         results["skipped_bets"].append(
                             {"ticker": opp.ticker, "reason": "Market closed"}
                         )
                         continue
-                except:
+                except Exception:
                     pass
 
             # Determine side (yes/no)
@@ -222,7 +222,7 @@ class PortfolioBettingManager:
                 )
 
                 if order_result:
-                    print(f'   ✓ Bet placed: Order {order_result.get("order_id")}')
+                    print(f"   ✓ Bet placed: Order {order_result.get('order_id')}")
                     results["placed_bets"].append(
                         {
                             "ticker": opp.ticker,
@@ -235,18 +235,18 @@ class PortfolioBettingManager:
                         }
                     )
                 else:
-                    print(f"   ❌ Failed to place bet")
+                    print("   ❌ Failed to place bet")
                     results["errors"].append(
                         {"ticker": opp.ticker, "error": "Failed to place bet"}
                     )
 
-        print(f'\n{"─"*80}')
-        print(f"PLACEMENT SUMMARY")
-        print(f'{"─"*80}')
-        print(f'Planned: {results["planned_bets"]}')
-        print(f'Placed:  {len(results["placed_bets"])}')
-        print(f'Skipped: {len(results["skipped_bets"])}')
-        print(f'Errors:  {len(results["errors"])}')
+        print(f"\n{'─' * 80}")
+        print("PLACEMENT SUMMARY")
+        print(f"{'─' * 80}")
+        print(f"Planned: {results['planned_bets']}")
+        print(f"Placed:  {len(results['placed_bets'])}")
+        print(f"Skipped: {len(results['skipped_bets'])}")
+        print(f"Errors:  {len(results['errors'])}")
 
         return results
 
@@ -254,7 +254,6 @@ class PortfolioBettingManager:
 def main():
     """Example usage."""
     import sys
-    from datetime import datetime
     from pathlib import Path
 
     # Get date
@@ -322,9 +321,9 @@ def main():
         )
 
         # Process daily bets
-        results = manager.process_daily_bets(date_str)
+        manager.process_daily_bets(date_str)
 
-        print(f"\n✓ Complete")
+        print("\n✓ Complete")
 
     finally:
         # Clean up temp key file

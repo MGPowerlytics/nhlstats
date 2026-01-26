@@ -9,7 +9,10 @@ def _extract_sports_config_keys(dag_path: Path) -> Set[str]:
     tree = ast.parse(dag_path.read_text(encoding="utf-8"))
     for node in tree.body:
         if isinstance(node, ast.Assign):
-            if any(isinstance(t, ast.Name) and t.id == "SPORTS_CONFIG" for t in node.targets):
+            if any(
+                isinstance(t, ast.Name) and t.id == "SPORTS_CONFIG"
+                for t in node.targets
+            ):
                 if not isinstance(node.value, ast.Dict):
                     raise AssertionError("SPORTS_CONFIG is not a dict literal")
                 keys: Set[str] = set()
@@ -79,5 +82,9 @@ def test_dag_and_dashboard_sports_aligned() -> None:
     missing_in_dashboard = sorted(dag_sports - dashboard_sports)
     extra_in_dashboard = sorted(dashboard_sports - dag_sports)
 
-    assert missing_in_dashboard == [], f"Dashboard missing leagues for: {missing_in_dashboard}"
-    assert extra_in_dashboard == [], f"Dashboard has leagues not in DAG: {extra_in_dashboard}"
+    assert missing_in_dashboard == [], (
+        f"Dashboard missing leagues for: {missing_in_dashboard}"
+    )
+    assert extra_in_dashboard == [], (
+        f"Dashboard has leagues not in DAG: {extra_in_dashboard}"
+    )

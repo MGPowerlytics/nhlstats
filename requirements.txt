@@ -38,3 +38,4 @@ python-dateutil
 setuptools
 wheel
 pip
+nfl_data_py

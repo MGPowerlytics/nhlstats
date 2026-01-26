@@ -2,16 +2,22 @@
 Comprehensive integrity tests for Airflow DAGs.
 Validates structure, dependencies, and configuration.
 """
+
 import pytest
 from airflow.models import DagBag
+
 
 @pytest.fixture(scope="module")
 def dag_bag():
     return DagBag(dag_folder="dags", include_examples=False)
 
+
 def test_no_import_errors(dag_bag):
     """Verify that all DAGs can be imported without errors."""
-    assert len(dag_bag.import_errors) == 0, f"DAG import errors: {dag_bag.import_errors}"
+    assert len(dag_bag.import_errors) == 0, (
+        f"DAG import errors: {dag_bag.import_errors}"
+    )
+
 
 def test_multi_sport_betting_workflow_structure(dag_bag):
     """Verify the main multi-sport betting DAG has correct structure."""
@@ -34,9 +40,9 @@ def test_multi_sport_betting_workflow_structure(dag_bag):
         assert f"{sport}_identify_bets" in tasks
         assert f"{sport}_load_bets_db" in tasks  # Duplicate check for emphasis
 
+
 def test_dag_schedule():
     """Verify DAG has correct schedule."""
-    dag_id = "multi_sport_betting_workflow"
 
     # This would require importing the DAG module directly
     # For now, just check it exists in the dag_bag

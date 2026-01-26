@@ -26,9 +26,8 @@ from __future__ import annotations
 import argparse
 import math
 from dataclasses import dataclass
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
@@ -144,7 +143,9 @@ class RecencyDecayedElo(BaselineTennisElo):
         # rating = mean + (rating-mean)*exp(-lambda*dt)
         lam = math.log(2.0) / max(self.half_life_days, 1e-6)
         factor = math.exp(-lam * delta_days)
-        self.ratings[player] = self.initial_rating + (self.ratings[player] - self.initial_rating) * factor
+        self.ratings[player] = (
+            self.initial_rating + (self.ratings[player] - self.initial_rating) * factor
+        )
 
     def predict(self, player_a: str, player_b: str, match_date: pd.Timestamp) -> float:
         self._apply_decay(player_a, match_date)
@@ -171,7 +172,9 @@ class MarkovMomentum:
 
     def __init__(self) -> None:
         self.last_state: Dict[str, int] = {}  # 1=W, 0=L
-        self.counts: Dict[Tuple[str, int], Tuple[int, int]] = {}  # (player, state) -> (wins, total)
+        self.counts: Dict[
+            Tuple[str, int], Tuple[int, int]
+        ] = {}  # (player, state) -> (wins, total)
 
     def _get(self, player: str, state: int) -> Tuple[int, int]:
         return self.counts.get((player, state), (0, 0))
@@ -248,7 +251,9 @@ def load_tennis_matches(
 
         raw["game_date"] = pd.to_datetime(raw["date"]).dt.date
         raw["tour"] = raw["tour"].astype(str).str.upper()
-        df = raw.rename(columns={"winner": "winner", "loser": "loser"})[["game_date", "tour", "winner", "loser"]]
+        df = raw.rename(columns={"winner": "winner", "loser": "loser"})[
+            ["game_date", "tour", "winner", "loser"]
+        ]
         df["game_date"] = pd.to_datetime(df["game_date"])
 
         if tour in {"ATP", "WTA"}:
@@ -302,7 +307,9 @@ def evaluate(
         # Momentum overlay on top of recency Elo
         pa_m = mom.predict_win_prob(a)
         pb_m = mom.predict_win_prob(b)
-        p_mom = _sigmoid(_logit(p_rec) + float(momentum_gamma) * (_logit(pa_m) - _logit(pb_m)))
+        p_mom = _sigmoid(
+            _logit(p_rec) + float(momentum_gamma) * (_logit(pa_m) - _logit(pb_m))
+        )
 
         if ts is not None:
             p_ts = float(ts.predict(a, b, home_advantage=0.0))
@@ -371,7 +378,11 @@ def grid_search(
     - Top-k parameter settings for momentum overlay (p_mom)
     """
 
-    baseline = evaluate(matches, half_life_days=float(half_life_grid[0]), momentum_gamma=float(gamma_grid[0]))
+    baseline = evaluate(
+        matches,
+        half_life_days=float(half_life_grid[0]),
+        momentum_gamma=float(gamma_grid[0]),
+    )
     base_rows = baseline[baseline["model"].isin(["p_elo", "p_ts"])].copy()
     if not base_rows.empty:
         print("\n=== Baselines (fixed params) ===")
@@ -382,7 +393,9 @@ def grid_search(
 
     for hl in half_life_grid:
         for g in gamma_grid:
-            metrics = evaluate(matches, half_life_days=float(hl), momentum_gamma=float(g))
+            metrics = evaluate(
+                matches, half_life_days=float(hl), momentum_gamma=float(g)
+            )
 
             rec = metrics[metrics["model"] == "p_rec"]
             if not rec.empty:
@@ -422,14 +435,24 @@ def grid_search(
 
 
 def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
-    p = argparse.ArgumentParser(description="Compare tennis recency/momentum/TrueSkill variants")
-    p.add_argument("--db-path", default="data/nhlstats.duckdb", help="DuckDB path (use a snapshot if the main DB is locked)")
+    p = argparse.ArgumentParser(
+        description="Compare tennis recency/momentum/TrueSkill variants"
+    )
+    p.add_argument(
+        "--db-path",
+        default="data/nhlstats.duckdb",
+        help="DuckDB path (use a snapshot if the main DB is locked)",
+    )
     p.add_argument("--tour", default="ALL", help="ATP|WTA|ALL")
     p.add_argument("--since", default=None, help="YYYY-MM-DD")
     p.add_argument("--until", default=None, help="YYYY-MM-DD")
     p.add_argument("--half-life-days", type=float, default=90.0)
     p.add_argument("--momentum-gamma", type=float, default=0.25)
-    p.add_argument("--grid-search", action="store_true", help="Run a parameter sweep for recency + momentum")
+    p.add_argument(
+        "--grid-search",
+        action="store_true",
+        help="Run a parameter sweep for recency + momentum",
+    )
     p.add_argument(
         "--half-life-grid",
         default="15,30,60,90,120,180,240",
@@ -440,7 +463,9 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
         default="0.0,0.05,0.1,0.2,0.35,0.5",
         help="Comma-separated momentum gammas to try (grid-search)",
     )
-    p.add_argument("--top-k", type=int, default=10, help="Top results to display in grid-search")
+    p.add_argument(
+        "--top-k", type=int, default=10, help="Top results to display in grid-search"
+    )
     return p.parse_args(argv)
 
 
@@ -458,10 +483,19 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     if args.grid_search:
         half_life_grid = _parse_float_list(str(args.half_life_grid))
         gamma_grid = _parse_float_list(str(args.gamma_grid))
-        grid_search(matches, half_life_grid=half_life_grid, gamma_grid=gamma_grid, top_k=int(args.top_k))
+        grid_search(
+            matches,
+            half_life_grid=half_life_grid,
+            gamma_grid=gamma_grid,
+            top_k=int(args.top_k),
+        )
         return
 
-    metrics = evaluate(matches, half_life_days=float(args.half_life_days), momentum_gamma=float(args.momentum_gamma))
+    metrics = evaluate(
+        matches,
+        half_life_days=float(args.half_life_days),
+        momentum_gamma=float(args.momentum_gamma),
+    )
     print("\n=== Metrics (lower logloss/brier is better) ===")
     print(metrics.to_string(index=False))
 

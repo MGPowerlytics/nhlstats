@@ -80,7 +80,7 @@ class PositionAnalyzer:
 
     def get_positions(self, days_back=7):
         """Get all positions (open and recently closed)."""
-        cutoff_date = datetime.utcnow() - timedelta(days=days_back)
+        datetime.utcnow() - timedelta(days=days_back)
 
         # Get all fills
         response = self.client._get("/trade-api/v2/portfolio/fills")
@@ -97,7 +97,7 @@ class PositionAnalyzer:
             created = fill.get("created_time", "")
 
             # Parse date
-            fill_date = datetime.fromisoformat(created.replace("Z", "+00:00"))
+            datetime.fromisoformat(created.replace("Z", "+00:00"))
 
             # Track all fills
             positions[ticker]["fills"].append(fill)
@@ -135,7 +135,7 @@ class PositionAnalyzer:
                     "status": market.get("status", "unknown"),
                     "close_time": market.get("close_time"),
                 }
-        except:
+        except Exception:
             pass
         return {"title": ticker, "status": "unknown", "close_time": None}
 
@@ -377,7 +377,7 @@ class PositionAnalyzer:
             lines.append(f"- **Balance:** ${balance:.2f}")
             lines.append(f"- **Portfolio Value:** ${portfolio_value:.2f}")
             lines.append(f"- **Total:** ${balance + portfolio_value:.2f}\n")
-        except:
+        except Exception:
             pass
 
         # Open positions
@@ -437,9 +437,9 @@ class PositionAnalyzer:
                         if threshold and prob >= threshold:
                             lines.append(f"- ✅ Above threshold ({threshold:.0%})")
                         elif prob >= 0.50:
-                            lines.append(f"- ➡️ Favored but below threshold")
+                            lines.append("- ➡️ Favored but below threshold")
                         else:
-                            lines.append(f"- ⚠️ Betting on underdog")
+                            lines.append("- ⚠️ Betting on underdog")
 
                     if pos.get("concerns"):
                         for concern in pos["concerns"]:

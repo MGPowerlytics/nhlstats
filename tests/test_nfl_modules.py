@@ -1,20 +1,17 @@
 """Tests for NFL games and stats modules with mocked nfl_data_py."""
 
-import pytest
 import sys
-import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import tempfile
 from datetime import datetime
 import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 # ============================================================
 # Tests for nfl_games.py (0% -> higher)
 # ============================================================
+
 
 class TestNFLGamesWithMock:
     """Test NFLGames with mocked nfl_data_py."""
@@ -22,17 +19,16 @@ class TestNFLGamesWithMock:
     def test_nfl_games_output_dir(self, tmp_path):
         """Test NFLGames output directory setup."""
         # We can't easily mock the import, but we can test URL patterns
-        output_dir = tmp_path / 'nfl'
+        output_dir = tmp_path / "nfl"
         output_dir.mkdir(exist_ok=True)
 
         assert output_dir.exists()
 
     def test_nfl_season_year_fall(self):
         """Test season year calculation for fall dates."""
-        from datetime import datetime
 
-        date_str = '2023-09-07'
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        date_str = "2023-09-07"
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
 
         # Season year calculation
         if date_obj.month >= 9:
@@ -44,10 +40,9 @@ class TestNFLGamesWithMock:
 
     def test_nfl_season_year_winter(self):
         """Test season year calculation for winter dates."""
-        from datetime import datetime
 
-        date_str = '2024-01-07'
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
+        date_str = "2024-01-07"
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
 
         # Season year calculation
         if date_obj.month >= 9:
@@ -60,25 +55,26 @@ class TestNFLGamesWithMock:
     def test_nfl_game_id_format(self):
         """Test NFL game ID format."""
         game_id = "2023_01_KC_DET"
-        parts = game_id.split('_')
+        parts = game_id.split("_")
 
         assert len(parts) == 4
-        assert parts[0] == '2023'  # Season
-        assert parts[1] == '01'    # Week
-        assert parts[2] == 'KC'    # Away team
-        assert parts[3] == 'DET'   # Home team
+        assert parts[0] == "2023"  # Season
+        assert parts[1] == "01"  # Week
+        assert parts[2] == "KC"  # Away team
+        assert parts[3] == "DET"  # Home team
 
 
 # ============================================================
 # Tests for nfl_stats.py (0% -> higher)
 # ============================================================
 
+
 class TestNFLStatsFetcherWithMock:
     """Test NFLStatsFetcher with mocked nfl_data_py."""
 
     def test_nfl_stats_output_dir(self, tmp_path):
         """Test NFLStatsFetcher output directory."""
-        output_dir = tmp_path / 'nfl'
+        output_dir = tmp_path / "nfl"
         output_dir.mkdir(exist_ok=True)
 
         assert output_dir.exists()
@@ -87,17 +83,17 @@ class TestNFLStatsFetcherWithMock:
         """Test expected API structure."""
         # These are the expected nfl_data_py function names
         expected_functions = [
-            'import_schedules',
-            'import_pbp_data',
-            'import_weekly_data',
-            'import_seasonal_data',
-            'import_rosters',
-            'import_team_desc'
+            "import_schedules",
+            "import_pbp_data",
+            "import_weekly_data",
+            "import_seasonal_data",
+            "import_rosters",
+            "import_team_desc",
         ]
 
         for func in expected_functions:
             # Just verify naming conventions
-            assert 'import' in func or 'get' in func
+            assert "import" in func or "get" in func
 
     def test_nfl_stats_season_param(self):
         """Test season parameter format."""
@@ -114,6 +110,7 @@ class TestNFLStatsFetcherWithMock:
 # Tests for lift_gain_analysis.py (9% -> higher)
 # ============================================================
 
+
 class TestLiftGainAnalysisDirect:
     """Direct tests for lift_gain_analysis module."""
 
@@ -121,27 +118,31 @@ class TestLiftGainAnalysisDirect:
         """Test module can be imported."""
         import lift_gain_analysis
 
-        assert hasattr(lift_gain_analysis, 'analyze_sport')
+        assert hasattr(lift_gain_analysis, "analyze_sport")
 
     def test_decile_calculation_helper(self):
         """Test helper for calculating deciles."""
-        import pandas as pd
 
         # Create test data
-        data = pd.DataFrame({
-            'home_win_prob': [0.1, 0.3, 0.5, 0.7, 0.9] * 10,
-            'home_won': [0, 0, 1, 1, 1] * 10
-        })
+        data = pd.DataFrame(
+            {
+                "home_win_prob": [0.1, 0.3, 0.5, 0.7, 0.9] * 10,
+                "home_won": [0, 0, 1, 1, 1] * 10,
+            }
+        )
 
         # Calculate deciles
-        data['decile'] = pd.qcut(data['home_win_prob'], 10, labels=False, duplicates='drop')
+        data["decile"] = pd.qcut(
+            data["home_win_prob"], 10, labels=False, duplicates="drop"
+        )
 
-        assert data['decile'].max() > 0
+        assert data["decile"].max() > 0
 
 
 # ============================================================
 # Tests for the_odds_api.py (33% -> higher)
 # ============================================================
+
 
 class TestTheOddsAPIDirect:
     """Direct tests for the_odds_api module."""
@@ -151,9 +152,9 @@ class TestTheOddsAPIDirect:
         from the_odds_api import TheOddsAPI
 
         # Should have sport mappings
-        api = TheOddsAPI(api_key='test')
+        api = TheOddsAPI(api_key="test")
 
-        assert hasattr(api, 'sports') or True  # May vary by implementation
+        assert hasattr(api, "sports") or True  # May vary by implementation
 
     def test_odds_url_format(self):
         """Test URL format for API calls."""
@@ -167,12 +168,10 @@ class TestTheOddsAPIDirect:
         assert "h2h" in url
 
 
-
-
-
 # ============================================================
 # Tests for kalshi_markets.py (51% -> higher)
 # ============================================================
+
 
 class TestKalshiMarketsDirect:
     """Direct tests for kalshi_markets module."""
@@ -197,6 +196,7 @@ class TestKalshiMarketsDirect:
 # Tests for polymarket_api.py (30% -> higher)
 # ============================================================
 
+
 class TestPolymarketAPIDirect:
     """Direct tests for polymarket_api module."""
 
@@ -218,6 +218,7 @@ class TestPolymarketAPIDirect:
 # Tests for cloudbet_api.py (40% -> higher)
 # ============================================================
 
+
 class TestCloudbetAPIDirect:
     """Direct tests for cloudbet_api module."""
 
@@ -232,6 +233,7 @@ class TestCloudbetAPIDirect:
 # ============================================================
 # Tests for nhl_game_events.py (29% -> higher)
 # ============================================================
+
 
 class TestNHLGameEventsDirect:
     """Direct tests for nhl_game_events module."""
@@ -256,6 +258,7 @@ class TestNHLGameEventsDirect:
 # Tests for ncaab_games.py (15% -> higher)
 # ============================================================
 
+
 class TestNCAABGamesDirect:
     """Direct tests for ncaab_games module."""
 
@@ -263,7 +266,7 @@ class TestNCAABGamesDirect:
         """Test NCAAB games module import."""
         import ncaab_games
 
-        assert hasattr(ncaab_games, 'NCAABGames')
+        assert hasattr(ncaab_games, "NCAABGames")
 
     def test_ncaab_url_format(self):
         """Test NCAAB data URL format."""
@@ -277,6 +280,7 @@ class TestNCAABGamesDirect:
 # Tests for mlb_games.py (23% -> higher)
 # ============================================================
 
+
 class TestMLBGamesDirect:
     """Direct tests for mlb_games module."""
 
@@ -284,7 +288,7 @@ class TestMLBGamesDirect:
         """Test MLB games module import."""
         import mlb_games
 
-        assert hasattr(mlb_games, 'MLBGames')
+        assert hasattr(mlb_games, "MLBGames")
 
     def test_mlb_api_url(self):
         """Test MLB API URL format."""
@@ -299,6 +303,7 @@ class TestMLBGamesDirect:
 # Tests for epl_games.py (25% -> higher)
 # ============================================================
 
+
 class TestEPLGamesDirect:
     """Direct tests for epl_games module."""
 
@@ -306,7 +311,7 @@ class TestEPLGamesDirect:
         """Test EPL games module import."""
         import epl_games
 
-        assert hasattr(epl_games, 'EPLGames')
+        assert hasattr(epl_games, "EPLGames")
 
     def test_epl_data_url(self):
         """Test EPL data URL format."""
@@ -321,6 +326,7 @@ class TestEPLGamesDirect:
 # Tests for ligue1_games.py (25% -> higher)
 # ============================================================
 
+
 class TestLigue1GamesDirect:
     """Direct tests for ligue1_games module."""
 
@@ -328,7 +334,7 @@ class TestLigue1GamesDirect:
         """Test Ligue1 games module import."""
         import ligue1_games
 
-        assert hasattr(ligue1_games, 'Ligue1Games')
+        assert hasattr(ligue1_games, "Ligue1Games")
 
     def test_ligue1_data_url(self):
         """Test Ligue1 data URL format."""
@@ -343,6 +349,7 @@ class TestLigue1GamesDirect:
 # Tests for nba_games.py (31% -> higher)
 # ============================================================
 
+
 class TestNBAGamesDirect:
     """Direct tests for nba_games module."""
 
@@ -350,7 +357,7 @@ class TestNBAGamesDirect:
         """Test NBA games module import."""
         import nba_games
 
-        assert hasattr(nba_games, 'NBAGames')
+        assert hasattr(nba_games, "NBAGames")
 
     def test_nba_api_url(self):
         """Test NBA API URL format."""

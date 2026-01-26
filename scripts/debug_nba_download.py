@@ -3,7 +3,7 @@ import os
 import logging
 
 # Add plugins to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins")))
 
 from nba_games import NBAGames
 
@@ -18,6 +18,7 @@ try:
 
     # Check if files exist
     import glob
+
     files = glob.glob(f"data/nba/{game_date}/*.json")
     print(f"Found {len(files)} JSON files in data/nba/{game_date}")
 

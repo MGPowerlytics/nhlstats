@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 import pandas as pd
 from db_manager import DBManager, default_db
@@ -47,13 +46,15 @@ def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
             ADD COLUMN IF NOT EXISTS cumulative_deposits_dollars DOUBLE PRECISION DEFAULT 0.0
             """
         )
-    except:
+    except Exception:
         pass
 
     # Add explicit constraint if needed (for cases where PRIMARY KEY wasn't picked up correctly in earlier runs)
     try:
-        db.execute("ALTER TABLE portfolio_value_snapshots ADD CONSTRAINT pk_snapshot_hour PRIMARY KEY (snapshot_hour_utc)")
-    except:
+        db.execute(
+            "ALTER TABLE portfolio_value_snapshots ADD CONSTRAINT pk_snapshot_hour PRIMARY KEY (snapshot_hour_utc)"
+        )
+    except Exception:
         pass
 
 
@@ -83,20 +84,18 @@ def upsert_hourly_snapshot(
     # Calculate cumulative deposits up to this snapshot hour
     try:
         from plugins.deposit_tracking import calculate_total_deposits
-        cumulative_deposits = calculate_total_deposits(
-            up_to_date=snapshot_hour,
-            db=db
-        )
-    except Exception as e:
+
+        cumulative_deposits = calculate_total_deposits(up_to_date=snapshot_hour, db=db)
+    except Exception:
         # If deposit tracking not available, default to 0
         cumulative_deposits = 0.0
 
     params = {
-        'snapshot_hour': snapshot_hour,
-        'balance': balance_dollars,
-        'portfolio_value': portfolio_value_dollars,
-        'cumulative_deposits': cumulative_deposits,
-        'created_at': now_utc.replace(tzinfo=None)
+        "snapshot_hour": snapshot_hour,
+        "balance": balance_dollars,
+        "portfolio_value": portfolio_value_dollars,
+        "cumulative_deposits": cumulative_deposits,
+        "created_at": now_utc.replace(tzinfo=None),
     }
 
     db.execute(
@@ -114,7 +113,7 @@ def upsert_hourly_snapshot(
             cumulative_deposits_dollars = EXCLUDED.cumulative_deposits_dollars,
             created_at_utc = EXCLUDED.created_at_utc
         """,
-        params
+        params,
     )
 
     df = db.fetch_df(
@@ -123,7 +122,7 @@ def upsert_hourly_snapshot(
         FROM portfolio_value_snapshots
         WHERE snapshot_hour_utc = :snapshot_hour
         """,
-        {'snapshot_hour': snapshot_hour}
+        {"snapshot_hour": snapshot_hour},
     )
 
     if df.empty:
@@ -131,14 +130,20 @@ def upsert_hourly_snapshot(
 
     row = df.iloc[0]
     return PortfolioSnapshot(
-        snapshot_hour_utc=pd.to_datetime(row['snapshot_hour_utc']).replace(tzinfo=timezone.utc),
-        balance_dollars=float(row['balance_dollars'] or 0.0),
-        portfolio_value_dollars=float(row['portfolio_value_dollars'] or 0.0),
-        created_at_utc=pd.to_datetime(row['created_at_utc']).replace(tzinfo=timezone.utc),
+        snapshot_hour_utc=pd.to_datetime(row["snapshot_hour_utc"]).replace(
+            tzinfo=timezone.utc
+        ),
+        balance_dollars=float(row["balance_dollars"] or 0.0),
+        portfolio_value_dollars=float(row["portfolio_value_dollars"] or 0.0),
+        created_at_utc=pd.to_datetime(row["created_at_utc"]).replace(
+            tzinfo=timezone.utc
+        ),
     )
 
 
-def load_latest_snapshot(db_path: Optional[str] = None, db: DBManager = default_db) -> Optional[PortfolioSnapshot]:
+def load_latest_snapshot(
+    db_path: Optional[str] = None, db: DBManager = default_db
+) -> Optional[PortfolioSnapshot]:
     """Load the most recent snapshot."""
     # Ignore db_path
     if not db.table_exists("portfolio_value_snapshots"):
@@ -158,10 +163,14 @@ def load_latest_snapshot(db_path: Optional[str] = None, db: DBManager = default_
 
     row = df.iloc[0]
     return PortfolioSnapshot(
-        snapshot_hour_utc=pd.to_datetime(row['snapshot_hour_utc']).replace(tzinfo=timezone.utc),
-        balance_dollars=float(row['balance_dollars'] or 0.0),
-        portfolio_value_dollars=float(row['portfolio_value_dollars'] or 0.0),
-        created_at_utc=pd.to_datetime(row['created_at_utc']).replace(tzinfo=timezone.utc),
+        snapshot_hour_utc=pd.to_datetime(row["snapshot_hour_utc"]).replace(
+            tzinfo=timezone.utc
+        ),
+        balance_dollars=float(row["balance_dollars"] or 0.0),
+        portfolio_value_dollars=float(row["portfolio_value_dollars"] or 0.0),
+        created_at_utc=pd.to_datetime(row["created_at_utc"]).replace(
+            tzinfo=timezone.utc
+        ),
     )
 
 
@@ -176,15 +185,19 @@ def load_snapshots_since(
     if not db.table_exists("portfolio_value_snapshots"):
         return pd.DataFrame()
 
-    if since_utc.tzinfo is None:
-        since_utc = since_utc.replace(tzinfo=timezone.utc)
+    # Convert to naive UTC for compatibility with SQLite (column is naive UTC)
+    if since_utc.tzinfo is not None:
+        since_utc_naive = since_utc.astimezone(timezone.utc).replace(tzinfo=None)
+    else:
+        since_utc_naive = since_utc
 
-    return db.fetch_df(
+    df = db.fetch_df(
         """
         SELECT snapshot_hour_utc, balance_dollars, portfolio_value_dollars
         FROM portfolio_value_snapshots
         WHERE snapshot_hour_utc >= :since_utc
         ORDER BY snapshot_hour_utc ASC
         """,
-        {'since_utc': since_utc}
+        {"since_utc": since_utc_naive},
     )
+    return df

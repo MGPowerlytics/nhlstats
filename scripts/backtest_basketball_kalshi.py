@@ -130,6 +130,7 @@ def _norm_name(value: str) -> str:
 @dataclass(frozen=True)
 class MarketMatch:
     """Kalshi market metadata for matching."""
+
     ticker: str
     yes_team: str
     no_team: str
@@ -217,7 +218,9 @@ def _match_market_for_game(
     return ticker, yes_is_home, close_time
 
 
-def _load_games(db_path: str, sport: str, start: datetime, end: datetime) -> pd.DataFrame:
+def _load_games(
+    db_path: str, sport: str, start: datetime, end: datetime
+) -> pd.DataFrame:
     """Load games from DuckDB."""
     config = SPORT_CONFIG[sport]
 
@@ -230,7 +233,9 @@ def _load_games(db_path: str, sport: str, start: datetime, end: datetime) -> pd.
     return df
 
 
-def _load_kalshi_markets(db_path: str, start: datetime, end: datetime) -> List[MarketMatch]:
+def _load_kalshi_markets(
+    db_path: str, start: datetime, end: datetime
+) -> List[MarketMatch]:
     """Load Kalshi markets from DuckDB."""
     con = duckdb.connect(db_path, read_only=True)
     try:
@@ -293,6 +298,7 @@ def _load_last_trade_price_before(
 @dataclass
 class BacktestResult:
     """Results from backtesting."""
+
     sport: str
     start_date: str
     end_date: str
@@ -334,9 +340,9 @@ def run_backtest(
     Returns:
         BacktestResult with performance metrics
     """
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"🏀 BACKTESTING {sport} - {start.date()} to {end.date()}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     config = SPORT_CONFIG[sport]
 
@@ -371,10 +377,12 @@ def run_backtest(
     print(f"📥 Loading Kalshi markets for {config['series_ticker']}...")
     markets = _load_kalshi_markets(db_path, start, end)
     if not markets:
-        print(f"⚠️  No Kalshi markets found.")
-        print(f"   Run: python -m plugins.kalshi_historical_data --mode markets \\")
+        print("⚠️  No Kalshi markets found.")
+        print("   Run: python -m plugins.kalshi_historical_data --mode markets \\")
         print(f"        --series-ticker {config['series_ticker']} \\")
-        print(f"        --start {start.strftime('%Y-%m-%d')} --end {end.strftime('%Y-%m-%d')}")
+        print(
+            f"        --start {start.strftime('%Y-%m-%d')} --end {end.strftime('%Y-%m-%d')}"
+        )
         return BacktestResult(
             sport=sport,
             start_date=start.strftime("%Y-%m-%d"),
@@ -398,10 +406,9 @@ def run_backtest(
     print(f"   Found {len(markets):,} markets")
 
     # Initialize Elo system
-    print(f"🎯 Initializing Elo rating system...")
+    print("🎯 Initializing Elo rating system...")
     elo = config["elo_class"](
-        k_factor=config["k_factor"],
-        home_advantage=config["home_advantage"]
+        k_factor=config["k_factor"], home_advantage=config["home_advantage"]
     )
     threshold = config["threshold"]
     print(f"   K-factor: {config['k_factor']}")
@@ -410,7 +417,7 @@ def run_backtest(
     print(f"   Minimum edge: {min_edge:.1%}")
 
     # Backtest loop
-    print(f"\n📊 Running backtest...\n")
+    print("\n📊 Running backtest...\n")
 
     total_bets = 0
     bets_won = 0
@@ -520,17 +527,19 @@ def run_backtest(
         total_pnl += realized_pnl
 
         # Store bet details
-        bet_details.append({
-            "date": game_date,
-            "game": f"{home} vs {away}",
-            "ticker": ticker,
-            "side": chosen_side,
-            "model_prob": f"{model_prob:.1%}",
-            "price": f"${price:.2f}",
-            "edge": f"{edge:.1%}",
-            "outcome": "✅ WIN" if bet_won else "❌ LOSS",
-            "pnl": f"${realized_pnl:+.2f}",
-        })
+        bet_details.append(
+            {
+                "date": game_date,
+                "game": f"{home} vs {away}",
+                "ticker": ticker,
+                "side": chosen_side,
+                "model_prob": f"{model_prob:.1%}",
+                "price": f"${price:.2f}",
+                "edge": f"{edge:.1%}",
+                "outcome": "✅ WIN" if bet_won else "❌ LOSS",
+                "pnl": f"${realized_pnl:+.2f}",
+            }
+        )
 
         # Update Elo AFTER prediction
         if sport in ["NCAAB", "WNCAAB"]:
@@ -545,39 +554,41 @@ def run_backtest(
     roi = (total_pnl / total_bets) if total_bets > 0 else 0.0
 
     # Print results
-    print(f"\n{'='*80}")
+    print(f"\n{'=' * 80}")
     print(f"📈 BACKTEST RESULTS - {sport}")
-    print(f"{'='*80}\n")
+    print(f"{'=' * 80}\n")
 
     print(f"📅 Date Range: {start.date()} to {end.date()}")
     print(f"🏀 Total Games: {len(games):,}")
-    print(f"✅ Matched to Kalshi Markets: {matched_games:,} ({matched_games/len(games)*100:.1f}%)")
-    print(f"\n🎲 BETTING PERFORMANCE:")
+    print(
+        f"✅ Matched to Kalshi Markets: {matched_games:,} ({matched_games / len(games) * 100:.1f}%)"
+    )
+    print("\n🎲 BETTING PERFORMANCE:")
     print(f"   Bets Placed: {total_bets:,}")
     print(f"   Bets Won: {bets_won:,}")
     print(f"   Bets Lost: {bets_lost:,}")
     print(f"   Win Rate: {win_rate:.1%}")
-    print(f"\n💰 FINANCIAL PERFORMANCE:")
+    print("\n💰 FINANCIAL PERFORMANCE:")
     print(f"   Total EV: ${total_ev:+.2f} (per contract)")
     print(f"   Total P&L: ${total_pnl:+.2f} (per contract)")
     print(f"   Avg EV per Bet: ${avg_ev:+.2f}")
     print(f"   Avg P&L per Bet: ${avg_pnl:+.2f}")
     print(f"   ROI: {roi:+.1%}")
-    print(f"\n⚠️  SKIPPED GAMES:")
+    print("\n⚠️  SKIPPED GAMES:")
     print(f"   No Market Match: {skipped_no_market:,}")
     print(f"   No Price Data: {skipped_no_price:,}")
     print(f"   Below Threshold/Edge: {skipped_no_edge:,}")
 
     # Show sample bets
     if bet_details:
-        print(f"\n📋 SAMPLE BETS (first 10):")
+        print("\n📋 SAMPLE BETS (first 10):")
         df_bets = pd.DataFrame(bet_details[:10])
         print(df_bets.to_string(index=False))
 
         if len(bet_details) > 10:
             print(f"\n   ... and {len(bet_details) - 10} more bets")
 
-    print(f"\n{'='*80}\n")
+    print(f"\n{'=' * 80}\n")
 
     return BacktestResult(
         sport=sport,
@@ -649,9 +660,7 @@ def main():
     start = _parse_ymd(args.start)
     end = _parse_ymd(args.end)
 
-    sports_to_test = (
-        ["NBA", "NCAAB", "WNCAAB"] if args.sport == "ALL" else [args.sport]
-    )
+    sports_to_test = ["NBA", "NCAAB", "WNCAAB"] if args.sport == "ALL" else [args.sport]
 
     results = []
 
@@ -668,21 +677,23 @@ def main():
 
     # Print summary if multiple sports
     if len(results) > 1:
-        print(f"\n{'='*80}")
-        print(f"🏆 OVERALL SUMMARY")
-        print(f"{'='*80}\n")
+        print(f"\n{'=' * 80}")
+        print("🏆 OVERALL SUMMARY")
+        print(f"{'=' * 80}\n")
 
         summary_data = []
         for r in results:
-            summary_data.append({
-                "Sport": r.sport,
-                "Games": r.total_games,
-                "Bets": r.bets_taken,
-                "Win Rate": f"{r.win_rate:.1%}",
-                "Avg P&L": f"${r.avg_pnl_per_bet:+.2f}",
-                "ROI": f"{r.roi:+.1%}",
-                "Total P&L": f"${r.total_pnl:+.2f}",
-            })
+            summary_data.append(
+                {
+                    "Sport": r.sport,
+                    "Games": r.total_games,
+                    "Bets": r.bets_taken,
+                    "Win Rate": f"{r.win_rate:.1%}",
+                    "Avg P&L": f"${r.avg_pnl_per_bet:+.2f}",
+                    "ROI": f"{r.roi:+.1%}",
+                    "Total P&L": f"${r.total_pnl:+.2f}",
+                }
+            )
 
         df_summary = pd.DataFrame(summary_data)
         print(df_summary.to_string(index=False))

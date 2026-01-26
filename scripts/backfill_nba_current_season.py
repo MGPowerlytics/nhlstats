@@ -29,51 +29,55 @@ def parse_scoreboard_json(file_path: Path) -> List[Dict[str, Any]]:
     games = []
 
     # NBA API format: resultSets array with different data
-    if 'resultSets' not in data:
+    if "resultSets" not in data:
         return games
 
     # Find the GameHeader and LineScore result sets
     game_header = None
     line_score = None
 
-    for rs in data['resultSets']:
-        if rs.get('name') == 'GameHeader':
+    for rs in data["resultSets"]:
+        if rs.get("name") == "GameHeader":
             game_header = rs
-        elif rs.get('name') == 'LineScore':
+        elif rs.get("name") == "LineScore":
             line_score = rs
 
     if not game_header or not line_score:
         return games
 
     # Parse game headers
-    game_header_cols = {col: idx for idx, col in enumerate(game_header['headers'])}
+    game_header_cols = {col: idx for idx, col in enumerate(game_header["headers"])}
 
-    for row in game_header['rowSet']:
-        game_id = str(row[game_header_cols['GAME_ID']])
-        game_date_str = str(row[game_header_cols['GAME_DATE_EST']])
-        game_status = str(row[game_header_cols['GAME_STATUS_TEXT']])
-        season = row[game_header_cols.get('SEASON', 0)]
+    for row in game_header["rowSet"]:
+        game_id = str(row[game_header_cols["GAME_ID"]])
+        game_date_str = str(row[game_header_cols["GAME_DATE_EST"]])
+        game_status = str(row[game_header_cols["GAME_STATUS_TEXT"]])
+        season = row[game_header_cols.get("SEASON", 0)]
 
         # Parse date (format: 2024-10-22T00:00:00)
         try:
-            game_date = datetime.strptime(game_date_str[:10], '%Y-%m-%d').date()
-        except:
+            game_date = datetime.strptime(game_date_str[:10], "%Y-%m-%d").date()
+        except Exception:
             continue
 
         # Find team scores from LineScore
-        line_score_cols = {col: idx for idx, col in enumerate(line_score['headers'])}
+        line_score_cols = {col: idx for idx, col in enumerate(line_score["headers"])}
 
         home_team = None
         away_team = None
         home_score = None
         away_score = None
 
-        for ls_row in line_score['rowSet']:
-            if str(ls_row[line_score_cols['GAME_ID']]) == game_id:
-                team_abbrev = ls_row[line_score_cols['TEAM_ABBREVIATION']]
-                team_name = ls_row[line_score_cols['TEAM_CITY_NAME']] + ' ' + ls_row[line_score_cols['TEAM_NAME']]
-                team_id = str(ls_row[line_score_cols['TEAM_ID']])
-                pts = ls_row[line_score_cols.get('PTS', None)]
+        for ls_row in line_score["rowSet"]:
+            if str(ls_row[line_score_cols["GAME_ID"]]) == game_id:
+                ls_row[line_score_cols["TEAM_ABBREVIATION"]]
+                team_name = (
+                    ls_row[line_score_cols["TEAM_CITY_NAME"]]
+                    + " "
+                    + ls_row[line_score_cols["TEAM_NAME"]]
+                )
+                team_id = str(ls_row[line_score_cols["TEAM_ID"]])
+                pts = ls_row[line_score_cols.get("PTS", None)]
 
                 # Home team has different indicator in different API versions
                 # Typically the first team listed is the home team
@@ -87,19 +91,21 @@ def parse_scoreboard_json(file_path: Path) -> List[Dict[str, Any]]:
                     away_score = pts if pts is not None else 0
 
         if home_team and away_team:
-            games.append({
-                'game_id': f"NBA_{game_id}",
-                'sport': 'NBA',
-                'game_date': game_date,
-                'season': season if season else None,
-                'status': game_status,
-                'home_team_id': home_team_id,
-                'home_team_name': home_team,
-                'away_team_id': away_team_id,
-                'away_team_name': away_team,
-                'home_score': home_score,
-                'away_score': away_score,
-            })
+            games.append(
+                {
+                    "game_id": f"NBA_{game_id}",
+                    "sport": "NBA",
+                    "game_date": game_date,
+                    "season": season if season else None,
+                    "status": game_status,
+                    "home_team_id": home_team_id,
+                    "home_team_name": home_team,
+                    "away_team_id": away_team_id,
+                    "away_team_name": away_team,
+                    "home_score": home_score,
+                    "away_score": away_score,
+                }
+            )
 
     return games
 
@@ -110,7 +116,8 @@ def load_games_to_db(games: List[Dict[str, Any]]) -> int:
 
     for game in games:
         try:
-            default_db.execute("""
+            default_db.execute(
+                """
                 INSERT INTO unified_games (
                     game_id, sport, game_date, season, status,
                     home_team_id, home_team_name,
@@ -127,7 +134,9 @@ def load_games_to_db(games: List[Dict[str, Any]]) -> int:
                     home_score = EXCLUDED.home_score,
                     away_score = EXCLUDED.away_score,
                     loaded_at = CURRENT_TIMESTAMP
-            """, game)
+            """,
+                game,
+            )
             loaded += 1
         except Exception as e:
             print(f"  ✗ Error loading game {game['game_id']}: {e}")
@@ -163,10 +172,10 @@ def backfill_nba_games(data_dir: Path = Path("data/nba")):
             total_games += len(games)
             total_loaded += loaded
 
-            date_str = file_path.stem.replace('scoreboard_', '')
+            date_str = file_path.stem.replace("scoreboard_", "")
             print(f"  ✓ {date_str}: {loaded}/{len(games)} games loaded")
 
-    print(f"\n✅ Backfill complete!")
+    print("\n✅ Backfill complete!")
     print(f"   Total games found: {total_games}")
     print(f"   Total games loaded: {total_loaded}")
 
@@ -181,7 +190,7 @@ def backfill_nba_games(data_dir: Path = Path("data/nba")):
         WHERE sport = 'NBA'
     """)
 
-    print(f"\n📊 NBA data in database:")
+    print("\n📊 NBA data in database:")
     print(result.to_string(index=False))
 
 

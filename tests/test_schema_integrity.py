@@ -4,6 +4,7 @@ from plugins.database_schema_manager import DatabaseSchemaManager
 from plugins.bet_tracker import create_bets_table
 from plugins.bet_loader import BetLoader
 
+
 @pytest.fixture(scope="function", autouse=True)
 def setup_schema():
     """Create schema for integrity tests."""
@@ -12,6 +13,7 @@ def setup_schema():
     create_bets_table(default_db)
     # Instantiate BetLoader to create bet_recommendations table
     BetLoader(db_manager=default_db)
+
 
 def test_placed_bets_has_primary_key():
     """
@@ -30,6 +32,7 @@ def test_placed_bets_has_primary_key():
     # Assert that at least one row is returned (meaning a PK exists)
     assert not df.empty, "placed_bets table is missing a Primary Key constraint"
 
+
 def test_unified_games_has_primary_key():
     """Verify unified_games has a PK."""
     query = """
@@ -40,6 +43,7 @@ def test_unified_games_has_primary_key():
     """
     df = default_db.fetch_df(query)
     assert not df.empty, "unified_games table is missing a Primary Key constraint"
+
 
 def test_game_odds_has_primary_key():
     """Verify game_odds has a PK."""
@@ -52,6 +56,7 @@ def test_game_odds_has_primary_key():
     df = default_db.fetch_df(query)
     assert not df.empty, "game_odds table is missing a Primary Key constraint"
 
+
 def test_bet_recommendations_has_primary_key():
     """Verify bet_recommendations has a PK."""
     query = """
@@ -62,6 +67,7 @@ def test_bet_recommendations_has_primary_key():
     """
     df = default_db.fetch_df(query)
     assert not df.empty, "bet_recommendations table is missing a Primary Key constraint"
+
 
 def test_game_odds_has_foreign_key_to_unified_games():
     """Verify game_odds has an FK to unified_games."""

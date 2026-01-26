@@ -1,10 +1,6 @@
 """Targeted tests for data_validation.py code paths"""
 
-import pytest
-import pandas as pd
-import numpy as np
-from unittest.mock import Mock, patch, MagicMock
-from datetime import datetime, timedelta
+from unittest.mock import patch, MagicMock
 
 
 class TestDataValidationReportClass:
@@ -12,13 +8,14 @@ class TestDataValidationReportClass:
 
     def test_create_empty_report(self):
         from data_validation import DataValidationReport
-        report = DataValidationReport('nba')
-        assert report.sport == 'nba'
+
+        report = DataValidationReport("nba")
+        assert report.sport == "nba"
 
     def test_report_for_all_sports(self):
         from data_validation import DataValidationReport
 
-        for sport in ['nba', 'nhl', 'mlb', 'nfl']:
+        for sport in ["nba", "nhl", "mlb", "nfl"]:
             report = DataValidationReport(sport)
             assert report.sport == sport
 
@@ -28,21 +25,27 @@ class TestExpectedTeamsComprehensive:
 
     def test_nba_teams_have_correct_count(self):
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['nba']) == 30
-        assert 'Lakers' in EXPECTED_TEAMS['nba'] or 'Los Angeles Lakers' in str(EXPECTED_TEAMS['nba'])
+
+        assert len(EXPECTED_TEAMS["nba"]) == 30
+        assert "Lakers" in EXPECTED_TEAMS["nba"] or "Los Angeles Lakers" in str(
+            EXPECTED_TEAMS["nba"]
+        )
 
     def test_nhl_teams_have_correct_count(self):
         from data_validation import EXPECTED_TEAMS
+
         # NHL has 32 teams (including Utah Hockey Club / Arizona Coyotes)
-        assert len(EXPECTED_TEAMS['nhl']) >= 31
+        assert len(EXPECTED_TEAMS["nhl"]) >= 31
 
     def test_mlb_teams_have_correct_count(self):
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['mlb']) == 30
+
+        assert len(EXPECTED_TEAMS["mlb"]) == 30
 
     def test_nfl_teams_have_correct_count(self):
         from data_validation import EXPECTED_TEAMS
-        assert len(EXPECTED_TEAMS['nfl']) == 32
+
+        assert len(EXPECTED_TEAMS["nfl"]) == 32
 
 
 class TestSeasonInfoComprehensive:
@@ -50,19 +53,22 @@ class TestSeasonInfoComprehensive:
 
     def test_nba_season_info(self):
         from data_validation import SEASON_INFO
-        assert SEASON_INFO['nba']['games_per_team'] == 82
-        assert SEASON_INFO['nba']['total_games_per_season'] == 1230
-        assert SEASON_INFO['nba']['start_month'] == 10
+
+        assert SEASON_INFO["nba"]["games_per_team"] == 82
+        assert SEASON_INFO["nba"]["total_games_per_season"] == 1230
+        assert SEASON_INFO["nba"]["start_month"] == 10
 
     def test_nhl_season_info(self):
         from data_validation import SEASON_INFO
-        assert SEASON_INFO['nhl']['games_per_team'] == 82
-        assert SEASON_INFO['nhl']['total_games_per_season'] == 1312
+
+        assert SEASON_INFO["nhl"]["games_per_team"] == 82
+        assert SEASON_INFO["nhl"]["total_games_per_season"] == 1312
 
     def test_mlb_season_info(self):
         from data_validation import SEASON_INFO
-        assert SEASON_INFO['mlb']['games_per_team'] == 162
-        assert SEASON_INFO['mlb']['total_games_per_season'] == 2430
+
+        assert SEASON_INFO["mlb"]["games_per_team"] == 162
+        assert SEASON_INFO["mlb"]["total_games_per_season"] == 2430
 
 
 class TestValidateNBAData:
@@ -71,7 +77,7 @@ class TestValidateNBAData:
     def test_no_data_directory(self):
         from data_validation import validate_nba_data
 
-        with patch('data_validation.Path') as mock_path:
+        with patch("data_validation.Path") as mock_path:
             mock_path.return_value.exists.return_value = False
             mock_path.return_value.glob.return_value = []
 
@@ -88,11 +94,11 @@ class TestValidateNHLData:
     def test_no_database(self):
         from data_validation import validate_nhl_data
 
-        with patch('data_validation.default_db') as mock_db:
-            mock_db.fetch_df.side_effect = Exception('No database')
+        with patch("data_validation.default_db") as mock_db:
+            mock_db.fetch_df.side_effect = Exception("No database")
 
             try:
-                report = validate_nhl_data()
+                validate_nhl_data()
             except Exception:
                 pass
 
@@ -103,11 +109,11 @@ class TestValidateMLBData:
     def test_no_database(self):
         from data_validation import validate_mlb_data
 
-        with patch('data_validation.default_db') as mock_db:
-            mock_db.fetch_df.side_effect = Exception('No database')
+        with patch("data_validation.default_db") as mock_db:
+            mock_db.fetch_df.side_effect = Exception("No database")
 
             try:
-                report = validate_mlb_data()
+                validate_mlb_data()
             except Exception:
                 pass
 
@@ -118,11 +124,11 @@ class TestValidateNFLData:
     def test_no_database(self):
         from data_validation import validate_nfl_data
 
-        with patch('data_validation.default_db') as mock_db:
-            mock_db.fetch_df.side_effect = Exception('No database')
+        with patch("data_validation.default_db") as mock_db:
+            mock_db.fetch_df.side_effect = Exception("No database")
 
             try:
-                report = validate_nfl_data()
+                validate_nfl_data()
             except Exception:
                 pass
 
@@ -159,7 +165,7 @@ class TestGenerateSummary:
     def test_generate_summary(self):
         from data_validation import generate_summary, DataValidationReport
 
-        reports = [DataValidationReport('nba'), DataValidationReport('nhl')]
+        reports = [DataValidationReport("nba"), DataValidationReport("nhl")]
 
         try:
             summary = generate_summary(reports)
@@ -174,11 +180,12 @@ class TestMainFunction:
     def test_main(self):
         from data_validation import main
 
-        with patch('data_validation.validate_nba_data') as mock_nba, \
-             patch('data_validation.validate_nhl_data') as mock_nhl, \
-             patch('data_validation.validate_mlb_data') as mock_mlb, \
-             patch('data_validation.validate_nfl_data') as mock_nfl:
-
+        with (
+            patch("data_validation.validate_nba_data") as mock_nba,
+            patch("data_validation.validate_nhl_data") as mock_nhl,
+            patch("data_validation.validate_mlb_data") as mock_mlb,
+            patch("data_validation.validate_nfl_data") as mock_nfl,
+        ):
             mock_report = MagicMock()
             mock_nba.return_value = mock_report
             mock_nhl.return_value = mock_report

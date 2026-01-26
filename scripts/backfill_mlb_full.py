@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 
 # Add plugins to path
-sys.path.append('/mnt/data2/nhlstats/plugins')
+sys.path.append("/mnt/data2/nhlstats/plugins")
 from mlb_games import MLBGames
 
 
@@ -56,7 +56,7 @@ def backfill_mlb_data():
     print("Skipping dates that already have schedule files\n")
 
     while current_date <= end_date:
-        date_str = current_date.strftime('%Y-%m-%d')
+        date_str = current_date.strftime("%Y-%m-%d")
 
         if should_skip_date(current_date.date()):
             dates_skipped += 1
@@ -85,15 +85,17 @@ def backfill_mlb_data():
 
         # Progress indicator every 50 dates
         if dates_processed % 50 == 0:
-            print(f"[Progress] Processed {dates_processed} new dates, downloaded {total_games} games total\n")
+            print(
+                f"[Progress] Processed {dates_processed} new dates, downloaded {total_games} games total\n"
+            )
 
-    print("\n" + "="*60)
-    print(f"Backfill Complete!")
+    print("\n" + "=" * 60)
+    print("Backfill Complete!")
     print(f"  Dates processed (new): {dates_processed}")
     print(f"  Dates already downloaded: {dates_already_downloaded}")
     print(f"  Dates skipped (off-season): {dates_skipped}")
     print(f"  Total games downloaded (new): {total_games}")
-    print("="*60)
+    print("=" * 60)
 
 
 if __name__ == "__main__":

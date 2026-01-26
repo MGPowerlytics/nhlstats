@@ -6,13 +6,10 @@ Inherits from BaseEloRating for unified interface.
 Handles 3-way outcomes (Home, Draw, Away).
 """
 
-import json
-from pathlib import Path
-from datetime import datetime
 import math
-from typing import Dict, Optional, Union
+from typing import Dict, Union
 
-from .base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import BaseEloRating
 
 
 class EPLEloRating(BaseEloRating):
@@ -24,7 +21,12 @@ class EPLEloRating(BaseEloRating):
     unified interface.
     """
 
-    def __init__(self, k_factor: float = 20.0, home_advantage: float = 60.0, initial_rating: float = 1500.0):
+    def __init__(
+        self,
+        k_factor: float = 20.0,
+        home_advantage: float = 60.0,
+        initial_rating: float = 1500.0,
+    ):
         """
         Initialize EPL Elo rating system.
 
@@ -33,9 +35,15 @@ class EPLEloRating(BaseEloRating):
             home_advantage: Elo points added for home field (60 for soccer)
             initial_rating: Starting rating for new teams (1500 is standard)
         """
-        super().__init__(k_factor=k_factor, home_advantage=home_advantage, initial_rating=initial_rating)
+        super().__init__(
+            k_factor=k_factor,
+            home_advantage=home_advantage,
+            initial_rating=initial_rating,
+        )
 
-    def predict(self, home_team: str, away_team: str, is_neutral: bool = False) -> float:
+    def predict(
+        self, home_team: str, away_team: str, is_neutral: bool = False
+    ) -> float:
         """
         Predict probability of home team winning.
 
@@ -63,7 +71,7 @@ class EPLEloRating(BaseEloRating):
         home_team: str,
         away_team: str,
         home_won: Union[bool, float],
-        is_neutral: bool = False
+        is_neutral: bool = False,
     ) -> None:
         """
         Update Elo ratings after a game result.
@@ -97,7 +105,7 @@ class EPLEloRating(BaseEloRating):
 
         # Calculate rating changes
         home_change = self._calculate_rating_change(expected_home, actual_home)
-        away_change = self._calculate_rating_change(1.0 - expected_home, 1.0 - actual_home)
+        self._calculate_rating_change(1.0 - expected_home, 1.0 - actual_home)
 
         # Update ratings
         self.ratings[home_team] = rh + home_change
@@ -164,7 +172,7 @@ class EPLEloRating(BaseEloRating):
         # Draw is most likely when teams are equal strength.
         # Historical average draw rate ~25-28%
         # Model: Normal distribution shape centered at 0 difference
-        p_draw = 0.28 * math.exp(- (dr / 280) ** 2)
+        p_draw = 0.28 * math.exp(-((dr / 280) ** 2))
 
         # 3. Derive Win/Loss probs
         # P(Home) = ExpPoints - 0.5 * P(Draw)
@@ -174,7 +182,7 @@ class EPLEloRating(BaseEloRating):
 
         # Normalize to sum to 1.0 just in case
         total = p_home + p_draw + p_away
-        return (p_home/total, p_draw/total, p_away/total)
+        return (p_home / total, p_draw / total, p_away / total)
 
     def predict_3way(self, home_team: str, away_team: str) -> Dict[str, float]:
         """
@@ -183,10 +191,12 @@ class EPLEloRating(BaseEloRating):
         Returns: {'home': p_home, 'draw': p_draw, 'away': p_away}
         """
         p_home, p_draw, p_away = self.predict_probs(home_team, away_team)
-        return {'home': p_home, 'draw': p_draw, 'away': p_away}
+        return {"home": p_home, "draw": p_draw, "away": p_away}
 
     # Legacy update method for backward compatibility
-    def legacy_update(self, home_team: str, away_team: str, result: Union[str, int]) -> float:
+    def legacy_update(
+        self, home_team: str, away_team: str, result: Union[str, int]
+    ) -> float:
         """
         Legacy update method for backward compatibility.
 
@@ -197,11 +207,11 @@ class EPLEloRating(BaseEloRating):
         Returns: rating change
         """
         # Convert legacy result to home_won boolean
-        if result == 'H' or result == 1:
+        if result == "H" or result == 1:
             home_won = True
-        elif result == 'A' or result == 0:
+        elif result == "A" or result == 0:
             home_won = False
-        elif result == 'D':
+        elif result == "D":
             # For draws, use 0.5 actual score
             home_won = 0.5
         else:
@@ -211,10 +221,10 @@ class EPLEloRating(BaseEloRating):
         self.update(home_team, away_team, home_won)
 
         # Return approximate change (for backward compatibility)
-        return self.k_factor * (0.5 if result == 'D' else (1.0 if home_won else 0.0))
+        return self.k_factor * (0.5 if result == "D" else (1.0 if home_won else 0.0))
 
 
-def calculate_current_elo_ratings(csv_path='data/epl/E0.csv'):
+def calculate_current_elo_ratings(csv_path="data/epl/E0.csv"):
     """Calculate current ratings from season CSV."""
     from epl_games import EPLGames
 
@@ -224,7 +234,7 @@ def calculate_current_elo_ratings(csv_path='data/epl/E0.csv'):
     elo = EPLEloRating()
 
     for _, game in df.iterrows():
-        elo.legacy_update(game['home_team'], game['away_team'], game['result'])
+        elo.legacy_update(game["home_team"], game["away_team"], game["result"])
 
     return elo
 

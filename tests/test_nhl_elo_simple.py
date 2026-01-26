@@ -8,8 +8,9 @@ from plugins.elo import NHLEloRating, BaseEloRating
 
 def test_nhl_elo_inherits_from_base():
     """Test that NHLEloRating inherits from BaseEloRating."""
-    assert BaseEloRating in NHLEloRating.__bases__, \
+    assert BaseEloRating in NHLEloRating.__bases__, (
         f"NHLEloRating does not inherit from BaseEloRating. Bases: {NHLEloRating.__bases__}"
+    )
 
 
 def test_nhl_elo_can_be_instantiated():
@@ -19,6 +20,7 @@ def test_nhl_elo_can_be_instantiated():
     assert elo.k_factor == 20.0  # Default value
     assert elo.home_advantage == 100.0  # Default value
     assert elo.initial_rating == 1500  # Default value
+
 
 def test_nhl_elo_basic_functionality():
     """Test basic Elo functionality."""
@@ -49,18 +51,25 @@ def test_nhl_elo_method_signatures():
     elo = NHLEloRating()
 
     # Check required methods exist
-    required_methods = ['predict', 'update', 'get_rating', 'expected_score', 'get_all_ratings']
+    required_methods = [
+        "predict",
+        "update",
+        "get_rating",
+        "expected_score",
+        "get_all_ratings",
+    ]
     for method_name in required_methods:
         assert hasattr(elo, method_name), f"Missing method: {method_name}"
 
     # Check method signatures (basic check)
     # predict should accept is_neutral parameter
     import inspect
+
     sig = inspect.signature(elo.predict)
     params = list(sig.parameters.keys())
-    assert 'home_team' in params
-    assert 'away_team' in params
-    assert 'is_neutral' in params  # From BaseEloRating interface
+    assert "home_team" in params
+    assert "away_team" in params
+    assert "is_neutral" in params  # From BaseEloRating interface
 
 
 if __name__ == "__main__":

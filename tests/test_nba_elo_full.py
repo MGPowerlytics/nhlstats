@@ -3,13 +3,9 @@
 import pytest
 import sys
 import json
-import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import pandas as pd
-import numpy as np
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestNBAEloRatingCore:
@@ -164,12 +160,19 @@ class TestLoadNBAGamesFromJSON:
     def test_json_file_structure(self, tmp_path):
         """Test expected JSON file structure."""
         game_data = {
-            'resultSets': [
+            "resultSets": [
                 {
-                    'name': 'GameHeader',
-                    'rowSet': [
-                        ['game_id', 'game_date', 'home_team', 'away_team', 'home_score', 'away_score']
-                    ]
+                    "name": "GameHeader",
+                    "rowSet": [
+                        [
+                            "game_id",
+                            "game_date",
+                            "home_team",
+                            "away_team",
+                            "home_score",
+                            "away_score",
+                        ]
+                    ],
                 }
             ]
         }
@@ -180,14 +183,15 @@ class TestLoadNBAGamesFromJSON:
         with open(json_file) as f:
             loaded = json.load(f)
 
-        assert 'resultSets' in loaded
+        assert "resultSets" in loaded
 
     def test_parse_game_date(self):
         """Test parsing game date."""
         date_str = "2024-01-15T00:00:00"
 
         from datetime import datetime
-        parsed = datetime.fromisoformat(date_str.replace('T', ' ').split('.')[0])
+
+        parsed = datetime.fromisoformat(date_str.replace("T", " ").split(".")[0])
 
         assert parsed.year == 2024
         assert parsed.month == 1
@@ -222,7 +226,6 @@ class TestEloMetrics:
         # For well-calibrated predictions, when we predict 70%,
         # actual win rate should be ~70%
 
-        predictions_70pct = [0.70] * 10
         actuals = [1, 1, 1, 0, 1, 1, 1, 0, 0, 1]
 
         actual_rate = sum(actuals) / len(actuals)
@@ -242,10 +245,10 @@ class TestEloRatingHistory:
 
         # Record a game
         game = {
-            'home_team': 'Lakers',
-            'away_team': 'Celtics',
-            'home_won': True,
-            'prediction': 0.55
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "home_won": True,
+            "prediction": 0.55,
         }
         elo.game_history.append(game)
 
@@ -279,13 +282,9 @@ class TestTeamNormalization:
 
     def test_team_abbreviations(self):
         """Test team abbreviation mapping."""
-        abbrev_map = {
-            'LAL': 'Lakers',
-            'BOS': 'Celtics',
-            'GSW': 'Warriors'
-        }
+        abbrev_map = {"LAL": "Lakers", "BOS": "Celtics", "GSW": "Warriors"}
 
-        assert abbrev_map['LAL'] == 'Lakers'
+        assert abbrev_map["LAL"] == "Lakers"
 
     def test_case_insensitive_matching(self):
         """Test case-insensitive team matching."""
@@ -308,10 +307,14 @@ class TestSeasonReversion:
 
         # Regress 1/3 toward mean
         mean_rating = 1500
-        reversion_factor = 1/3
+        reversion_factor = 1 / 3
 
-        new_top = elo.ratings["Top Team"] - reversion_factor * (elo.ratings["Top Team"] - mean_rating)
-        new_bottom = elo.ratings["Bottom Team"] + reversion_factor * (mean_rating - elo.ratings["Bottom Team"])
+        new_top = elo.ratings["Top Team"] - reversion_factor * (
+            elo.ratings["Top Team"] - mean_rating
+        )
+        new_bottom = elo.ratings["Bottom Team"] + reversion_factor * (
+            mean_rating - elo.ratings["Bottom Team"]
+        )
 
         assert new_top < 1700
         assert new_bottom > 1300

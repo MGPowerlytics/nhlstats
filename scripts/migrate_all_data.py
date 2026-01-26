@@ -1,13 +1,12 @@
 import duckdb
-import pandas as pd
 import sys
 import os
-from pathlib import Path
 import time
 
 # Add plugins to path for DBManager
-sys.path.append(os.path.join(os.getcwd(), 'plugins'))
+sys.path.append(os.path.join(os.getcwd(), "plugins"))
 from db_manager import DBManager
+
 
 def migrate():
     print("=" * 80)
@@ -15,15 +14,15 @@ def migrate():
     print("=" * 80)
 
     # Connect to DuckDB source
-    if not os.path.exists('data/nhlstats.duckdb'):
+    if not os.path.exists("data/nhlstats.duckdb"):
         print("❌ DuckDB file not found.")
         return
 
-    duck_conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+    duck_conn = duckdb.connect("data/nhlstats.duckdb", read_only=True)
 
     # Connect to Postgres destination
     try:
-        pg_db = DBManager(db_type='postgres')
+        pg_db = DBManager(db_type="postgres")
         # Test connection
         pg_db.execute("SELECT 1")
         print("✓ Connected to Postgres")
@@ -45,27 +44,29 @@ def migrate():
         if count == 0:
             # Create empty table in Postgres
             df = duck_conn.execute(f"SELECT * FROM {table} LIMIT 0").fetchdf()
-            pg_db.insert_df(df, table, if_exists='replace')
+            pg_db.insert_df(df, table, if_exists="replace")
             print("  ✓ Created empty table")
             continue
 
         # Use chunking for all tables to be safe
         chunk_size = 50000
-        if 'trades' in table or 'shifts' in table:
-            chunk_size = 100000 # Larger chunks for very large tables
+        if "trades" in table or "shifts" in table:
+            chunk_size = 100000  # Larger chunks for very large tables
 
         start_time = time.time()
 
         offset = 0
         while offset < count:
-            print(f"    - Progress: {offset:,} / {count:,}...", end='\r')
-            df = duck_conn.execute(f"SELECT * FROM {table} LIMIT {chunk_size} OFFSET {offset}").fetchdf()
+            print(f"    - Progress: {offset:,} / {count:,}...", end="\r")
+            df = duck_conn.execute(
+                f"SELECT * FROM {table} LIMIT {chunk_size} OFFSET {offset}"
+            ).fetchdf()
 
             # Optimization: for Postgres, sometimes object types cause issues
             # We'll let sqlalchemy handle it but monitor errors
 
             # For the first chunk, use 'replace' to create table, then 'append'
-            mode = 'replace' if offset == 0 else 'append'
+            mode = "replace" if offset == 0 else "append"
             pg_db.insert_df(df, table, if_exists=mode)
 
             offset += chunk_size
@@ -77,6 +78,7 @@ def migrate():
     print(f"🎉 All {len(tables)} tables migrated successfully!")
     print(f"⏱️ Total time: {time.time() - total_start:.2f}s")
     print("=" * 80)
+
 
 if __name__ == "__main__":
     migrate()

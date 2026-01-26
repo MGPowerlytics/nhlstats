@@ -401,3 +401,21 @@ NOTE: Output was 245 lines, showing only the last 100 lines.
 - TennisEloRating required special adaptation due to different interface (player_a/player_b vs home_team/away_team)
 - Implemented predict_team() and update_team() methods to bridge the interface gap
 - Maintains tennis-specific features: dynamic K-factor based on match count, separate ATP/WTA ratings, name normalization
+
+## 2026-01-25 - Fix Failing Tasks in Betting DAG
+
+### Completed
+- **Missing Dependencies**: Installed missing Python packages `kalshi-python`, `nfl_data_py`, `appdirs`, and `fastparquet` in Airflow scheduler and worker containers.
+- **Import Errors**: Resolved `ModuleNotFoundError` for `kalshi_python` and `nfl_data_py` by ensuring packages are installed and importable.
+- **Pandas Version Conflict**: Managed pandas version conflict (nfl-data-py requires pandas<2.0) by installing `fastparquet` and allowing the import to succeed with pandas 2.1.4 (no downgrade needed after verifying import works).
+- **Cleared Failed Tasks**: Used `airflow tasks clear` to clear failed and running task instances for `multi_sport_betting_workflow` DAG, allowing fresh runs.
+- **DAG Trigger Test**: Triggered a manual DAG run and verified that tasks previously failing due to import errors now succeed (e.g., `nfl_download_games` runs successfully).
+
+### Testing Results
+- **Import Test**: `nfl_data_py` import succeeds in Airflow environment.
+- **Task Test**: `nfl_download_games` task executed successfully via `airflow tasks test`.
+- **DAG Run**: DAG run is progressing with multiple tasks in success state; some tasks are up_for_retry due to external API issues (e.g., Kalshi markets) which are beyond dependency fixes.
+
+### Next Steps
+- Monitor DAG runs for any remaining failures and address as needed.
+- Consider adding missing dependencies to `requirements.txt` to prevent future deployment issues.

@@ -2,19 +2,15 @@
 
 import pytest
 import sys
-import json
 from pathlib import Path
-from unittest.mock import patch, MagicMock
-import tempfile
-from datetime import datetime, date
-import pandas as pd
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 # ============================================================
 # Extended tests for nba_games.py (31% -> higher)
 # ============================================================
+
 
 class TestNBAGamesExtended:
     """Extended tests for NBA games module."""
@@ -29,7 +25,7 @@ class TestNBAGamesExtended:
         """Test NBAGames initialization."""
         from nba_games import NBAGames
 
-        games = NBAGames(output_dir=str(tmp_path / 'nba'))
+        games = NBAGames(output_dir=str(tmp_path / "nba"))
 
         assert games.output_dir.exists()
 
@@ -37,12 +33,9 @@ class TestNBAGamesExtended:
         """Test NBAGames with date folder."""
         from nba_games import NBAGames
 
-        games = NBAGames(
-            output_dir=str(tmp_path / 'nba'),
-            date_folder='2024-01-15'
-        )
+        games = NBAGames(output_dir=str(tmp_path / "nba"), date_folder="2024-01-15")
 
-        assert '2024-01-15' in str(games.output_dir)
+        assert "2024-01-15" in str(games.output_dir)
 
     def test_nba_api_url_format(self):
         """Test NBA API URL format."""
@@ -56,18 +49,16 @@ class TestNBAGamesExtended:
 
     def test_nba_headers(self):
         """Test NBA API requires specific headers."""
-        headers = {
-            'User-Agent': 'Mozilla/5.0',
-            'Referer': 'https://www.nba.com/'
-        }
+        headers = {"User-Agent": "Mozilla/5.0", "Referer": "https://www.nba.com/"}
 
-        assert 'User-Agent' in headers
-        assert 'nba.com' in headers['Referer']
+        assert "User-Agent" in headers
+        assert "nba.com" in headers["Referer"]
 
 
 # ============================================================
 # Extended tests for mlb_games.py (23% -> higher)
 # ============================================================
+
 
 class TestMLBGamesExtended:
     """Extended tests for MLB games module."""
@@ -82,7 +73,7 @@ class TestMLBGamesExtended:
         """Test MLBGames initialization."""
         from mlb_games import MLBGames
 
-        games = MLBGames(output_dir=str(tmp_path / 'mlb'))
+        games = MLBGames(output_dir=str(tmp_path / "mlb"))
 
         assert games.output_dir.exists()
 
@@ -100,6 +91,7 @@ class TestMLBGamesExtended:
 # Extended tests for epl_games.py (25% -> higher)
 # ============================================================
 
+
 class TestEPLGamesExtended:
     """Extended tests for EPL games module."""
 
@@ -113,7 +105,7 @@ class TestEPLGamesExtended:
         """Test EPLGames initialization."""
         from epl_games import EPLGames
 
-        games = EPLGames(data_dir=str(tmp_path / 'epl'))
+        games = EPLGames(data_dir=str(tmp_path / "epl"))
 
         assert games.data_dir.exists()
 
@@ -130,6 +122,7 @@ class TestEPLGamesExtended:
 # Extended tests for ligue1_games.py (25% -> higher)
 # ============================================================
 
+
 class TestLigue1GamesExtended:
     """Extended tests for Ligue1 games module."""
 
@@ -143,7 +136,7 @@ class TestLigue1GamesExtended:
         """Test Ligue1Games initialization."""
         from ligue1_games import Ligue1Games
 
-        games = Ligue1Games(data_dir=str(tmp_path / 'ligue1'))
+        games = Ligue1Games(data_dir=str(tmp_path / "ligue1"))
 
         assert games.data_dir.exists()
 
@@ -159,6 +152,7 @@ class TestLigue1GamesExtended:
 # Extended tests for ncaab_games.py (15% -> higher)
 # ============================================================
 
+
 class TestNCAABGamesExtended:
     """Extended tests for NCAAB games module."""
 
@@ -172,7 +166,7 @@ class TestNCAABGamesExtended:
         """Test NCAABGames initialization."""
         from ncaab_games import NCAABGames
 
-        games = NCAABGames(data_dir=str(tmp_path / 'ncaab'))
+        games = NCAABGames(data_dir=str(tmp_path / "ncaab"))
 
         assert games.data_dir.exists()
 
@@ -180,6 +174,7 @@ class TestNCAABGamesExtended:
 # ============================================================
 # Extended tests for tennis_games.py (19% -> higher)
 # ============================================================
+
 
 class TestTennisGamesExtended:
     """Extended tests for tennis games module."""
@@ -194,7 +189,7 @@ class TestTennisGamesExtended:
         """Test TennisGames initialization."""
         from tennis_games import TennisGames
 
-        games = TennisGames(data_dir=str(tmp_path / 'tennis'))
+        games = TennisGames(data_dir=str(tmp_path / "tennis"))
 
         assert games.data_dir.exists()
 
@@ -213,6 +208,7 @@ class TestTennisGamesExtended:
 # Extended tests for nhl_game_events.py (29% -> higher)
 # ============================================================
 
+
 class TestNHLGameEventsExtended:
     """Extended tests for NHL game events module."""
 
@@ -226,7 +222,7 @@ class TestNHLGameEventsExtended:
         """Test NHLGameEvents initialization."""
         from nhl_game_events import NHLGameEvents
 
-        events = NHLGameEvents(output_dir=str(tmp_path / 'nhl'))
+        events = NHLGameEvents(output_dir=str(tmp_path / "nhl"))
 
         assert events.output_dir.exists()
 
@@ -251,7 +247,7 @@ class TestNHLGameEventsExtended:
             "FACEOFF",
             "GIVEAWAY",
             "TAKEAWAY",
-            "STOPPAGE"
+            "STOPPAGE",
         ]
 
         for event in event_types:
@@ -261,6 +257,7 @@ class TestNHLGameEventsExtended:
 # ============================================================
 # Extended tests for polymarket_api.py (30% -> higher)
 # ============================================================
+
 
 class TestPolymarketAPIExtended:
     """Extended tests for Polymarket API module."""
@@ -291,6 +288,7 @@ class TestPolymarketAPIExtended:
 # Extended tests for cloudbet_api.py (40% -> higher)
 # ============================================================
 
+
 class TestCloudbetAPIExtended:
     """Extended tests for Cloudbet API module."""
 
@@ -310,22 +308,20 @@ class TestCloudbetAPIExtended:
     def test_cloudbet_sports_keys(self):
         """Test Cloudbet sport keys."""
         sport_keys = {
-            'nba': 'basketball-usa-nba',
-            'nhl': 'ice-hockey-usa-nhl',
-            'mlb': 'baseball-usa-mlb',
-            'nfl': 'american-football-usa-nfl'
+            "nba": "basketball-usa-nba",
+            "nhl": "ice-hockey-usa-nhl",
+            "mlb": "baseball-usa-mlb",
+            "nfl": "american-football-usa-nfl",
         }
 
         for sport, key in sport_keys.items():
             assert sport in key
 
 
-
-
-
 # ============================================================
 # Extended tests for bet_loader.py (52% -> higher)
 # ============================================================
+
 
 class TestBetLoaderExtended:
     """Extended tests for bet_loader module."""
@@ -342,7 +338,7 @@ class TestBetLoaderExtended:
         import duckdb
 
         db_path = tmp_path / "test.duckdb"
-        loader = BetLoader(db_path=str(db_path))
+        BetLoader(db_path=str(db_path))
 
         # Check table exists
         conn = duckdb.connect(str(db_path))
@@ -350,12 +346,13 @@ class TestBetLoaderExtended:
         table_names = [t[0] for t in tables]
         conn.close()
 
-        assert 'bet_recommendations' in table_names
+        assert "bet_recommendations" in table_names
 
 
 # ============================================================
 # Extended tests for mlb_elo_rating.py (49% -> higher)
 # ============================================================
+
 
 class TestMLBEloRatingExtended:
     """Extended tests for MLB Elo module."""
@@ -414,6 +411,7 @@ class TestMLBEloRatingExtended:
 # Extended tests for nfl_elo_rating.py (49% -> higher)
 # ============================================================
 
+
 class TestNFLEloRatingExtended:
     """Extended tests for NFL Elo module."""
 
@@ -460,6 +458,7 @@ class TestNFLEloRatingExtended:
 # ============================================================
 # Extended tests for ncaab_elo_rating.py (55% -> higher)
 # ============================================================
+
 
 class TestNCAABEloRatingExtended:
     """Extended tests for NCAAB Elo module."""

@@ -9,6 +9,7 @@ import yaml
 import sys
 from pathlib import Path
 
+
 def validate_skill(skill_path):
     """Validate a single skill directory."""
     skill_name = os.path.basename(skill_path)
@@ -20,15 +21,18 @@ def validate_skill(skill_path):
 
     # Read and check YAML frontmatter
     try:
-        with open(skill_md, 'r', encoding='utf-8') as f:
+        with open(skill_md, "r", encoding="utf-8") as f:
             content = f.read()
 
         # Check for YAML frontmatter
-        if not content.startswith('---'):
-            return False, f"{skill_name}: Missing YAML frontmatter (should start with '---')"
+        if not content.startswith("---"):
+            return (
+                False,
+                f"{skill_name}: Missing YAML frontmatter (should start with '---')",
+            )
 
         # Parse YAML
-        parts = content.split('---', 2)
+        parts = content.split("---", 2)
         if len(parts) < 3:
             return False, f"{skill_name}: Invalid YAML frontmatter format"
 
@@ -36,14 +40,20 @@ def validate_skill(skill_path):
         data = yaml.safe_load(frontmatter)
 
         # Check required fields
-        required_fields = ['name', 'description', 'version']
+        required_fields = ["name", "description", "version"]
         for field in required_fields:
             if field not in data:
-                return False, f"{skill_name}: Missing required field '{field}' in frontmatter"
+                return (
+                    False,
+                    f"{skill_name}: Missing required field '{field}' in frontmatter",
+                )
 
         # Check that name matches directory
-        if data.get('name') != skill_name:
-            return False, f"{skill_name}: Frontmatter 'name' ({data.get('name')}) doesn't match directory name"
+        if data.get("name") != skill_name:
+            return (
+                False,
+                f"{skill_name}: Frontmatter 'name' ({data.get('name')}) doesn't match directory name",
+            )
 
         return True, f"{skill_name}: OK"
 
@@ -51,6 +61,7 @@ def validate_skill(skill_path):
         return False, f"{skill_name}: YAML parsing error: {str(e)}"
     except Exception as e:
         return False, f"{skill_name}: Error: {str(e)}"
+
 
 def main():
     """Main validation function."""
@@ -64,7 +75,7 @@ def main():
     print("=" * 60)
 
     # Get all skill directories
-    skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir() and d.name != 'skills']
+    skill_dirs = [d for d in skills_dir.iterdir() if d.is_dir() and d.name != "skills"]
 
     if not skill_dirs:
         print("ERROR: No skill directories found")
@@ -103,6 +114,7 @@ def main():
     else:
         print("⚠️  Some skills have issues. Please fix the errors above.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

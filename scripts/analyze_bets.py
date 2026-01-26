@@ -3,13 +3,12 @@ Analyze bet recommendations and track performance.
 """
 
 import duckdb
-from datetime import datetime, timedelta
 
 
 def analyze_bets(start_date=None, end_date=None):
     """Analyze bet recommendations and performance."""
 
-    conn = duckdb.connect('data/nhlstats.duckdb', read_only=True)
+    conn = duckdb.connect("data/nhlstats.duckdb", read_only=True)
 
     print("=" * 80)
     print("BET RECOMMENDATIONS ANALYSIS")
@@ -41,7 +40,9 @@ def analyze_bets(start_date=None, end_date=None):
     # By sport
     print("\n🏀 BY SPORT")
     print("-" * 80)
-    print(f"{'Sport':<10} {'Total':<8} {'Avg Edge':<12} {'Avg Prob':<12} {'High Conf':<10}")
+    print(
+        f"{'Sport':<10} {'Total':<8} {'Avg Edge':<12} {'Avg Prob':<12} {'High Conf':<10}"
+    )
     print("-" * 80)
 
     result = conn.execute("""
@@ -98,8 +99,10 @@ def analyze_bets(start_date=None, end_date=None):
     """).fetchall()
 
     for row in result:
-        matchup = row[2][:38] + '..' if len(row[2]) > 40 else row[2]
-        print(f"{str(row[0]):<12} {row[1]:<8} {matchup:<40} {row[3]:<10.1%} {row[4]:<8}")
+        matchup = row[2][:38] + ".." if len(row[2]) > 40 else row[2]
+        print(
+            f"{str(row[0]):<12} {row[1]:<8} {matchup:<40} {row[3]:<10.1%} {row[4]:<8}"
+        )
 
     # Recent activity
     print("\n📅 LAST 7 DAYS ACTIVITY")
@@ -163,5 +166,5 @@ def analyze_bets(start_date=None, end_date=None):
     print("\n" + "=" * 80)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     analyze_bets()

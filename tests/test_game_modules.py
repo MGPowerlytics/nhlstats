@@ -1,13 +1,12 @@
 """Tests for Game Data modules (NBA, NHL, MLB, NFL, Tennis, NCAAB, EPL, Ligue1)."""
 
-import pytest
 import sys
 from pathlib import Path
 from datetime import datetime
 from unittest.mock import patch, MagicMock
 import json
 
-sys.path.insert(0, str(Path(__file__).parent.parent / 'plugins'))
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestNBAGames:
@@ -35,26 +34,26 @@ class TestNBAGames:
 
         headers = NBAGames.HEADERS
 
-        assert 'User-Agent' in headers
-        assert 'Referer' in headers
-        assert 'nba.com' in headers['Referer']
+        assert "User-Agent" in headers
+        assert "Referer" in headers
+        assert "nba.com" in headers["Referer"]
 
-    @patch('nba_games.requests.get')
+    @patch("nba_games.requests.get")
     def test_make_request_success(self, mock_get, tmp_path):
         """Test successful API request."""
         from nba_games import NBAGames
 
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {'resultSets': []}
+        mock_response.json.return_value = {"resultSets": []}
         mock_get.return_value = mock_response
 
         games = NBAGames(output_dir=str(tmp_path))
         result = games._make_request("https://test.com")
 
-        assert result == {'resultSets': []}
+        assert result == {"resultSets": []}
 
-    @patch('nba_games.requests.get')
+    @patch("nba_games.requests.get")
     def test_make_request_rate_limit_retry(self, mock_get, tmp_path):
         """Test rate limit handling with retry."""
         from nba_games import NBAGames
@@ -65,16 +64,16 @@ class TestNBAGames:
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
-        mock_response_200.json.return_value = {'data': 'test'}
+        mock_response_200.json.return_value = {"data": "test"}
 
         mock_get.side_effect = [mock_response_429, mock_response_200]
 
         games = NBAGames(output_dir=str(tmp_path))
 
-        with patch('nba_games.time.sleep'):  # Skip actual sleep
+        with patch("nba_games.time.sleep"):  # Skip actual sleep
             result = games._make_request("https://test.com")
 
-        assert result == {'data': 'test'}
+        assert result == {"data": "test"}
 
 
 class TestDateFormatConversion:
@@ -83,23 +82,23 @@ class TestDateFormatConversion:
     def test_date_format_yyyy_mm_dd_to_nba(self):
         """Test converting YYYY-MM-DD to MM/DD/YYYY (NBA format)."""
         date_str = "2024-01-15"
-        date_obj = datetime.strptime(date_str, '%Y-%m-%d')
-        nba_date = date_obj.strftime('%m/%d/%Y')
+        date_obj = datetime.strptime(date_str, "%Y-%m-%d")
+        nba_date = date_obj.strftime("%m/%d/%Y")
 
         assert nba_date == "01/15/2024"
 
     def test_date_format_nba_to_yyyy_mm_dd(self):
         """Test converting MM/DD/YYYY to YYYY-MM-DD."""
         nba_date = "01/15/2024"
-        date_obj = datetime.strptime(nba_date, '%m/%d/%Y')
-        std_date = date_obj.strftime('%Y-%m-%d')
+        date_obj = datetime.strptime(nba_date, "%m/%d/%Y")
+        std_date = date_obj.strftime("%Y-%m-%d")
 
         assert std_date == "2024-01-15"
 
     def test_date_format_iso_to_date(self):
         """Test parsing ISO format dates."""
         iso_date = "2024-01-15T19:30:00Z"
-        date_obj = datetime.fromisoformat(iso_date.replace('Z', '+00:00'))
+        date_obj = datetime.fromisoformat(iso_date.replace("Z", "+00:00"))
 
         assert date_obj.year == 2024
         assert date_obj.month == 1
@@ -112,58 +111,61 @@ class TestGameDataParsing:
     def test_parse_scoreboard_data(self):
         """Test parsing NBA scoreboard response."""
         data = {
-            'resultSets': [
+            "resultSets": [
                 {
-                    'name': 'GameHeader',
-                    'headers': ['GAME_ID', 'GAME_DATE_EST', 'HOME_TEAM_ID', 'VISITOR_TEAM_ID'],
-                    'rowSet': [
-                        ['0022400001', '2024-01-15', 1610612747, 1610612738]
-                    ]
+                    "name": "GameHeader",
+                    "headers": [
+                        "GAME_ID",
+                        "GAME_DATE_EST",
+                        "HOME_TEAM_ID",
+                        "VISITOR_TEAM_ID",
+                    ],
+                    "rowSet": [["0022400001", "2024-01-15", 1610612747, 1610612738]],
                 }
             ]
         }
 
         # Parse as would be done in the module
-        for result_set in data['resultSets']:
-            if result_set['name'] == 'GameHeader':
-                headers = result_set['headers']
-                idx_game_id = headers.index('GAME_ID')
-                idx_game_date = headers.index('GAME_DATE_EST')
+        for result_set in data["resultSets"]:
+            if result_set["name"] == "GameHeader":
+                headers = result_set["headers"]
+                idx_game_id = headers.index("GAME_ID")
+                idx_game_date = headers.index("GAME_DATE_EST")
 
-                for row in result_set['rowSet']:
+                for row in result_set["rowSet"]:
                     game_id = row[idx_game_id]
                     game_date = row[idx_game_date]
 
-                    assert game_id == '0022400001'
-                    assert game_date == '2024-01-15'
+                    assert game_id == "0022400001"
+                    assert game_date == "2024-01-15"
 
     def test_parse_boxscore_data(self):
         """Test parsing boxscore response."""
         data = {
-            'resultSets': [
+            "resultSets": [
                 {
-                    'name': 'TeamStats',
-                    'headers': ['TEAM_ID', 'TEAM_NAME', 'PTS'],
-                    'rowSet': [
-                        [1610612747, 'Lakers', 110],
-                        [1610612738, 'Celtics', 105]
-                    ]
+                    "name": "TeamStats",
+                    "headers": ["TEAM_ID", "TEAM_NAME", "PTS"],
+                    "rowSet": [
+                        [1610612747, "Lakers", 110],
+                        [1610612738, "Celtics", 105],
+                    ],
                 }
             ]
         }
 
         scores = {}
-        for result_set in data['resultSets']:
-            if result_set['name'] == 'TeamStats':
-                headers = result_set['headers']
-                idx_team_name = headers.index('TEAM_NAME')
-                idx_pts = headers.index('PTS')
+        for result_set in data["resultSets"]:
+            if result_set["name"] == "TeamStats":
+                headers = result_set["headers"]
+                idx_team_name = headers.index("TEAM_NAME")
+                idx_pts = headers.index("PTS")
 
-                for row in result_set['rowSet']:
+                for row in result_set["rowSet"]:
                     scores[row[idx_team_name]] = row[idx_pts]
 
-        assert scores['Lakers'] == 110
-        assert scores['Celtics'] == 105
+        assert scores["Lakers"] == 110
+        assert scores["Celtics"] == 105
 
 
 class TestNHLGameEvents:
@@ -180,33 +182,41 @@ class TestNHLGameEvents:
     def test_parse_nhl_schedule_response(self):
         """Test parsing NHL schedule response."""
         data = {
-            'gameWeek': [
+            "gameWeek": [
                 {
-                    'date': '2024-01-15',
-                    'games': [
+                    "date": "2024-01-15",
+                    "games": [
                         {
-                            'id': 2023020001,
-                            'homeTeam': {'abbrev': 'TOR', 'placeName': {'default': 'Toronto'}},
-                            'awayTeam': {'abbrev': 'BOS', 'placeName': {'default': 'Boston'}},
-                            'gameState': 'OFF'
+                            "id": 2023020001,
+                            "homeTeam": {
+                                "abbrev": "TOR",
+                                "placeName": {"default": "Toronto"},
+                            },
+                            "awayTeam": {
+                                "abbrev": "BOS",
+                                "placeName": {"default": "Boston"},
+                            },
+                            "gameState": "OFF",
                         }
-                    ]
+                    ],
                 }
             ]
         }
 
         games = []
-        for day in data.get('gameWeek', []):
-            for game in day.get('games', []):
-                games.append({
-                    'id': game['id'],
-                    'home': game['homeTeam']['abbrev'],
-                    'away': game['awayTeam']['abbrev']
-                })
+        for day in data.get("gameWeek", []):
+            for game in day.get("games", []):
+                games.append(
+                    {
+                        "id": game["id"],
+                        "home": game["homeTeam"]["abbrev"],
+                        "away": game["awayTeam"]["abbrev"],
+                    }
+                )
 
         assert len(games) == 1
-        assert games[0]['home'] == 'TOR'
-        assert games[0]['away'] == 'BOS'
+        assert games[0]["home"] == "TOR"
+        assert games[0]["away"] == "BOS"
 
 
 class TestMLBGames:
@@ -223,37 +233,39 @@ class TestMLBGames:
     def test_parse_mlb_schedule_response(self):
         """Test parsing MLB schedule response."""
         data = {
-            'dates': [
+            "dates": [
                 {
-                    'date': '2024-07-15',
-                    'games': [
+                    "date": "2024-07-15",
+                    "games": [
                         {
-                            'gamePk': 123456,
-                            'teams': {
-                                'home': {'team': {'name': 'Yankees'}, 'score': 5},
-                                'away': {'team': {'name': 'Red Sox'}, 'score': 3}
+                            "gamePk": 123456,
+                            "teams": {
+                                "home": {"team": {"name": "Yankees"}, "score": 5},
+                                "away": {"team": {"name": "Red Sox"}, "score": 3},
                             },
-                            'status': {'abstractGameState': 'Final'}
+                            "status": {"abstractGameState": "Final"},
                         }
-                    ]
+                    ],
                 }
             ]
         }
 
         games = []
-        for date in data.get('dates', []):
-            for game in date.get('games', []):
-                games.append({
-                    'id': game['gamePk'],
-                    'home': game['teams']['home']['team']['name'],
-                    'away': game['teams']['away']['team']['name'],
-                    'home_score': game['teams']['home']['score'],
-                    'away_score': game['teams']['away']['score']
-                })
+        for date in data.get("dates", []):
+            for game in date.get("games", []):
+                games.append(
+                    {
+                        "id": game["gamePk"],
+                        "home": game["teams"]["home"]["team"]["name"],
+                        "away": game["teams"]["away"]["team"]["name"],
+                        "home_score": game["teams"]["home"]["score"],
+                        "away_score": game["teams"]["away"]["score"],
+                    }
+                )
 
         assert len(games) == 1
-        assert games[0]['home'] == 'Yankees'
-        assert games[0]['home_score'] == 5
+        assert games[0]["home"] == "Yankees"
+        assert games[0]["home_score"] == 5
 
 
 class TestNFLGames:
@@ -261,7 +273,6 @@ class TestNFLGames:
 
     def test_nfl_api_url_format(self):
         """Test NFL API URL format."""
-        season = 2024
         week = 1
         url = f"https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?seasontype=2&week={week}"
 
@@ -308,13 +319,13 @@ class TestOutputDirectoryHandling:
     def test_save_json_data(self, tmp_path):
         """Test saving JSON data to file."""
         output_file = tmp_path / "games.json"
-        data = [{'game_id': '123', 'score': 100}]
+        data = [{"game_id": "123", "score": 100}]
 
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(data, f)
 
         # Verify file was saved
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             loaded = json.load(f)
 
         assert loaded == data
@@ -322,15 +333,15 @@ class TestOutputDirectoryHandling:
     def test_load_json_data(self, tmp_path):
         """Test loading JSON data from file."""
         output_file = tmp_path / "games.json"
-        data = [{'game_id': '456', 'score': 95}]
+        data = [{"game_id": "456", "score": 95}]
 
-        with open(output_file, 'w') as f:
+        with open(output_file, "w") as f:
             json.dump(data, f)
 
-        with open(output_file, 'r') as f:
+        with open(output_file, "r") as f:
             loaded = json.load(f)
 
-        assert loaded[0]['game_id'] == '456'
+        assert loaded[0]["game_id"] == "456"
 
 
 class TestDataValidationInGames:
@@ -356,7 +367,7 @@ class TestDataValidationInGames:
     def test_validate_score_range(self):
         """Test score validation."""
         valid_scores = [100, 95, 0, 150]
-        invalid_scores = [-5, None, 'abc']
+        invalid_scores = [-5, None, "abc"]
 
         for score in valid_scores:
             assert isinstance(score, int) and score >= 0
@@ -373,4 +384,4 @@ class TestDataValidationInGames:
             assert isinstance(name, str) and len(name) > 0
 
         for name in invalid_names:
-            assert not (isinstance(name, str) and len(str(name) if name else '') > 0)
+            assert not (isinstance(name, str) and len(str(name) if name else "") > 0)

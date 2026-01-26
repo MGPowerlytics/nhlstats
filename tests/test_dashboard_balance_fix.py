@@ -41,12 +41,16 @@ def test_dashboard_shows_kalshi_balance_not_total_invested():
     """
     db = DBManager()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TEST: Dashboard should show Kalshi Balance, not Total Invested")
-    print("="*80)
+    print("=" * 80)
 
     # Get what dashboard CURRENTLY shows (WRONG)
-    from plugins.bet_tracker import create_bets_table, create_portfolio_value_snapshots_table
+    from plugins.bet_tracker import (
+        create_bets_table,
+        create_portfolio_value_snapshots_table,
+    )
+
     create_bets_table(db)
     create_portfolio_value_snapshots_table(db)
     # Insert a dummy snapshot for test isolation
@@ -60,15 +64,15 @@ def test_dashboard_shows_kalshi_balance_not_total_invested():
         WHERE status IN ('won', 'lost')
     """)
 
-    total_invested = current_metric_df.iloc[0]['total_invested']
+    total_invested = current_metric_df.iloc[0]["total_invested"]
     if total_invested is None:
         total_invested = 0.0
     current_value = float(total_invested)
 
-    print(f"\n❌ CURRENT (WRONG):")
-    print(f"   Metric: 'Total Invested'")
+    print("\n❌ CURRENT (WRONG):")
+    print("   Metric: 'Total Invested'")
     print(f"   Value: ${current_value:.2f}")
-    print(f"   Source: SUM(cost_dollars) - internal accounting")
+    print("   Source: SUM(cost_dollars) - internal accounting")
 
     # Get what dashboard SHOULD show (CORRECT)
     correct_metric_df = db.fetch_df("""
@@ -81,13 +85,13 @@ def test_dashboard_shows_kalshi_balance_not_total_invested():
     """)
 
     if not correct_metric_df.empty:
-        correct_value = float(correct_metric_df.iloc[0]['kalshi_balance'])
-        snapshot_time = correct_metric_df.iloc[0]['snapshot_hour_utc']
+        correct_value = float(correct_metric_df.iloc[0]["kalshi_balance"])
+        snapshot_time = correct_metric_df.iloc[0]["snapshot_hour_utc"]
 
-        print(f"\n✅ CORRECT (AFTER FIX):")
-        print(f"   Metric: 'Kalshi Balance'")
+        print("\n✅ CORRECT (AFTER FIX):")
+        print("   Metric: 'Kalshi Balance'")
         print(f"   Value: ${correct_value:.2f}")
-        print(f"   Source: portfolio_value_snapshots.balance_dollars")
+        print("   Source: portfolio_value_snapshots.balance_dollars")
         print(f"   As of: {snapshot_time}")
 
         user_balance = 80.69
@@ -97,11 +101,11 @@ def test_dashboard_shows_kalshi_balance_not_total_invested():
         print(f"   Difference from snapshot: ${difference:.2f}")
 
         if difference < 10.0:  # Within $10 is reasonable (might be stale snapshot)
-            print(f"   ✅ Within reasonable range (snapshot may need refresh)")
+            print("   ✅ Within reasonable range (snapshot may need refresh)")
         else:
-            print(f"   ⚠️  Large difference - snapshot needs refresh!")
+            print("   ⚠️  Large difference - snapshot needs refresh!")
 
-        print(f"\n🎯 ASSERTION:")
+        print("\n🎯 ASSERTION:")
         print(f"   Dashboard MUST show: 'Kalshi Balance' = ${correct_value:.2f}")
         print(f"   NOT: 'Total Invested' = ${current_value:.2f}")
 
@@ -109,19 +113,21 @@ def test_dashboard_shows_kalshi_balance_not_total_invested():
         assert correct_metric_df is not None, "portfolio_value_snapshots table exists"
         assert not correct_metric_df.empty, "Has snapshot data"
 
-        print(f"\n✅ TEST READY: Fix dashboard to use Kalshi Balance")
+        print("\n✅ TEST READY: Fix dashboard to use Kalshi Balance")
     else:
-        print(f"\n❌ ERROR: No portfolio snapshots found!")
-        print(f"   Need to run portfolio_hourly_snapshot DAG first")
+        print("\n❌ ERROR: No portfolio snapshots found!")
+        print("   Need to run portfolio_hourly_snapshot DAG first")
         assert False, "Missing portfolio snapshots"
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
 
 
 def test_early_days_financial_performance():
     from plugins.db_manager import DBManager
+
     db = DBManager()
     from plugins.bet_tracker import create_bets_table
+
     create_bets_table(db)
 
     """
@@ -138,9 +144,9 @@ def test_early_days_financial_performance():
     """
     db = DBManager()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("TEST: Financial Performance Date Range")
-    print("="*80)
+    print("=" * 80)
 
     # Check placement date range
     placement_df = db.fetch_df("""
@@ -161,31 +167,31 @@ def test_early_days_financial_performance():
         WHERE status IN ('won', 'lost')
     """)
 
-    print(f"\n📅 Bet Placement Dates:")
+    print("\n📅 Bet Placement Dates:")
     print(f"   First bet: {placement_df.iloc[0]['first_bet']}")
     print(f"   Last bet: {placement_df.iloc[0]['last_bet']}")
     print(f"   Total bets: {int(placement_df.iloc[0]['total_bets'])}")
 
-    print(f"\n📅 Settlement Dates (what dashboard shows now):")
+    print("\n📅 Settlement Dates (what dashboard shows now):")
     print(f"   First settlement: {settlement_df.iloc[0]['first_settlement']}")
     print(f"   Last settlement: {settlement_df.iloc[0]['last_settlement']}")
     print(f"   Settled bets: {int(settlement_df.iloc[0]['settled_bets'])}")
 
-    print(f"\n🎯 EXPLANATION:")
-    print(f"   Dashboard showing settlement dates is CORRECT for P&L")
-    print(f"   'Earlier days' data hasn't disappeared - just using correct date")
-    print(f"   P&L should be shown when money changed hands, not when bet was placed")
+    print("\n🎯 EXPLANATION:")
+    print("   Dashboard showing settlement dates is CORRECT for P&L")
+    print("   'Earlier days' data hasn't disappeared - just using correct date")
+    print("   P&L should be shown when money changed hands, not when bet was placed")
 
-    print(f"\n✅ CURRENT BEHAVIOR IS CORRECT")
-    print(f"   No fix needed for this issue")
+    print("\n✅ CURRENT BEHAVIOR IS CORRECT")
+    print("   No fix needed for this issue")
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
 
 
 if __name__ == "__main__":
     test_dashboard_shows_kalshi_balance_not_total_invested()
     test_early_days_financial_performance()
 
-    print("\n" + "="*80)
+    print("\n" + "=" * 80)
     print("ALL TDD TESTS COMPLETE - Ready to implement fix")
-    print("="*80)
+    print("=" * 80)

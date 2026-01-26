@@ -13,10 +13,15 @@ import time
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
+from airflow import DAG
+from airflow.providers.standard.operators.python import PythonOperator
+
 # Add plugins directory to Python path
 plugins_dir = Path(__file__).parent.parent / "plugins"
 if str(plugins_dir) not in sys.path:
     sys.path.insert(0, str(plugins_dir))
+
+# Import Elo factory
 
 
 def send_sms(to_number: str, subject: str, body: str) -> bool:
@@ -80,9 +85,6 @@ __all__ = [
     "send_daily_summary",
     "update_clv_wrapper",
 ]
-
-from airflow import DAG
-from airflow.providers.standard.operators.python import PythonOperator
 
 # Sport configurations
 # Thresholds optimized based on lift/gain analysis (see docs/VALUE_BETTING_THRESHOLDS.md)
@@ -269,7 +271,6 @@ SPORTS_CONFIG = {
             "RCS": "Strasbourg",
             "REI": "Reims",
             "SDR": "Reims",
-            "MON": "Montpellier",
             "FCM": "Montpellier",
             "STB": "Brest",
         },
@@ -359,19 +360,20 @@ def update_elo_ratings(sport, **context):
     """Calculate current Elo ratings for a sport."""
     print(f"📊 Updating {sport.upper()} Elo ratings...")
 
-    config = SPORTS_CONFIG[sport]
+    SPORTS_CONFIG[sport]
 
     # Import sport-specific modules
     if sport == "nba":
-        from elo.nba_elo_rating import NBAEloRating, load_nba_games_from_json
-        import pandas as pd
+        from elo import get_elo_class
+        from elo.nba_elo_rating import load_nba_games_from_json
 
         games_df = load_nba_games_from_json()
-        elo = NBAEloRating(k_factor=20, home_advantage=100)
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=100)
         for _, game in games_df.iterrows():
             elo.update(game["home_team"], game["away_team"], game["home_win"])
     elif sport == "nhl":
-        from elo.nhl_elo_rating import NHLEloRating
+        from elo import get_elo_class
         from db_manager import default_db
 
         # Filter out:
@@ -422,7 +424,8 @@ def update_elo_ratings(sport, **context):
             f"  Loaded {len(games_df)} NHL games from PostgreSQL (filtered duplicates and exhibitions)"
         )
 
-        elo = NHLEloRating(k_factor=10, home_advantage=50, recency_weight=0.2)
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
         last_date = None
         for _, game in games_df.iterrows():
@@ -446,46 +449,117 @@ def update_elo_ratings(sport, **context):
                 game_date=current_date,
             )
     elif sport == "mlb":
-        from elo.mlb_elo_rating import calculate_current_elo_ratings
+        from elo import get_elo_class
+        from db_manager import default_db
 
-        elo = calculate_current_elo_ratings(
-            output_path=f"data/{sport}_current_elo_ratings.csv"
-        )
-        if not elo:
-            print(f"⚠️  No MLB games available yet")
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=50)
+        # Query mlb_games table
+        query = """
+            SELECT game_date, home_team, away_team, home_score, away_score
+            FROM mlb_games
+            WHERE game_date IS NOT NULL
+            ORDER BY game_date
+        """
+        df = default_db.fetch_df(query)
+        if df.empty:
+            print("No MLB games found in database")
             return
+
+        for _, row in df.iterrows():
+            home_team = row["home_team"]
+            away_team = row["away_team"]
+            home_score = row["home_score"]
+            away_score = row["away_score"]
+            home_won = (
+                home_score > away_score
+                if home_score is not None and away_score is not None
+                else None
+            )
+            if home_won is None:
+                continue
+            elo.update(
+                home_team,
+                away_team,
+                home_won,
+                home_score=home_score,
+                away_score=away_score,
+            )
     elif sport == "nfl":
-        from elo.nfl_elo_rating import calculate_current_elo_ratings
+        from elo import get_elo_class
+        from db_manager import default_db
 
-        elo = calculate_current_elo_ratings(
-            output_path=f"data/{sport}_current_elo_ratings.csv"
-        )
-        if not elo:
-            print(f"⚠️  No NFL games available yet")
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=65)
+        # Query nfl_games table
+        query = """
+            SELECT game_date, home_team, away_team, home_score, away_score
+            FROM nfl_games
+            WHERE game_date IS NOT NULL
+            ORDER BY game_date
+        """
+        df = default_db.fetch_df(query)
+        if df.empty:
+            print("No NFL games found in database")
             return
+
+        for _, row in df.iterrows():
+            home_team = row["home_team"]
+            away_team = row["away_team"]
+            home_score = row["home_score"]
+            away_score = row["away_score"]
+            home_won = (
+                home_score > away_score
+                if home_score is not None and away_score is not None
+                else None
+            )
+            if home_won is None:
+                continue
+            elo.update(
+                home_team,
+                away_team,
+                home_won,
+                home_score=home_score,
+                away_score=away_score,
+            )
     elif sport == "epl":
-        from elo.epl_elo_rating import calculate_current_elo_ratings
+        from elo import get_elo_class
+        from db_manager import default_db
 
-        elo = calculate_current_elo_ratings()
-        if not elo:
-            print(f"⚠️  No EPL games available yet")
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=60)
+        # Query epl_games table
+        query = """
+            SELECT game_date, home_team, away_team, result
+            FROM epl_games
+            WHERE game_date IS NOT NULL
+            ORDER BY game_date
+        """
+        df = default_db.fetch_df(query)
+        if df.empty:
+            print("No EPL games found in database")
             return
+
+        for _, row in df.iterrows():
+            elo.legacy_update(row["home_team"], row["away_team"], row["result"])
     elif sport == "ligue1":
-        from elo.ligue1_elo_rating import Ligue1EloRating
+        from elo import get_elo_class
         import csv
 
-        # Load pre-generated ratings
-        elo = Ligue1EloRating(k_factor=20, home_advantage=60)
-        with open(f"data/ligue1_current_elo_ratings.csv", "r") as f:
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=60)
+        # Load pre-generated ratings from CSV
+        with open("data/ligue1_current_elo_ratings.csv", "r") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 elo.ratings[row["team"]] = float(row["rating"])
         print(f"✓ Loaded {len(elo.ratings)} Ligue 1 teams")
     elif sport == "ncaab":
-        from elo.ncaab_elo_rating import NCAABEloRating
+        from elo import get_elo_class
         from ncaab_games import NCAABGames
 
-        elo = NCAABEloRating(k_factor=20, home_advantage=100)
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=100)
         games_obj = NCAABGames()
         # Ensure data exists essentially
         df = games_obj.load_games()
@@ -506,10 +580,11 @@ def update_elo_ratings(sport, **context):
             )
 
     elif sport == "wncaab":
-        from elo.wncaab_elo_rating import WNCAABEloRating
+        from elo import get_elo_class
         from wncaab_games import WNCAABGames
 
-        elo = WNCAABEloRating(k_factor=20, home_advantage=100)
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=20, home_advantage=100)
         games_obj = WNCAABGames()
         df = games_obj.load_games()
 
@@ -529,9 +604,10 @@ def update_elo_ratings(sport, **context):
 
     elif sport == "tennis":
         # Tennis: load full history to capture new matches.
-        from elo.tennis_elo_rating import TennisEloRating
+        from elo import get_elo_class
         from tennis_games import TennisGames
 
+        EloClass = get_elo_class(sport)
         tg = TennisGames()
         df = tg.load_games()
         if df.empty:
@@ -540,7 +616,7 @@ def update_elo_ratings(sport, **context):
 
         df = df.sort_values("date")
 
-        elo = TennisEloRating(k_factor=32)
+        elo = EloClass(k_factor=32)
         for _, row in df.iterrows():
             try:
                 elo.update(str(row["winner"]), str(row["loser"]), tour=str(row["tour"]))
@@ -559,7 +635,7 @@ def update_elo_ratings(sport, **context):
             f.write("team,rating\n")
             for player in sorted(elo.wta_ratings.keys()):
                 f.write(f"{player},{elo.wta_ratings[player]:.2f}\n")
-    elif sport in ["nba", "nhl", "epl", "ncaab", "wncaab"]:
+    elif sport in ["nba", "nhl", "mlb", "nfl", "epl", "ligue1", "ncaab", "wncaab"]:
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
@@ -601,7 +677,7 @@ def fetch_prediction_markets(sport, **context):
         fetch_wncaab_markets,
     )
 
-    config = SPORTS_CONFIG[sport]
+    SPORTS_CONFIG[sport]
     fetch_function = {
         "nba": fetch_nba_markets,
         "nhl": fetch_nhl_markets,
@@ -699,7 +775,7 @@ def update_glicko2_ratings(sport, **context):
         f.write("team,rating,rd,volatility\n")
         for team in sorted(glicko.ratings.keys()):
             r = glicko.ratings[team]
-            f.write(f'{team},{r["rating"]:.2f},{r["rd"]:.2f},{r["vol"]:.6f}\n')
+            f.write(f"{team},{r['rating']:.2f},{r['rd']:.2f},{r['vol']:.6f}\n")
 
     # Push to XCom
     context["task_instance"].xcom_push(
@@ -847,7 +923,7 @@ def place_bets_on_recommendations(sport, **context):
         **context: Airflow context with bet recommendations
     """
     print(f"⚠️  DEPRECATED: Use portfolio betting task instead for {sport.upper()}")
-    print(f"⚠️  This task is kept for backwards compatibility only")
+    print("⚠️  This task is kept for backwards compatibility only")
     return
 
 
@@ -859,15 +935,14 @@ def place_portfolio_optimized_bets(**context):
     """
     from pathlib import Path
 
-    print(f"\n{'='*80}")
-    print(f"🎰 PORTFOLIO-OPTIMIZED BETTING")
-    print(f"{'='*80}\n")
+    print(f"\n{'=' * 80}")
+    print("🎰 PORTFOLIO-OPTIMIZED BETTING")
+    print(f"{'=' * 80}\n")
 
     # Import portfolio betting modules
     try:
         from portfolio_betting import PortfolioBettingManager
         from kalshi_betting import KalshiBetting
-        from update_clv_data import update_clv_for_closed_markets
     except ImportError:
         print("❌ Portfolio betting modules not found")
         return
@@ -934,7 +1009,7 @@ def place_portfolio_optimized_bets(**context):
             date_str, sports=["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"]
         )
 
-        print(f"\n✓ Portfolio betting complete")
+        print("\n✓ Portfolio betting complete")
         print(f"  Planned: {results['planned_bets']}")
         print(f"  Placed: {len(results['placed_bets'])}")
         print(f"  Skipped: {len(results['skipped_bets'])}")
@@ -963,9 +1038,9 @@ def place_portfolio_optimized_bets(**context):
                 subject=f"Bets: {placed_count} placed, ${total_amount:.0f}",
                 body=sms_body,
             ):
-                print(f"✓ SMS notification sent")
+                print("✓ SMS notification sent")
             else:
-                print(f"⚠️  SMS notification failed")
+                print("⚠️  SMS notification failed")
         except Exception as e:
             print(f"⚠️  Failed to send SMS: {e}")
 
@@ -1078,7 +1153,7 @@ def send_daily_summary(**context):
         msg2 += f"Total bet: ${total_bet:.2f}\n"
 
         if placed_bets:
-            msg2 += f"\nTop bets:\n"
+            msg2 += "\nTop bets:\n"
             for i, bet in enumerate(placed_bets[:3], 1):
                 team = bet.get("player", bet.get("home_team", "Unknown"))[:12]
                 amt = bet.get("amount", 0)
@@ -1106,7 +1181,7 @@ def send_daily_summary(**context):
                 print("✓ Sent message 3/3")
         else:
             # Message 3: Available balance for tomorrow
-            msg3 = f"AVAILABLE TOMORROW\n"
+            msg3 = "AVAILABLE TOMORROW\n"
             msg3 += f"Cash: ${balance:.2f}\n"
             msg3 += f"Total value: ${portfolio_value:.2f}\n"
             msg3 += f"\n{'💰 Win!' if winnings > 0 else '📉 Loss' if winnings < 0 else '➖ Flat'}"

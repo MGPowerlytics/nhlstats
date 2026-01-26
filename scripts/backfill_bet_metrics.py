@@ -3,7 +3,7 @@ import os
 import logging
 
 # Add project root to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 # Configure logging to show info
 logging.basicConfig(level=logging.INFO)
@@ -18,7 +18,10 @@ try:
 except ImportError as e:
     print(f"Error importing backfill_bet_metrics: {e}")
     # Try adding plugins explicitly
-    sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../plugins')))
+    sys.path.append(
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../plugins"))
+    )
     from bet_tracker import backfill_bet_metrics
+
     print("Retry import successful.")
     backfill_bet_metrics()
