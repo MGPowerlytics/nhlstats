@@ -1,6 +1,6 @@
 psycopg2-binary
 sqlalchemy
-pandas
+pandas>=2.0.0
 requests
 kalshi-python
 scikit-learn
@@ -39,3 +39,6 @@ setuptools
 wheel
 pip
 nfl_data_py
+# Transitive dependencies required by kalshi-python and nfl_data_py
+lazy_imports
+appdirs

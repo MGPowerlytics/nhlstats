@@ -31,8 +31,11 @@ class TennisEloRating(BaseEloRating):
         self.atp_matches_played = {}
         self.wta_matches_played = {}
 
-    def _normalize_name(self, name):
-        """Normalize player name to 'Lastname I.' format."""
+    def _normalize_name(self, name, tour="ATP"):
+        """Normalize player name to 'Lastname I.' format.
+
+        Also attempts fuzzy matching for single-word last names.
+        """
         if not name:
             return "Unknown"
 
@@ -49,6 +52,14 @@ class TennisEloRating(BaseEloRating):
             last = " ".join(parts[1:])
             return f"{last} {first[0]}."
 
+        # Single word name (e.g., "Korda") - try to find matching player
+        # Look for players whose name starts with this last name
+        ratings = self.atp_ratings if str(tour).upper() == "ATP" else self.wta_ratings
+        for player_name in ratings:
+            # Check if the player's last name matches (before the initial)
+            if player_name.startswith(name + " "):
+                return player_name
+
         return name
 
     def _get_tour_dicts(self, tour):
@@ -61,7 +72,7 @@ class TennisEloRating(BaseEloRating):
     def get_rating(self, player, tour="ATP"):
         """Get rating for a player in their tour."""
         ratings, matches = self._get_tour_dicts(tour)
-        player = self._normalize_name(player)
+        player = self._normalize_name(player, tour)
 
         if player not in ratings:
             ratings[player] = self.initial_rating
@@ -72,7 +83,7 @@ class TennisEloRating(BaseEloRating):
     def get_match_count(self, player, tour="ATP"):
         """Get number of matches played by a player."""
         _, matches = self._get_tour_dicts(tour)
-        player = self._normalize_name(player)
+        player = self._normalize_name(player, tour)
         return matches.get(player, 0)
 
     def predict(self, player_a, player_b, tour="ATP", is_neutral=True):
@@ -119,8 +130,8 @@ class TennisEloRating(BaseEloRating):
         """
         ratings, matches = self._get_tour_dicts(tour)
 
-        p1 = self._normalize_name(home_team)
-        p2 = self._normalize_name(away_team)
+        p1 = self._normalize_name(home_team, tour)
+        p2 = self._normalize_name(away_team, tour)
 
         # Determine actual winner/loser
         if home_won is None:

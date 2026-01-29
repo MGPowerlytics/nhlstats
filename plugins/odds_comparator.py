@@ -69,13 +69,25 @@ class OddsComparator:
         threshold: float = 0.65,
         min_edge: float = 0.05,
         use_sharp_confirmation: bool = False,
+        market_confidence_cutoff: float = 0.55,
     ) -> List[Dict]:
         """
-        Identifies betting opportunities by comparing Elo with market odds.
+        Identifies betting opportunities using MARKET AGREEMENT strategy.
 
-        Bet Types:
-        - Elo-only: use_sharp_confirmation=False (pure Elo vs Kalshi)
-        - Sharp: use_sharp_confirmation=True (confirmed by sharp books)
+        Strategy: Bet when our Elo prediction agrees with Kalshi's market prediction.
+        - If Elo predicts home win (>50%) AND market predicts home win (>cutoff), bet home.
+        - If Elo predicts away win (<50%) AND market predicts away win (<1-cutoff), bet away.
+
+        Args:
+            sport: Sport code (nba, nhl, etc.)
+            elo_ratings: Dictionary of team/player Elo ratings
+            elo_system: Elo system instance with predict() method
+            threshold: (DEPRECATED) No longer used in market agreement strategy
+            min_edge: (DEPRECATED) No longer used in market agreement strategy
+            use_sharp_confirmation: (DEPRECATED) No longer used in market agreement strategy
+            market_confidence_cutoff: Minimum market probability for a side (default 0.55)
+                - For home bets: market_prob > cutoff
+                - For away bets: market_prob < (1 - cutoff)
         """
         opportunities = []
 
@@ -173,11 +185,16 @@ class OddsComparator:
                 # 5. Predict
                 try:
                     if sport.lower() == "tennis":
-                        tour = (
-                            "atp"
-                            if "KXATPMATCH" in game_id or "ATP" in game_id
-                            else "wta"
-                        )
+                        # Determine tour from Kalshi ticker (external_id)
+                        # ATP tickers contain 'KXATP', WTA tickers contain 'KXWTA'
+                        kalshi_ticker = tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
+                        if "KXATP" in kalshi_ticker.upper() or "ATP" in game_id.upper():
+                            tour = "atp"
+                        elif "KXWTA" in kalshi_ticker.upper() or "WTA" in game_id.upper():
+                            tour = "wta"
+                        else:
+                            # Default to ATP for unrecognized tournaments
+                            tour = "atp"
                         home_win_prob = elo_system.predict(
                             elo_home, elo_away, tour=tour
                         )
@@ -209,6 +226,8 @@ class OddsComparator:
                         ("away", row["away_team_name"], 1 - home_win_prob),
                     ]
 
+                # 7. MARKET AGREEMENT STRATEGY
+                # Bet when Elo and market agree on the same side
                 for side, team_name, elo_prob in outcomes:
                     if side in kalshi_odds:
                         market_odds = kalshi_odds[side]
@@ -221,45 +240,45 @@ class OddsComparator:
 
                         edge = elo_prob - market_prob
 
-                        # Volume-focused: Relax threshold if we have high edge OR meet confidence
-                        is_confident = (elo_prob > threshold) or (edge > 0.10)
+                        # Market Agreement Logic:
+                        # - Elo predicts this side wins (elo_prob > 0.5)
+                        # - Market also predicts this side wins (market_prob > cutoff)
+                        elo_predicts_win = elo_prob > 0.5
+                        market_predicts_win = market_prob > market_confidence_cutoff
 
-                        if is_confident and edge > min_edge:
-                            confirmed = True
-                            if (
-                                use_sharp_confirmation
-                                and sharp_odds
-                                and side in sharp_odds
-                            ):
-                                sharp_prob = 1 / sharp_odds[side]
-                                # confirmed = market_prob < sharp_prob (within 2% tolerance)
-                                if market_prob >= sharp_prob - 0.02:
-                                    confirmed = False
+                        # Both must agree this side wins
+                        if elo_predicts_win and market_predicts_win:
+                            # Confidence based on agreement strength
+                            # (how close are elo_prob and market_prob)
+                            agreement_diff = abs(elo_prob - market_prob)
+                            if agreement_diff < 0.05:
+                                confidence = "HIGH"  # Very close agreement
+                            elif agreement_diff < 0.15:
+                                confidence = "MEDIUM"  # Reasonable agreement
+                            else:
+                                confidence = "LOW"  # Wide disagreement but same side
 
-                            if confirmed:
-                                opportunities.append(
-                                    {
-                                        "sport": sport,
-                                        "game_id": game_id,
-                                        "home_team": row["home_team_name"],
-                                        "away_team": row["away_team_name"],
-                                        "bet_on": team_name,
-                                        "side": side,
-                                        "elo_prob": elo_prob,
-                                        "market_prob": market_prob,
-                                        "market_odds": market_odds,
-                                        "bookmaker": "Kalshi",
-                                        "ticker": tickers_by_bm.get("Kalshi", {}).get(
-                                            side
-                                        ),
-                                        "edge": edge,
-                                        "sharp_confirmed": sharp_odds is not None
-                                        and confirmed,
-                                        "confidence": "HIGH"
-                                        if elo_prob > (threshold + 0.1)
-                                        else "MEDIUM",
-                                    }
-                                )
+                            opportunities.append(
+                                {
+                                    "sport": sport,
+                                    "game_id": game_id,
+                                    "home_team": row["home_team_name"],
+                                    "away_team": row["away_team_name"],
+                                    "bet_on": team_name,
+                                    "side": side,
+                                    "elo_prob": elo_prob,
+                                    "market_prob": market_prob,
+                                    "market_odds": market_odds,
+                                    "bookmaker": "Kalshi",
+                                    "ticker": tickers_by_bm.get("Kalshi", {}).get(
+                                        side
+                                    ),
+                                    "edge": edge,
+                                    "sharp_confirmed": False,  # Not used in market agreement
+                                    "confidence": confidence,
+                                    "agreement_diff": agreement_diff,
+                                }
+                            )
 
             return opportunities
 

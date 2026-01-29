@@ -361,3 +361,125 @@ def silence_duckdb():
 
         mock.return_value = DuckDBBridge(_TEST_ENGINE)
         yield mock
+
+
+# ============================================================================
+# DAG Smoke Test Fixtures
+# ============================================================================
+
+@pytest.fixture
+def mock_airflow_context():
+    """Create a mock Airflow task context with XCom support.
+
+    Usage:
+        def test_my_task(mock_airflow_context):
+            my_task_function(**mock_airflow_context)
+            xcom_store = mock_airflow_context["_xcom_store"]
+            assert "my_key" in xcom_store
+    """
+    from unittest.mock import MagicMock
+
+    xcom_store = {}
+
+    mock_ti = MagicMock()
+    mock_ti.xcom_push = lambda key, value: xcom_store.update({key: value})
+    mock_ti.xcom_pull = lambda key, task_ids=None: xcom_store.get(key)
+
+    context = {
+        "ds": "2026-01-27",
+        "task_instance": mock_ti,
+        "ti": mock_ti,
+    }
+    context["_xcom_store"] = xcom_store  # For test assertions
+    return context
+
+
+@pytest.fixture
+def sample_nba_games():
+    """Sample NBA game data for testing."""
+    import pandas as pd
+    return pd.DataFrame({
+        "game_date": ["2026-01-27", "2026-01-26", "2026-01-25"],
+        "home_team": ["Lakers", "Celtics", "Warriors"],
+        "away_team": ["Celtics", "Lakers", "Bulls"],
+        "home_score": [110, 105, 120],
+        "away_score": [105, 112, 115],
+        "status": ["Final", "Final", "Final"],
+    })
+
+
+@pytest.fixture
+def sample_nhl_games():
+    """Sample NHL game data for testing."""
+    import pandas as pd
+    return pd.DataFrame({
+        "game_date": ["2026-01-27", "2026-01-26"],
+        "home_team_abbrev": ["TOR", "MTL"],
+        "away_team_abbrev": ["MTL", "TOR"],
+        "home_score": [4, 2],
+        "away_score": [2, 3],
+        "game_state": ["FINAL", "FINAL"],
+        "game_id": [1, 2],
+    })
+
+
+@pytest.fixture
+def sample_kalshi_markets():
+    """Sample Kalshi market data for testing."""
+    return [
+        {
+            "ticker": "KXNBAGAME-26JAN27-LAL",
+            "title": "Lakers vs Celtics",
+            "yes_price": 0.55,
+            "no_price": 0.45,
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+        },
+        {
+            "ticker": "KXNBAGAME-26JAN27-BOS",
+            "title": "Celtics vs Lakers",
+            "yes_price": 0.60,
+            "no_price": 0.40,
+            "home_team": "Celtics",
+            "away_team": "Lakers",
+        },
+    ]
+
+
+@pytest.fixture
+def sample_elo_ratings():
+    """Sample Elo ratings for testing."""
+    return {
+        "Lakers": 1550.0,
+        "Celtics": 1520.0,
+        "Warriors": 1580.0,
+        "Bulls": 1480.0,
+        "Heat": 1510.0,
+    }
+
+
+@pytest.fixture
+def sample_bet_recommendations():
+    """Sample bet recommendations for testing."""
+    return [
+        {
+            "ticker": "KXNBAGAME-26JAN27-LAL",
+            "home_team": "Lakers",
+            "away_team": "Celtics",
+            "elo_prob": 0.65,
+            "market_prob": 0.55,
+            "edge": 0.10,
+            "confidence": "HIGH",
+            "recommended_side": "YES",
+        },
+        {
+            "ticker": "KXNHLGAME-26JAN27-TOR",
+            "home_team": "TOR",
+            "away_team": "MTL",
+            "elo_prob": 0.58,
+            "market_prob": 0.50,
+            "edge": 0.08,
+            "confidence": "MEDIUM",
+            "recommended_side": "YES",
+        },
+    ]

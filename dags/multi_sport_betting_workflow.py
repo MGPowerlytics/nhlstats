@@ -10,6 +10,7 @@ import json
 import smtplib
 import os
 import time
+import math
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 
@@ -21,7 +22,23 @@ plugins_dir = Path(__file__).parent.parent / "plugins"
 if str(plugins_dir) not in sys.path:
     sys.path.insert(0, str(plugins_dir))
 
+
+def is_valid_score(score):
+    """Check if a score is a valid number (not None, NaN, or inf)."""
+    if score is None:
+        return False
+    try:
+        if math.isnan(score) or math.isinf(score):
+            return False
+    except (TypeError, ValueError):
+        return False
+    return True
+
 # Import Elo factory
+
+
+# SMTP alerting disabled - set to True to re-enable
+SMTP_ALERTING_ENABLED = False
 
 
 def send_sms(to_number: str, subject: str, body: str) -> bool:
@@ -35,6 +52,10 @@ def send_sms(to_number: str, subject: str, body: str) -> bool:
     Returns:
         True if sent successfully, False otherwise
     """
+    if not SMTP_ALERTING_ENABLED:
+        print(f"📵 SMTP alerting disabled - would have sent: {subject}")
+        return True  # Return True so downstream tasks don't fail
+
     try:
         smtp_host = os.getenv("AIRFLOW__SMTP__SMTP_HOST", "smtp.gmail.com")
         smtp_port = int(os.getenv("AIRFLOW__SMTP__SMTP_PORT", "587"))
@@ -365,9 +386,19 @@ def update_elo_ratings(sport, **context):
     # Import sport-specific modules
     if sport == "nba":
         from elo import get_elo_class
-        from elo.nba_elo_rating import load_nba_games_from_json
+        from db_manager import default_db
 
-        games_df = load_nba_games_from_json()
+        # Query NBA games from database
+        query = """
+            SELECT game_date, home_team, away_team,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM nba_games
+            WHERE status = 'Final'
+            ORDER BY game_date, game_id
+        """
+        games_df = default_db.fetch_df(query)
+        print(f"  Loaded {len(games_df)} NBA games from PostgreSQL")
+
         EloClass = get_elo_class(sport)
         elo = EloClass(k_factor=20, home_advantage=100)
         for _, game in games_df.iterrows():
@@ -471,13 +502,10 @@ def update_elo_ratings(sport, **context):
             away_team = row["away_team"]
             home_score = row["home_score"]
             away_score = row["away_score"]
-            home_won = (
-                home_score > away_score
-                if home_score is not None and away_score is not None
-                else None
-            )
-            if home_won is None:
+            # Check for valid scores (not None, NaN, or inf)
+            if not is_valid_score(home_score) or not is_valid_score(away_score):
                 continue
+            home_won = home_score > away_score
             elo.update(
                 home_team,
                 away_team,
@@ -508,13 +536,10 @@ def update_elo_ratings(sport, **context):
             away_team = row["away_team"]
             home_score = row["home_score"]
             away_score = row["away_score"]
-            home_won = (
-                home_score > away_score
-                if home_score is not None and away_score is not None
-                else None
-            )
-            if home_won is None:
+            # Check for valid scores (not None, NaN, or inf)
+            if not is_valid_score(home_score) or not is_valid_score(away_score):
                 continue
+            home_won = home_score > away_score
             elo.update(
                 home_team,
                 away_team,
@@ -639,12 +664,18 @@ def update_elo_ratings(sport, **context):
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
+        # Filter out NaN values before saving
+        valid_ratings = {
+            team: rating
+            for team, rating in elo.ratings.items()
+            if is_valid_score(rating)
+        }
         with open(f"data/{sport}_current_elo_ratings.csv", "w") as f:
             f.write("team,rating\n")
-            for team in sorted(elo.ratings.keys()):
-                f.write(f"{team},{elo.ratings[team]:.2f}\n")
+            for team in sorted(valid_ratings.keys()):
+                f.write(f"{team},{valid_ratings[team]:.2f}\n")
 
-    # Push to XCom
+    # Push to XCom (filter NaN values to prevent JSON serialization errors)
     if sport == "tennis":
         context["task_instance"].xcom_push(
             key=f"{sport}_elo_ratings",
@@ -655,10 +686,16 @@ def update_elo_ratings(sport, **context):
             f"✓ {sport.upper()} Elo ratings updated: {total_players} players (ATP: {len(elo.atp_ratings)}, WTA: {len(elo.wta_ratings)})"
         )
     else:
+        # Filter out any NaN or invalid values before XCom push
+        valid_ratings = {
+            team: rating
+            for team, rating in elo.ratings.items()
+            if is_valid_score(rating)
+        }
         context["task_instance"].xcom_push(
-            key=f"{sport}_elo_ratings", value=elo.ratings
+            key=f"{sport}_elo_ratings", value=valid_ratings
         )
-        print(f"✓ {sport.upper()} Elo ratings updated: {len(elo.ratings)} teams")
+        print(f"✓ {sport.upper()} Elo ratings updated: {len(valid_ratings)} teams")
 
 
 def fetch_prediction_markets(sport, **context):
@@ -690,7 +727,7 @@ def fetch_prediction_markets(sport, **context):
         "wncaab": fetch_wncaab_markets,
     }[sport]
 
-    date_str = context["ds"]
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
     markets = fetch_function(date_str)
 
     if not markets:
@@ -741,9 +778,16 @@ def update_glicko2_ratings(sport, **context):
     glicko = glicko_classes[sport]()
 
     if sport == "nba":
-        from elo.nba_elo_rating import load_nba_games_from_json
-
-        games_df = load_nba_games_from_json()
+        # Query NBA games from database (same pattern as update_elo_ratings)
+        query = """
+            SELECT game_date, home_team, away_team,
+                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM nba_games
+            WHERE status = 'Final'
+            ORDER BY game_date, game_id
+        """
+        games_df = default_db.fetch_df(query)
+        print(f"  Loaded {len(games_df)} NBA games for Glicko-2")
         for _, game in games_df.iterrows():
             glicko.update(game["home_team"], game["away_team"], game["home_win"])
     elif sport == "nhl":
@@ -760,7 +804,10 @@ def update_glicko2_ratings(sport, **context):
         query = f"""
             SELECT game_date, home_team, away_team,
                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-            FROM {table_name} WHERE game_date IS NOT NULL
+            FROM {table_name}
+            WHERE game_date IS NOT NULL
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
             ORDER BY game_date
         """
         games_df = default_db.fetch_df(query)
@@ -791,7 +838,7 @@ def load_bets_to_db(sport, **context):
 
     from bet_loader import BetLoader
 
-    date_str = context["ds"]
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
     loader = BetLoader()
     count = loader.load_bets_for_date(sport, date_str)
 
@@ -848,22 +895,19 @@ def identify_good_bets(sport, **context):
 
     comparator = OddsComparator()
 
-    # Find opportunities
+    # Find opportunities using MARKET AGREEMENT strategy
+    # Bet when Elo and market agree on the same side (>55% confidence from market)
     good_bets = comparator.find_opportunities(
         sport=sport,
         elo_ratings=(
             elo_ratings if sport != "tennis" else {}
         ),  # Tennis handles ratings internally in predict
         elo_system=elo_system,
-        threshold=elo_threshold,
-        min_edge=0.05,
-        use_sharp_confirmation=(
-            sport in ["tennis", "nhl", "ligue1"]
-        ),  # Enable for tennis, NHL and Ligue 1
+        market_confidence_cutoff=0.55,  # Market must show >55% for a side
     )
 
     # Save results
-    date_str = context["ds"]
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
     bets_file = Path(f"data/{sport}/bets_{date_str}.json")
     bets_file.parent.mkdir(parents=True, exist_ok=True)
 
@@ -887,7 +931,7 @@ def identify_good_bets(sport, **context):
             )
 
     # Save results
-    date_str = context["ds"]
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
     bets_file = Path(f"data/{sport}/bets_{date_str}.json")
     bets_file.parent.mkdir(parents=True, exist_ok=True)
     with open(bets_file, "w") as f:
@@ -1004,7 +1048,7 @@ def place_portfolio_optimized_bets(**context):
         )
 
         # Process daily bets
-        date_str = context["ds"]
+        date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
         results = manager.process_daily_bets(
             date_str, sports=["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"]
         )
@@ -1101,7 +1145,7 @@ def send_daily_summary(**context):
             print("⚠️  No yesterday data - cannot calculate winnings")
 
         # Save today's balance
-        today_str = context["ds"]
+        today_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
         balance_dir = Path("data/portfolio")
         balance_dir.mkdir(parents=True, exist_ok=True)
 

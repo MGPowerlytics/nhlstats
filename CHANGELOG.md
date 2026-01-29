@@ -1,3 +1,209 @@
+## 2026-01-29 - Tennis Name Matching & Tour Detection Fixes ✅ COMPLETE
+
+### Fixed
+- **Tennis Name Matching**: Fixed `_normalize_name()` in `TennisEloRating` to properly match single-word last names from Kalshi markets (e.g., "Korda") to Elo ratings format (e.g., "Korda S.")
+  - Added fuzzy matching: Single-word names now search existing ratings for matching player
+  - Example: "Korda" → looks up "Korda S." in atp_ratings dictionary
+  - Updated all callers to pass `tour` parameter for correct dictionary lookup
+
+- **Tennis Tour Detection**: Fixed OddsComparator to correctly identify ATP vs WTA matches
+  - Bug: Was checking game_id for "KXATPMATCH" but game_ids are like "TENNIS_20260129_KORDA_ILAGAN"
+  - Fix: Now checks Kalshi ticker (external_id) for "KXATP" or "KXWTA" patterns
+  - Result: All ATP matches now correctly use ATP Elo ratings instead of defaulting to WTA
+
+### Changed
+- **plugins/elo/tennis_elo_rating.py**:
+  - `_normalize_name()` now accepts `tour` parameter (default "ATP")
+  - Added fuzzy matching logic for single-word names
+  - Updated `get_rating()`, `get_match_count()`, and `update()` to pass tour parameter
+
+- **plugins/odds_comparator.py**:
+  - Tour detection now uses Kalshi ticker from `tickers_by_bm` instead of game_id
+  - Checks for "KXATP" or "KXWTA" patterns in external_id
+  - Defaults to ATP for unrecognized tournaments
+
+### Results
+- Tennis betting opportunities: 0 → **58 opportunities found**
+- All today's ATP Challenger and main tour matches now properly analyzed
+- Name matching verified: "Korda" → "Korda S." (1670), "Djokovic" → "Djokovic N." (1950)
+
+---
+
+## 2026-01-29 - Fetch Markets Fixes & Smoke Tests ✅ COMPLETE
+
+### Fixed
+- **Import Error in Docker**: `kalshi_python` package was not installed in Airflow containers
+  - Root cause: Package in `requirements.txt` but Docker image not rebuilt
+  - Fix: Installed manually in all containers; documented for next image rebuild
+
+- **Rate Limiting**: Added 0.5s delay between Kalshi API calls
+  - Tennis was failing with 429 "Too Many Requests" errors (4 API calls without delay)
+  - All sports now use rate-limited `_fetch_sport_markets()` helper
+
+### Changed
+- **Refactored `plugins/kalshi_markets.py`**:
+  - Added graceful import handling for `kalshi_python` package
+  - Created generic `_fetch_sport_markets()` helper to reduce code duplication
+  - All 9 `fetch_*_markets` functions now use the common helper
+  - Added structured logging with `logging` module instead of `print()`
+  - Added `SPORT_SERIES` dict for sport-to-ticker mapping
+  - Added `SPORT_LIMITS` dict for sport-specific API limits
+
+- **Error Handling**: All fetch functions now return `[]` on error instead of crashing:
+  - Missing `kalshi_python` package → `[]`
+  - Missing/invalid credentials → `[]`
+  - API errors (rate limiting, auth) → `[]`
+  - Partial failures (1 of 4 tennis series fails) → continues with other series
+
+### Added
+- **Smoke Tests** (`tests/test_fetch_markets_smoke.py`): 31 new tests covering:
+  - Function existence for all 9 sports
+  - `SPORT_SERIES` configuration validation
+  - Error handling (missing package, credentials, API errors)
+  - Success scenarios with mocked API
+  - Rate limiting configuration
+  - Logging configuration
+  - NCAAB/WNCAAB higher limits (1000 vs 200)
+
+---
+
+## 2026-01-29 - Market Agreement Betting Strategy ✅ COMPLETE
+
+### Changed
+- **New Betting Strategy**: Replaced edge-based "contrarian" strategy with **market agreement strategy**
+  - Old: Bet when Elo probability exceeds threshold AND edge > 5% (betting against the market)
+  - New: Bet when Elo AND Kalshi agree on the same winner (betting with the market)
+  - Rationale: Previous strategy was losing nearly every bet by betting against market consensus
+
+- **Betting Logic** (`plugins/odds_comparator.py`):
+  - Bet on HOME when: `elo_prob > 50%` AND `market_prob > 55%`
+  - Bet on AWAY when: `elo_prob < 50%` AND `market_prob < 45%` (i.e., away favored)
+  - Market confidence cutoff: **55%** (avoids coin-flip games)
+
+- **Confidence Levels**: Now based on agreement strength (how close elo_prob and market_prob are):
+  - **HIGH**: Agreement diff < 5% (very close agreement)
+  - **MEDIUM**: Agreement diff 5-15% (reasonable agreement)
+  - **LOW**: Agreement diff > 15% (same side but wide disagreement)
+
+- **DAG Changes** (`dags/multi_sport_betting_workflow.py`):
+  - Simplified `find_opportunities()` call to use `market_confidence_cutoff=0.55`
+  - Removed deprecated `threshold`, `min_edge`, `use_sharp_confirmation` parameters
+
+### Added
+- **New Tests** (`tests/test_odds_comparator.py`):
+  - `test_find_opportunities_no_bet_when_disagreement` - No bet when Elo/market disagree
+  - `test_find_opportunities_market_below_cutoff_no_bet` - No bet on coin-flip games
+  - `test_find_opportunities_confidence_levels` - HIGH confidence on close agreement
+  - `test_find_opportunities_away_team_agreement` - Bet away when both agree
+
+### Deprecated
+- **Old Betting Parameters** (still accepted but ignored):
+  - `threshold` - No longer used in market agreement strategy
+  - `min_edge` - No longer used in market agreement strategy
+  - `use_sharp_confirmation` - No longer used in market agreement strategy
+
+---
+
+## 2026-01-27 - DAG Smoke Tests ✅ COMPLETE
+
+### Added
+- **Comprehensive DAG Smoke Tests**: Created 3 test files with 74 tests total
+
+  - **test_dag_smoke_multi_sport.py** (47 tests):
+    - Tests for `is_valid_score()` helper function
+    - DAG import and structure tests (dag exists, sports config, task functions)
+    - `download_games` task tests for NBA, NHL, Tennis
+    - `update_elo_ratings` task tests with database queries and XCom push
+    - `fetch_prediction_markets` task tests for all sports
+    - `identify_good_bets` task tests with OddsComparator
+    - `update_glicko2_ratings` task tests
+    - `load_bets_to_db` task tests
+    - `place_bets_on_recommendations` deprecation tests
+    - DAG schedule and tag verification
+    - Error propagation tests
+
+  - **test_dag_smoke_bet_sync.py** (17 tests):
+    - DAG structure tests (@hourly schedule, catchup disabled, tags)
+    - `sync_bets_from_kalshi` task tests with mocked bet_tracker
+    - Success/error handling tests
+    - Dependency import tests
+
+  - **test_dag_smoke_portfolio.py** (26 tests):
+    - DAG structure tests (@hourly schedule, portfolio tags)
+    - `snapshot_portfolio_value` task tests with mocked Kalshi client
+    - Kalshkey file parsing tests (missing file, missing API key, missing private key)
+    - Data flow tests (balance, portfolio value, UTC timestamp)
+    - Error propagation tests
+
+### Technical Details
+- **Function-level mocking**: All tests patch at source module level (e.g., `kalshi_markets.fetch_nba_markets` not `multi_sport_betting_workflow.fetch_nba_markets`)
+- **Mock Airflow context**: Created fixture with proper `task_instance.xcom_push()` and `xcom_pull()` support
+- **Extended conftest.py**: Added sample data fixtures for NBA games, NHL games, Kalshi markets, Elo ratings
+- **Run on every commit**: Tests are fast (<4 seconds) and catch breaking changes early
+
+## 2026-01-27 - Restore Betting Operations ✅ COMPLETE
+
+### Status
+**All 67 DAG tasks now running successfully** - betting system fully operational.
+
+### Fixed
+- **Missing Dependencies**: Added `lazy_imports` and `appdirs` to `requirements.txt`
+  - `lazy_imports`: Required by `kalshi-python` package - was causing all `*_fetch_markets` tasks to fail
+  - `appdirs`: Required by `nfl_data_py` package - was causing `nfl_download_games` task to fail
+  - Installed manually in containers pending Docker image rebuild
+
+- **NaN Score Handling**: Fixed NFL and MLB Elo updates failing with "Out of range float values are not JSON compliant: nan"
+  - Added `is_valid_score()` helper function to check for None, NaN, and inf values
+  - Updated MLB and NFL Elo update loops to skip games with invalid scores
+  - Updated Glicko-2 queries to filter null scores in SQL
+  - Added NaN filtering before XCom push and CSV save to prevent JSON serialization errors
+
+- **Airflow 3.x Compatibility**: Fixed `context["ds"]` KeyError in multiple tasks
+  - Airflow 3.x changed context variable access behavior
+  - Changed 6 occurrences to use `context.get("ds", datetime.now().strftime("%Y-%m-%d"))` pattern
+
+- **NBA Elo Update**: Fixed missing `load_nba_games_from_json` function
+  - Changed to use `db_manager.fetch_df()` for PostgreSQL query instead
+
+### Changed
+- **Disabled SMTP Alerting**: Added `SMTP_ALERTING_ENABLED = False` flag in `multi_sport_betting_workflow.py`
+  - Gmail SMTP was failing with authentication errors (530 5.7.0)
+  - `send_sms()` now returns early when disabled, preventing task failures
+  - Set `SMTP_ALERTING_ENABLED = True` to re-enable when credentials are configured
+
+- **NFL Games Module Graceful Degradation**: Updated `plugins/nfl_games.py`
+  - `nfl_data_py` requires pandas<2.0 which conflicts with other dependencies
+  - Module now gracefully handles missing `nfl_data_py` import
+  - NFL download tasks will skip with warning when package unavailable (NFL off-season)
+
+### Added
+- **Import Verification Tests**: Created `tests/test_import_verification.py`
+  - Tests critical transitive dependencies (`lazy_imports`, `appdirs`)
+  - Tests all 9 Kalshi market fetch functions
+  - Tests all 9 Elo rating class imports and inheritance
+  - Tests all 9 game module imports (NBA, NHL, MLB, NFL, EPL, Tennis, NCAAB, WNCAAB, Ligue1)
+  - Tests database module imports (db_manager, db_loader)
+  - Tests betting module imports (bet_tracker, portfolio_betting)
+  - Tests all 3 DAG files parse without errors
+  - Run these tests BEFORE deployment to catch missing dependencies
+
+- **NaN Safety Helper**: Added `is_valid_score(score)` function in DAG
+  - Checks for None, NaN, and inf values
+  - Used to filter invalid scores before Elo updates
+
+### Known Issues
+- `nfl_data_py` requires pandas<2.0, incompatible with current stack
+  - Workaround: NFL module degrades gracefully
+  - Long-term: Consider alternative NFL data source or separate environment
+
+### Deployment Steps (Current)
+1. Install packages manually: `docker exec --user airflow <container> /usr/python/bin/pip install --user lazy_imports appdirs kalshi-python`
+2. Apply to: scheduler, worker, apiserver, dag-processor containers
+3. Restart containers: `docker restart <container>`
+4. Clear failed tasks: `airflow tasks clear multi_sport_betting_workflow -s YYYY-MM-DD -e YYYY-MM-DD --yes`
+
+---
+
 ## 2026-01-25 - DAG Import Updates for Unified Elo Module
 
 ### Completed

@@ -1,12 +1,23 @@
 #!/usr/bin/env python3
 """
 Download NFL game data using nfl-data-py library.
+
+Note: nfl_data_py requires pandas<2.0 which conflicts with other dependencies.
+This module will gracefully degrade if nfl_data_py is not available.
 """
 
-import nfl_data_py as nfl
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+
+# Try to import nfl_data_py, but don't fail if unavailable
+try:
+    import nfl_data_py as nfl
+    NFL_DATA_AVAILABLE = True
+except ImportError:
+    nfl = None
+    NFL_DATA_AVAILABLE = False
+    print("⚠️  nfl_data_py not available - NFL data fetching disabled")
 
 
 class NFLGames:
@@ -23,6 +34,10 @@ class NFLGames:
         Download games for a specific date.
         Date format: YYYY-MM-DD
         """
+        if not NFL_DATA_AVAILABLE:
+            print(f"⚠️  nfl_data_py not available - skipping NFL download for {date_str}")
+            return []
+
         print(f"Downloading NFL games for {date_str}...")
 
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
