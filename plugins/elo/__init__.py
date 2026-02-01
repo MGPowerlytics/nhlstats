@@ -14,6 +14,7 @@ from plugins.elo.ligue1_elo_rating import Ligue1EloRating
 from plugins.elo.ncaab_elo_rating import NCAABEloRating
 from plugins.elo.wncaab_elo_rating import WNCAABEloRating
 from plugins.elo.tennis_elo_rating import TennisEloRating
+from plugins.elo.unrivaled_elo_rating import UnrivaledEloRating
 from plugins.elo.factory import (
     ELO_CLASS_REGISTRY,
     get_elo_class,
@@ -32,6 +33,7 @@ __all__ = [
     "NCAABEloRating",
     "WNCAABEloRating",
     "TennisEloRating",
+    "UnrivaledEloRating",
     "ELO_CLASS_REGISTRY",
     "get_elo_class",
     "create_elo_instance",

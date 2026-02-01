@@ -6,7 +6,7 @@ This module:
 3. Tracks results and updates bankroll
 """
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 import json
@@ -29,6 +29,7 @@ class PortfolioBettingManager:
         max_single_bet_pct: float = 0.05,
         min_edge: float = 0.05,
         min_confidence: float = 0.68,
+        excluded_segments: Optional[List[Tuple[str, str]]] = None,
         dry_run: bool = False,
     ):
         """Initialize portfolio betting manager.
@@ -43,6 +44,8 @@ class PortfolioBettingManager:
             max_single_bet_pct: Max percentage per bet
             min_edge: Minimum edge required
             min_confidence: Minimum Elo probability required
+            excluded_segments: List of (sport, confidence) tuples to skip.
+                              Example: [("NHL", "MEDIUM"), ("TENNIS", "LOW")]
             dry_run: If True, don't actually place bets
         """
         self.kalshi_client = kalshi_client
@@ -65,6 +68,7 @@ class PortfolioBettingManager:
             max_single_bet_pct=max_single_bet_pct,
             min_edge=min_edge,
             min_confidence=min_confidence,
+            excluded_segments=excluded_segments,
         )
 
     def process_daily_bets(
@@ -104,6 +108,9 @@ class PortfolioBettingManager:
 
         # Place bets
         results = self._place_optimized_bets(allocations, date_str)
+
+        # Print comprehensive betting table
+        self._print_comprehensive_table(allocations, results)
 
         # Save results
         results_file = output_dir / f"betting_results_{date_str}.json"
@@ -209,6 +216,12 @@ class PortfolioBettingManager:
                         "amount": alloc.bet_size,
                         "price": price,
                         "bet_line_prob": bet_line_prob,
+                        "elo_prob": opp.elo_prob,
+                        "market_prob": opp.market_prob,
+                        "edge": opp.edge,
+                        "expected_value": opp.expected_value,
+                        "kelly_fraction": opp.kelly_fraction,
+                        "sport": opp.sport,
                         "dry_run": True,
                     }
                 )
@@ -231,6 +244,12 @@ class PortfolioBettingManager:
                             "price": price,
                             "order_id": order_result.get("order_id"),
                             "bet_line_prob": bet_line_prob,
+                            "elo_prob": opp.elo_prob,
+                            "market_prob": opp.market_prob,
+                            "edge": opp.edge,
+                            "expected_value": opp.expected_value,
+                            "kelly_fraction": opp.kelly_fraction,
+                            "sport": opp.sport,
                             "dry_run": False,
                         }
                     )
@@ -249,6 +268,113 @@ class PortfolioBettingManager:
         print(f"Errors:  {len(results['errors'])}")
 
         return results
+
+    def _print_comprehensive_table(
+        self, allocations: List[PortfolioAllocation], results: Dict
+    ) -> None:
+        """Print comprehensive betting table with all probabilities.
+
+        Args:
+            allocations: List of portfolio allocations
+            results: Results from bet placement
+        """
+        if not allocations:
+            return
+
+        # Build set of placed tickers for quick lookup
+        placed_tickers = {b["ticker"] for b in results.get("placed_bets", [])}
+        skipped_tickers = {b["ticker"] for b in results.get("skipped_bets", [])}
+        error_tickers = {b["ticker"] for b in results.get("errors", [])}
+
+        print(f"\n{'=' * 120}")
+        print("COMPREHENSIVE BETTING TABLE")
+        print(f"{'=' * 120}")
+
+        # Header
+        header = (
+            f"{'Game/Match':<35} {'Bet?':<8} {'Amount':>8} {'Exp Ret':>10} "
+            f"{'Elo %':>8} {'Kalshi %':>10} {'BetMGM %':>10} {'Sport':<8}"
+        )
+        print(header)
+        print("─" * 120)
+
+        # Sort by sport then by expected value
+        sorted_allocs = sorted(
+            allocations,
+            key=lambda a: (a.opportunity.sport, -a.opportunity.expected_value)
+        )
+
+        current_sport = None
+        for alloc in sorted_allocs:
+            opp = alloc.opportunity
+
+            # Sport separator
+            if opp.sport != current_sport:
+                if current_sport is not None:
+                    print("─" * 120)
+                current_sport = opp.sport
+
+            # Game name (team vs opponent)
+            game_name = f"{opp.team} vs {opp.opponent}"
+            if len(game_name) > 33:
+                game_name = game_name[:30] + "..."
+
+            # Bet status
+            if opp.ticker in placed_tickers:
+                bet_status = "✓ YES"
+            elif opp.ticker in skipped_tickers:
+                bet_status = "⚠️ SKIP"
+            elif opp.ticker in error_tickers:
+                bet_status = "❌ ERR"
+            else:
+                bet_status = "PLAN"
+
+            # Bet amount
+            amount_str = f"${alloc.bet_size:.2f}"
+
+            # Expected return (amount * expected_value)
+            exp_return = alloc.bet_size * opp.expected_value
+            exp_return_str = f"${exp_return:+.2f}"
+
+            # Probabilities
+            elo_pct = f"{opp.elo_prob * 100:.1f}%"
+            kalshi_pct = f"{opp.market_prob * 100:.1f}%"
+
+            # BetMGM probability
+            if opp.betmgm_prob is not None:
+                betmgm_pct = f"{opp.betmgm_prob * 100:.1f}%"
+            else:
+                betmgm_pct = "N/A"
+
+            # Sport
+            sport_str = opp.sport.upper()
+
+            # Print row
+            row = (
+                f"{game_name:<35} {bet_status:<8} {amount_str:>8} {exp_return_str:>10} "
+                f"{elo_pct:>8} {kalshi_pct:>10} {betmgm_pct:>10} {sport_str:<8}"
+            )
+            print(row)
+
+        print("─" * 120)
+
+        # Summary stats
+        total_bet = sum(a.bet_size for a in allocations)
+        total_exp_return = sum(a.bet_size * a.opportunity.expected_value for a in allocations)
+        avg_elo = sum(a.opportunity.elo_prob for a in allocations) / len(allocations)
+        avg_kalshi = sum(a.opportunity.market_prob for a in allocations) / len(allocations)
+
+        # Count BetMGM available
+        betmgm_count = sum(1 for a in allocations if a.opportunity.betmgm_prob is not None)
+
+        print(f"\nSummary:")
+        print(f"  Total Games: {len(allocations)}")
+        print(f"  Total Bet: ${total_bet:.2f}")
+        print(f"  Total Expected Return: ${total_exp_return:+.2f}")
+        print(f"  Avg Elo Prob: {avg_elo * 100:.1f}%")
+        print(f"  Avg Kalshi Prob: {avg_kalshi * 100:.1f}%")
+        print(f"  BetMGM Odds Available: {betmgm_count}/{len(allocations)}")
+        print(f"{'=' * 120}\n")
 
 
 def main():

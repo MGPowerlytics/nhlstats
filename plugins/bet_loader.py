@@ -33,6 +33,8 @@ class BetLoader:
                 elo_prob DOUBLE PRECISION NOT NULL,
                 market_prob DOUBLE PRECISION NOT NULL,
                 edge DOUBLE PRECISION NOT NULL,
+                expected_value DOUBLE PRECISION,
+                kelly_fraction DOUBLE PRECISION,
                 confidence VARCHAR NOT NULL,
                 yes_ask INTEGER,
                 no_ask INTEGER,
@@ -72,6 +74,19 @@ class BetLoader:
             away_team = bet.get("away_team", bet.get("opponent", "Unknown"))
             bet_id = f"{sport}_{date_str}_{i}_{home_team}_{away_team}"
 
+            # Calculate expected_value if not already present
+            expected_value = bet.get("expected_value")
+            if expected_value is None and bet["market_prob"] > 0:
+                expected_value = bet["edge"] / bet["market_prob"]
+
+            # Calculate kelly_fraction if not already present
+            kelly_fraction = bet.get("kelly_fraction")
+            if kelly_fraction is None and bet["market_prob"] > 0 and bet["market_prob"] < 1:
+                p = bet["elo_prob"]
+                q = 1 - p
+                b = (1 / bet["market_prob"]) - 1
+                kelly_fraction = max(0, (p * b - q) / b) if b > 0 else 0.0
+
             params = {
                 "bet_id": bet_id,
                 "sport": sport,
@@ -82,6 +97,8 @@ class BetLoader:
                 "elo_prob": bet["elo_prob"],
                 "market_prob": bet["market_prob"],
                 "edge": bet["edge"],
+                "expected_value": expected_value,
+                "kelly_fraction": kelly_fraction,
                 "confidence": bet["confidence"],
                 "yes_ask": bet.get("yes_ask"),
                 "no_ask": bet.get("no_ask"),
@@ -93,15 +110,17 @@ class BetLoader:
                 """
                 INSERT INTO bet_recommendations
                 (bet_id, sport, recommendation_date, home_team, away_team,
-                 bet_on, elo_prob, market_prob, edge, confidence,
-                 yes_ask, no_ask, ticker)
+                 bet_on, elo_prob, market_prob, edge, expected_value, kelly_fraction,
+                 confidence, yes_ask, no_ask, ticker)
                 VALUES (:bet_id, :sport, :date_str, :home_team, :away_team,
-                       :bet_on, :elo_prob, :market_prob, :edge, :confidence,
-                       :yes_ask, :no_ask, :ticker)
+                       :bet_on, :elo_prob, :market_prob, :edge, :expected_value, :kelly_fraction,
+                       :confidence, :yes_ask, :no_ask, :ticker)
                 ON CONFLICT (bet_id) DO UPDATE SET
                     elo_prob = EXCLUDED.elo_prob,
                     market_prob = EXCLUDED.market_prob,
                     edge = EXCLUDED.edge,
+                    expected_value = EXCLUDED.expected_value,
+                    kelly_fraction = EXCLUDED.kelly_fraction,
                     confidence = EXCLUDED.confidence
                 """,
                 params,

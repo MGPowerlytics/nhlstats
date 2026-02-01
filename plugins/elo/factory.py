@@ -15,6 +15,7 @@ from plugins.elo.ligue1_elo_rating import Ligue1EloRating
 from plugins.elo.ncaab_elo_rating import NCAABEloRating
 from plugins.elo.wncaab_elo_rating import WNCAABEloRating
 from plugins.elo.tennis_elo_rating import TennisEloRating
+from plugins.elo.unrivaled_elo_rating import UnrivaledEloRating
 
 # Registry mapping sport names to Elo classes
 ELO_CLASS_REGISTRY: Dict[str, Type[BaseEloRating]] = {
@@ -27,6 +28,7 @@ ELO_CLASS_REGISTRY: Dict[str, Type[BaseEloRating]] = {
     "ncaab": NCAABEloRating,
     "wncaab": WNCAABEloRating,
     "tennis": TennisEloRating,
+    "unrivaled": UnrivaledEloRating,
 }
 
 

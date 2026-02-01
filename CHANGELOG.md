@@ -1,108 +1,106 @@
-## 2026-01-29 - Tennis Name Matching & Tour Detection Fixes ✅ COMPLETE
-
-### Fixed
-- **Tennis Name Matching**: Fixed `_normalize_name()` in `TennisEloRating` to properly match single-word last names from Kalshi markets (e.g., "Korda") to Elo ratings format (e.g., "Korda S.")
-  - Added fuzzy matching: Single-word names now search existing ratings for matching player
-  - Example: "Korda" → looks up "Korda S." in atp_ratings dictionary
-  - Updated all callers to pass `tour` parameter for correct dictionary lookup
-
-- **Tennis Tour Detection**: Fixed OddsComparator to correctly identify ATP vs WTA matches
-  - Bug: Was checking game_id for "KXATPMATCH" but game_ids are like "TENNIS_20260129_KORDA_ILAGAN"
-  - Fix: Now checks Kalshi ticker (external_id) for "KXATP" or "KXWTA" patterns
-  - Result: All ATP matches now correctly use ATP Elo ratings instead of defaulting to WTA
-
-### Changed
-- **plugins/elo/tennis_elo_rating.py**:
-  - `_normalize_name()` now accepts `tour` parameter (default "ATP")
-  - Added fuzzy matching logic for single-word names
-  - Updated `get_rating()`, `get_match_count()`, and `update()` to pass tour parameter
-
-- **plugins/odds_comparator.py**:
-  - Tour detection now uses Kalshi ticker from `tickers_by_bm` instead of game_id
-  - Checks for "KXATP" or "KXWTA" patterns in external_id
-  - Defaults to ATP for unrecognized tournaments
-
-### Results
-- Tennis betting opportunities: 0 → **58 opportunities found**
-- All today's ATP Challenger and main tour matches now properly analyzed
-- Name matching verified: "Korda" → "Korda S." (1670), "Djokovic" → "Djokovic N." (1950)
-
----
-
-## 2026-01-29 - Fetch Markets Fixes & Smoke Tests ✅ COMPLETE
-
-### Fixed
-- **Import Error in Docker**: `kalshi_python` package was not installed in Airflow containers
-  - Root cause: Package in `requirements.txt` but Docker image not rebuilt
-  - Fix: Installed manually in all containers; documented for next image rebuild
-
-- **Rate Limiting**: Added 0.5s delay between Kalshi API calls
-  - Tennis was failing with 429 "Too Many Requests" errors (4 API calls without delay)
-  - All sports now use rate-limited `_fetch_sport_markets()` helper
-
-### Changed
-- **Refactored `plugins/kalshi_markets.py`**:
-  - Added graceful import handling for `kalshi_python` package
-  - Created generic `_fetch_sport_markets()` helper to reduce code duplication
-  - All 9 `fetch_*_markets` functions now use the common helper
-  - Added structured logging with `logging` module instead of `print()`
-  - Added `SPORT_SERIES` dict for sport-to-ticker mapping
-  - Added `SPORT_LIMITS` dict for sport-specific API limits
-
-- **Error Handling**: All fetch functions now return `[]` on error instead of crashing:
-  - Missing `kalshi_python` package → `[]`
-  - Missing/invalid credentials → `[]`
-  - API errors (rate limiting, auth) → `[]`
-  - Partial failures (1 of 4 tennis series fails) → continues with other series
+## 2026-02-01 - Exclude Unprofitable Betting Segments (Backtest Analysis)
 
 ### Added
-- **Smoke Tests** (`tests/test_fetch_markets_smoke.py`): 31 new tests covering:
-  - Function existence for all 9 sports
-  - `SPORT_SERIES` configuration validation
-  - Error handling (missing package, credentials, API errors)
-  - Success scenarios with mocked API
-  - Rate limiting configuration
-  - Logging configuration
-  - NCAAB/WNCAAB higher limits (1000 vs 200)
+- **Segment Exclusion Feature**: Added `excluded_segments` parameter to betting pipeline
+  - `PortfolioOptimizer.__init__()`: New parameter to specify sport+confidence tuples to exclude
+  - `PortfolioBettingManager.__init__()`: Pass-through parameter to optimizer
+  - `filter_opportunities()`: Filters out excluded segments before betting
+
+### Excluded Segments (Based on Backtest)
+After analyzing 187 bets from Jan 28 - Feb 1, 2026, these segments were excluded:
+
+| Segment | Bets | Win % | ROI | Reason |
+|---------|------|-------|-----|--------|
+| **NHL MEDIUM** | 34 | 14.7% | **-83.0%** | Catastrophic win rate |
+| **TENNIS LOW** | 12 | 66.7% | **-26.3%** | High win rate, terrible payouts |
+
+**Expected Impact**: Excluding these would have improved ROI from **-14.1%** to **-1.2%**
+
+### Files Modified
+- `plugins/portfolio_optimizer.py`: Added `excluded_segments` parameter and filtering logic
+- `plugins/portfolio_betting.py`: Added `excluded_segments` pass-through parameter
+- `dags/multi_sport_betting_workflow.py`: Configured exclusions for NHL MEDIUM and TENNIS LOW
+
+### Documentation
+- Created `reports/backtest_segment_analysis_20260201.md` with full backtest analysis
+- Includes follow-up query for re-analysis in 2-3 days
+
+### Test Fixes
+- Fixed `test_update_elo_nba_queries_database`: Updated assertion to match actual table name
+- Fixed `test_identify_bets_uses_market_confidence_cutoff`: Renamed to `test_identify_bets_uses_min_edge`
 
 ---
 
-## 2026-01-29 - Market Agreement Betting Strategy ✅ COMPLETE
+## 2026-02-01 - WNCAAB Betting Fix
 
-### Changed
-- **New Betting Strategy**: Replaced edge-based "contrarian" strategy with **market agreement strategy**
-  - Old: Bet when Elo probability exceeds threshold AND edge > 5% (betting against the market)
-  - New: Bet when Elo AND Kalshi agree on the same winner (betting with the market)
-  - Rationale: Previous strategy was losing nearly every bet by betting against market consensus
+### Fixed
+- **WNCAAB not being bet**: Women's NCAA Basketball was not receiving any bets despite having valid recommendations
+  - **Root cause 1**: `wncaab` was missing from the sports list in `place_portfolio_optimized_bets()` DAG task
+  - **Root cause 2**: `fetch_betmgm_probability()` method was called but never implemented in `PortfolioOptimizer`
+  - **Fix**: Added `wncaab`, `epl`, `ligue1` to the sports list (now all 9 sports are included)
+  - **Fix**: Removed the undefined `fetch_betmgm_probability()` call (was optional BetMGM integration never completed)
 
-- **Betting Logic** (`plugins/odds_comparator.py`):
-  - Bet on HOME when: `elo_prob > 50%` AND `market_prob > 55%`
-  - Bet on AWAY when: `elo_prob < 50%` AND `market_prob < 45%` (i.e., away favored)
-  - Market confidence cutoff: **55%** (avoids coin-flip games)
+### Verified
+- WNCAAB now loads 9 opportunities for today
+- All 62 total opportunities loading correctly across all 9 sports
 
-- **Confidence Levels**: Now based on agreement strength (how close elo_prob and market_prob are):
-  - **HIGH**: Agreement diff < 5% (very close agreement)
-  - **MEDIUM**: Agreement diff 5-15% (reasonable agreement)
-  - **LOW**: Agreement diff > 15% (same side but wide disagreement)
+## 2026-02-01 - Documentation Fixes & Bug Fix
 
-- **DAG Changes** (`dags/multi_sport_betting_workflow.py`):
-  - Simplified `find_opportunities()` call to use `market_confidence_cutoff=0.55`
-  - Removed deprecated `threshold`, `min_edge`, `use_sharp_confirmation` parameters
+### Fixed
+- **Critical Bug in odds_comparator.py**: Fixed incorrect indentation causing all bets to be added regardless of market agreement filter
+  - The `opportunities.append()` call was outside the `if elo_predicts_win and market_predicts_win:` block
+  - This caused bets to be placed on both home AND away teams for every game
+  - Now properly filters to only include bets where Elo and market agree on the winner
+
+### Updated
+- **DAG_TASK_DATA_FLOW.md**: Corrected table name from `portfolio_snapshots` to `portfolio_value_snapshots` in 4 locations
+- **Added Dashboard Data Dependencies section** to DAG_TASK_DATA_FLOW.md:
+  - Documents required database tables (`unified_games`, `placed_bets`, `portfolio_value_snapshots`)
+  - Documents required columns in `placed_bets` table (including EV, CLV, and Kelly fields)
+  - Documents module dependencies and data freshness requirements
+
+### Database Migration
+- Added `expected_value` and `kelly_fraction` columns to `placed_bets` table in production PostgreSQL
+- Added `expected_value` and `kelly_fraction` columns to `bet_recommendations` table in production PostgreSQL
+- Backfilled EV and Kelly values for all 345 existing placed bets and 1768 recommendations
+
+## 2026-02-01 - Expected Value (EV) Calculation System ✅ COMPLETE
 
 ### Added
-- **New Tests** (`tests/test_odds_comparator.py`):
-  - `test_find_opportunities_no_bet_when_disagreement` - No bet when Elo/market disagree
-  - `test_find_opportunities_market_below_cutoff_no_bet` - No bet on coin-flip games
-  - `test_find_opportunities_confidence_levels` - HIGH confidence on close agreement
-  - `test_find_opportunities_away_team_agreement` - Bet away when both agree
+- **Per-Bet Expected Value Calculation**: EV is now calculated for every bet recommendation
+  - Formula: `EV = edge / market_prob` (equivalent to `(elo_prob × payout) - 1`)
+  - Stored in `bet_recommendations` table with new `expected_value` column
+  - Stored in `placed_bets` table with new `expected_value` column
+  - Kelly fraction also calculated and stored for optimal bet sizing
 
-### Deprecated
-- **Old Betting Parameters** (still accepted but ignored):
-  - `threshold` - No longer used in market agreement strategy
-  - `min_edge` - No longer used in market agreement strategy
-  - `use_sharp_confirmation` - No longer used in market agreement strategy
+- **EV Accuracy Report** (`plugins/ev_accuracy_report.py`):
+  - Compares predicted EV to actual ROI by sport
+  - Calibration analysis by EV bucket (0-5%, 5-10%, 10-15%, 15-20%, 20%+)
+  - Weekly trend tracking of predicted vs actual returns
+  - EV vs CLV correlation analysis
+  - Designed for Airflow DAG integration
 
----
+- **Dashboard EV Analysis Page**:
+  - New "EV Analysis" navigation option in dashboard
+  - Overall EV performance metrics (total staked, profit, ROI)
+  - EV by sport comparison with calibration error
+  - EV distribution histogram
+  - Calibration by EV bucket chart
+  - Weekly EV trend visualization
+  - Individual bet explorer with EV data
+
+### Modified
+- **odds_comparator.py**: `find_opportunities()` now calculates and returns `expected_value` and `kelly_fraction` for each betting opportunity
+- **bet_loader.py**: Schema updated to include `expected_value` and `kelly_fraction` columns; calculates EV on load if not present
+- **bet_tracker.py**: `placed_bets` table schema updated; `backfill_bet_metrics()` now backfills EV from recommendations
+- **portfolio_betting.py**: Placed bet results now include `expected_value`, `kelly_fraction`, `elo_prob`, `market_prob`, `edge`, `sport`
+- **dashboard_app.py**: Added `ev_analysis_page()` function and navigation routing
+
+### Technical Details
+- **EV Formula**: `EV = edge / market_prob` where `edge = elo_prob - market_prob`
+- **Kelly Formula**: `Kelly = (p*b - q) / b` where p=elo_prob, q=1-p, b=net_odds
+- **Database Schema**: Added migration-compatible columns (nullable with backfill support)
+- **CLV Integration**: Existing CLV tracker continues to work; EV vs CLV correlation available
 
 ## 2026-01-27 - DAG Smoke Tests ✅ COMPLETE
 

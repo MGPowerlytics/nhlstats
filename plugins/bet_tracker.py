@@ -100,6 +100,8 @@ def create_bets_table(db: DBManager = default_db) -> None:
             elo_prob DOUBLE PRECISION,
             market_prob DOUBLE PRECISION,
             edge DOUBLE PRECISION,
+            expected_value DOUBLE PRECISION,
+            kelly_fraction DOUBLE PRECISION,
             confidence VARCHAR,
             market_title VARCHAR,
             market_close_time_utc TIMESTAMP,
@@ -147,7 +149,7 @@ def get_market_status(client: KalshiBetting, ticker: str) -> Dict:
 
 
 def backfill_bet_metrics(db: DBManager = default_db) -> None:
-    """Backfill missing validation metrics (elo_prob, edge, etc) from recommendations.
+    """Backfill missing validation metrics (elo_prob, edge, expected_value, etc) from recommendations.
 
     Links placed_bets to bet_recommendations via ticker.
     """
@@ -170,6 +172,18 @@ def backfill_bet_metrics(db: DBManager = default_db) -> None:
             ),
                 edge = (
                 SELECT edge FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                expected_value = (
+                SELECT expected_value FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                kelly_fraction = (
+                SELECT kelly_fraction FROM bet_recommendations
                 WHERE placed_bets.ticker = bet_recommendations.ticker
                 AND ticker IS NOT NULL
                 ORDER BY created_at DESC LIMIT 1

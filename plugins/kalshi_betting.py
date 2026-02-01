@@ -61,7 +61,7 @@ class KalshiBetting:
         self.api_key_id = api_key_id
         self.max_bet_size, self.min_bet_size, self.max_position_pct = (
             max_bet_size,
-            2.0,
+            0.01,  # Kalshi min is 1 contract - allow any size
             0.05,
         )
         self.base_url = (
@@ -101,14 +101,14 @@ class KalshiBetting:
 
     def _get(self, path: str) -> Dict:
         response = requests.get(
-            self.base_url + path, headers=self._get_headers("GET", path)
+            self.base_url + path, headers=self._get_headers("GET", path), timeout=30
         )
         response.raise_for_status()
         return response.json()
 
     def _post(self, path: str, data: Dict) -> Dict:
         response = requests.post(
-            self.base_url + path, headers=self._get_headers("POST", path), json=data
+            self.base_url + path, headers=self._get_headers("POST", path), json=data, timeout=30
         )
         response.raise_for_status()
         return response.json()

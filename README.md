@@ -48,6 +48,12 @@ See [**System Overview**](docs/SYSTEM_OVERVIEW.md) for architecture.
 - [**Adding a New Sport**](.github/skills/adding-new-sport/SKILL.md)
 - [**Airflow DAG Patterns**](.github/skills/airflow-dag-patterns/SKILL.md)
 - [**Database Operations**](.github/skills/database-operations/SKILL.md)
+
+### Data Flow & Integration (NEW)
+- [**DAG Task Data Flow**](docs/DAG_TASK_DATA_FLOW.md): Complete task documentation with data sources/destinations
+- [**Data Flow Quick Reference**](docs/DAG_DATA_FLOW_QUICK_REFERENCE.md): Quick guide for monitoring and troubleshooting
+- [**Integration Fixes 2026-01-29**](docs/INTEGRATION_FIXES_2026_01_29.md): Summary of critical data consistency fixes
+- [**Database Schema**](docs/database_schema.md): Updated with current data flow information
 - [**Testing Patterns**](.github/skills/testing-patterns/SKILL.md)
 
 ---

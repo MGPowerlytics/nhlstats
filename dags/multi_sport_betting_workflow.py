@@ -895,15 +895,18 @@ def identify_good_bets(sport, **context):
 
     comparator = OddsComparator()
 
-    # Find opportunities using MARKET AGREEMENT strategy
-    # Bet when Elo and market agree on the same side (>55% confidence from market)
+    # Find opportunities
     good_bets = comparator.find_opportunities(
         sport=sport,
         elo_ratings=(
             elo_ratings if sport != "tennis" else {}
         ),  # Tennis handles ratings internally in predict
         elo_system=elo_system,
-        market_confidence_cutoff=0.55,  # Market must show >55% for a side
+        threshold=elo_threshold,
+        min_edge=0.05,
+        use_sharp_confirmation=(
+            sport in ["tennis", "nhl", "ligue1"]
+        ),  # Enable for tennis, NHL and Ligue 1
     )
 
     # Save results
@@ -1035,6 +1038,16 @@ def place_portfolio_optimized_bets(**context):
         )
 
         # Initialize portfolio manager
+        # EXCLUDED SEGMENTS: Based on backtest analysis (2026-01-28 to 2026-02-01)
+        # These sport+confidence combinations have been unprofitable:
+        # - NHL MEDIUM: 14.7% win rate, -83.0% ROI (34 bets, -$24.45)
+        # - TENNIS LOW: 66.7% win rate, -26.3% ROI (12 bets, -$11.09)
+        # See: reports/backtest_segment_analysis_20260201.md for full analysis
+        excluded_segments = [
+            ("NHL", "MEDIUM"),   # Extremely poor: 14.7% win rate, -83% ROI
+            ("TENNIS", "LOW"),   # Poor: 66.7% win rate but -26.3% ROI (bad payouts)
+        ]
+
         manager = PortfolioBettingManager(
             kalshi_client=kalshi_client,
             max_daily_risk_pct=0.25,  # 25% max daily risk
@@ -1042,15 +1055,16 @@ def place_portfolio_optimized_bets(**context):
             min_bet_size=2.0,
             max_bet_size=10.0,  # Lower max to spread across more bets
             max_single_bet_pct=0.03,  # Lower single bet limit for more diversification
-            min_edge=0.05,
+            min_edge=0.0,
             min_confidence=0.68,
+            excluded_segments=excluded_segments,
             dry_run=False,  # LIVE BETTING
         )
 
         # Process daily bets
         date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
         results = manager.process_daily_bets(
-            date_str, sports=["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"]
+            date_str, sports=["nhl", "nba", "mlb", "nfl", "ncaab", "wncaab", "tennis", "epl", "ligue1"]
         )
 
         print("\n✓ Portfolio betting complete")

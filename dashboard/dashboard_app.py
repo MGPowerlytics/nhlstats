@@ -1003,6 +1003,225 @@ def clv_analysis_page():
         st.error(f"Error loading CLV time series: {e}")
 
 
+def ev_analysis_page():
+    """Expected Value (EV) analysis dashboard - compares predicted vs actual returns."""
+    st.title("📊 Expected Value Analysis")
+    st.caption("Compare predicted EV to actual returns to validate model calibration")
+
+    # Load EV data from placed bets
+    ev_query = """
+        SELECT
+            sport,
+            placed_date,
+            ticker,
+            cost_dollars,
+            profit_dollars,
+            elo_prob,
+            market_prob,
+            edge,
+            expected_value,
+            kelly_fraction,
+            status
+        FROM placed_bets
+        WHERE status IN ('won', 'lost')
+          AND cost_dollars > 0
+        ORDER BY placed_date DESC
+    """
+
+    try:
+        ev_df = default_db.fetch_df(ev_query)
+    except Exception as e:
+        st.error(f"Error loading EV data: {e}")
+        return
+
+    if ev_df.empty:
+        st.warning("No settled bets with EV data available.")
+        return
+
+    # Calculate actual ROI
+    ev_df["actual_roi"] = ev_df["profit_dollars"] / ev_df["cost_dollars"]
+
+    # Filter to bets with EV data
+    ev_with_data = ev_df[ev_df["expected_value"].notna()].copy()
+
+    # Overall metrics
+    st.subheader("Overall EV Performance")
+
+    total_staked = ev_df["cost_dollars"].sum()
+    total_profit = ev_df["profit_dollars"].sum()
+    overall_roi = total_profit / total_staked if total_staked > 0 else 0
+
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        st.metric("Total Bets", len(ev_df))
+    with col2:
+        st.metric("Total Staked", f"${total_staked:,.2f}")
+    with col3:
+        st.metric("Total Profit", f"${total_profit:,.2f}")
+    with col4:
+        st.metric("Actual ROI", f"{overall_roi:.2%}")
+
+    if not ev_with_data.empty:
+        avg_predicted_ev = ev_with_data["expected_value"].mean()
+        st.metric(
+            "Avg Predicted EV",
+            f"{avg_predicted_ev:.2%}",
+            delta=f"{avg_predicted_ev - overall_roi:+.2%} vs actual",
+            help="Difference between predicted EV and actual ROI (negative = conservative, positive = overconfident)",
+        )
+
+    # EV by Sport
+    st.subheader("EV Performance by Sport")
+    sport_ev = (
+        ev_df.groupby("sport")
+        .agg(
+            {
+                "cost_dollars": "sum",
+                "profit_dollars": "sum",
+                "expected_value": "mean",
+                "ticker": "count",
+            }
+        )
+        .reset_index()
+    )
+    sport_ev.columns = ["sport", "staked", "profit", "avg_ev", "num_bets"]
+    sport_ev["actual_roi"] = sport_ev["profit"] / sport_ev["staked"]
+    sport_ev["calibration_error"] = sport_ev["avg_ev"] - sport_ev["actual_roi"]
+
+    # Replace NaN with 0 for sports without EV predictions
+    sport_ev = sport_ev.fillna(0)
+
+    fig = px.bar(
+        sport_ev,
+        x="sport",
+        y=["actual_roi", "avg_ev"],
+        title="Actual ROI vs Predicted EV by Sport",
+        barmode="group",
+        labels={"value": "Return %", "variable": "Metric"},
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Sport details table
+    sport_display = sport_ev[
+        ["sport", "num_bets", "staked", "profit", "actual_roi", "avg_ev", "calibration_error"]
+    ].copy()
+    sport_display.columns = [
+        "Sport",
+        "Bets",
+        "Staked ($)",
+        "Profit ($)",
+        "Actual ROI",
+        "Predicted EV",
+        "Calibration Error",
+    ]
+    st.dataframe(
+        sport_display.style.format(
+            {
+                "Staked ($)": "${:,.2f}",
+                "Profit ($)": "${:,.2f}",
+                "Actual ROI": "{:.2%}",
+                "Predicted EV": "{:.2%}",
+                "Calibration Error": "{:+.2%}",
+            }
+        ),
+        use_container_width=True,
+    )
+
+    # EV Distribution
+    if not ev_with_data.empty:
+        st.subheader("EV Distribution")
+        fig = px.histogram(
+            ev_with_data,
+            x="expected_value",
+            nbins=30,
+            title="Distribution of Predicted Expected Values",
+            labels={"expected_value": "Expected Value (%)"},
+        )
+        fig.add_vline(x=0, line_dash="dash", line_color="red")
+        st.plotly_chart(fig, use_container_width=True)
+
+    # EV Buckets - Calibration Analysis
+    st.subheader("EV Calibration by Bucket")
+    st.caption("Are bets with higher predicted EV actually returning more?")
+
+    if not ev_with_data.empty:
+        # Create EV buckets
+        ev_with_data["ev_bucket"] = pd.cut(
+            ev_with_data["expected_value"],
+            bins=[-0.5, 0, 0.05, 0.10, 0.15, 0.20, 0.50],
+            labels=["<0%", "0-5%", "5-10%", "10-15%", "15-20%", "20%+"],
+        )
+
+        bucket_stats = (
+            ev_with_data.groupby("ev_bucket", observed=True)
+            .agg(
+                {
+                    "cost_dollars": "sum",
+                    "profit_dollars": "sum",
+                    "expected_value": "mean",
+                    "ticker": "count",
+                }
+            )
+            .reset_index()
+        )
+        bucket_stats.columns = ["bucket", "staked", "profit", "avg_ev", "num_bets"]
+        bucket_stats["actual_roi"] = bucket_stats["profit"] / bucket_stats["staked"]
+
+        fig = px.bar(
+            bucket_stats,
+            x="bucket",
+            y=["actual_roi", "avg_ev"],
+            title="Actual vs Predicted Return by EV Bucket",
+            barmode="group",
+            labels={"value": "Return %", "bucket": "EV Bucket"},
+        )
+        st.plotly_chart(fig, use_container_width=True)
+
+    # Weekly EV Trend
+    st.subheader("EV Trend Over Time")
+    ev_df["week"] = pd.to_datetime(ev_df["placed_date"]).dt.to_period("W").astype(str)
+
+    weekly_ev = (
+        ev_df.groupby("week")
+        .agg({"cost_dollars": "sum", "profit_dollars": "sum", "expected_value": "mean"})
+        .reset_index()
+    )
+    weekly_ev["actual_roi"] = weekly_ev["profit_dollars"] / weekly_ev["cost_dollars"]
+
+    fig = px.line(
+        weekly_ev,
+        x="week",
+        y=["actual_roi", "expected_value"],
+        title="Weekly Actual ROI vs Predicted EV",
+        markers=True,
+        labels={"value": "Return %", "week": "Week"},
+    )
+    fig.add_hline(y=0, line_dash="dash", line_color="red")
+    st.plotly_chart(fig, use_container_width=True)
+
+    # Raw data explorer
+    st.subheader("Bet Details")
+    with st.expander("View Individual Bets"):
+        display_cols = [
+            "placed_date",
+            "sport",
+            "ticker",
+            "cost_dollars",
+            "profit_dollars",
+            "elo_prob",
+            "market_prob",
+            "edge",
+            "expected_value",
+            "status",
+        ]
+        available_cols = [c for c in display_cols if c in ev_df.columns]
+        st.dataframe(
+            ev_df[available_cols].sort_values("placed_date", ascending=False),
+            use_container_width=True,
+            height=400,
+        )
+
+
 # --- Sidebar & Routing ---
 
 page = st.sidebar.radio(
@@ -1011,8 +1230,9 @@ page = st.sidebar.radio(
         "Elo Analysis",
         "Betting Performance",
         "Financial Performance",
-        "Data Quality",
+        "EV Analysis",
         "CLV Analysis",
+        "Data Quality",
     ],
     index=0,
 )
@@ -1025,6 +1245,8 @@ elif page == "Data Quality":
     data_quality_page()
 elif page == "CLV Analysis":
     clv_analysis_page()
+elif page == "EV Analysis":
+    ev_analysis_page()
 else:
     st.sidebar.title("Configuration")
     league = st.sidebar.selectbox(

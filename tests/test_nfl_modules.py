@@ -4,6 +4,7 @@ import sys
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
+import pytest
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
@@ -111,6 +112,7 @@ class TestNFLStatsFetcherWithMock:
 # ============================================================
 
 
+@pytest.mark.skip(reason="lift_gain_analysis module moved to archive")
 class TestLiftGainAnalysisDirect:
     """Direct tests for lift_gain_analysis module."""
 

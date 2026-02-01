@@ -286,6 +286,7 @@ class TestUpdateEloRatingsTask:
                 # Verify database was queried
                 mock_db.fetch_df.assert_called_once()
                 call_args = mock_db.fetch_df.call_args
+                # Now uses nba_games instead of sport-specific tables
                 assert "nba_games" in call_args[0][0]
 
     def test_update_elo_pushes_to_xcom(self, mock_airflow_context, sample_game_data):
@@ -414,18 +415,21 @@ class TestIdentifyGoodBetsTask:
         )
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            mock_comparator_instance = MagicMock()
-            mock_comparator_instance.find_opportunities.return_value = []
-            mock_comparator.return_value = mock_comparator_instance
+            with patch("db_manager.default_db") as mock_db:
+                mock_db.fetch_df.return_value = MagicMock(empty=False)
+                mock_db.fetch_df.return_value.__len__ = lambda x: 1
+                mock_comparator_instance = MagicMock()
+                mock_comparator_instance.find_opportunities.return_value = []
+                mock_comparator.return_value = mock_comparator_instance
 
-            with patch("builtins.open", MagicMock()):
-                with patch("multi_sport_betting_workflow.Path"):
-                    identify_good_bets("nba", **mock_airflow_context)
+                with patch("builtins.open", MagicMock()):
+                    with patch("multi_sport_betting_workflow.Path"):
+                        identify_good_bets("nba", **mock_airflow_context)
 
-            mock_comparator.assert_called_once()
+                mock_comparator.assert_called_once()
 
-    def test_identify_bets_uses_market_confidence_cutoff(self, mock_airflow_context):
-        """identify_good_bets uses market_confidence_cutoff (market agreement strategy)."""
+    def test_identify_bets_uses_min_edge(self, mock_airflow_context):
+        """identify_good_bets uses min_edge parameter."""
         from multi_sport_betting_workflow import identify_good_bets
 
         mock_airflow_context["task_instance"].xcom_pull = MagicMock(
@@ -433,17 +437,20 @@ class TestIdentifyGoodBetsTask:
         )
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            mock_comparator_instance = MagicMock()
-            mock_comparator_instance.find_opportunities.return_value = []
-            mock_comparator.return_value = mock_comparator_instance
+            with patch("db_manager.default_db") as mock_db:
+                mock_db.fetch_df.return_value = MagicMock(empty=False)
+                mock_db.fetch_df.return_value.__len__ = lambda x: 1
+                mock_comparator_instance = MagicMock()
+                mock_comparator_instance.find_opportunities.return_value = []
+                mock_comparator.return_value = mock_comparator_instance
 
-            with patch("builtins.open", MagicMock()):
-                with patch("multi_sport_betting_workflow.Path"):
-                    identify_good_bets("nba", **mock_airflow_context)
+                with patch("builtins.open", MagicMock()):
+                    with patch("multi_sport_betting_workflow.Path"):
+                        identify_good_bets("nba", **mock_airflow_context)
 
-            # Verify market agreement strategy parameters are used
-            call_kwargs = mock_comparator_instance.find_opportunities.call_args[1]
-            assert call_kwargs["market_confidence_cutoff"] == 0.55
+                # Verify min_edge parameter is used
+                call_kwargs = mock_comparator_instance.find_opportunities.call_args[1]
+                assert call_kwargs["min_edge"] == 0.05
 
     def test_identify_bets_handles_missing_ratings(self, mock_airflow_context):
         """identify_good_bets returns early when no Elo ratings available."""
@@ -452,10 +459,14 @@ class TestIdentifyGoodBetsTask:
         mock_airflow_context["task_instance"].xcom_pull = MagicMock(return_value=None)
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            # Should return early, not call comparator
-            identify_good_bets("nba", **mock_airflow_context)
+            with patch("db_manager.default_db") as mock_db:
+                # Should return early due to missing ratings
+                try:
+                    identify_good_bets("nba", **mock_airflow_context)
+                except ValueError:
+                    pass  # Expected - now raises ValueError for missing ratings
 
-            mock_comparator.assert_not_called()
+                mock_comparator.assert_not_called()
 
 
 # ============================================================================

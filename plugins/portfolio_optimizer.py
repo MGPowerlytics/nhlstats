@@ -11,7 +11,42 @@ from typing import List, Dict, Tuple, Optional
 from dataclasses import dataclass
 from datetime import datetime
 import json
+import re
 from pathlib import Path
+import pandas as pd
+
+
+def extract_game_date(game_id: str) -> Optional[str]:
+    """Extract game date from game_id like TENNIS_20260129_ALCARAZ_ZVEREV.
+
+    Returns date in YYYY-MM-DD format or None if not found.
+    """
+    # Match pattern like SPORT_YYYYMMDD_...
+    match = re.search(r'_(\d{8})_', game_id)
+    if match:
+        date_str = match.group(1)
+        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+    return None
+
+
+def extract_ticker_date(ticker: str) -> Optional[str]:
+    """Extract date from Kalshi ticker like KXATPMATCH-26JAN22CERRUB-RUB.
+
+    Returns date in YYYY-MM-DD format or None if not found.
+    Assumes year 2026 for tickers with format like 26JAN22.
+    """
+    # Match pattern like -26JAN22 or -26FEB04
+    match = re.search(r'-26(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})', ticker.upper())
+    if match:
+        month_map = {
+            'JAN': '01', 'FEB': '02', 'MAR': '03', 'APR': '04',
+            'MAY': '05', 'JUN': '06', 'JUL': '07', 'AUG': '08',
+            'SEP': '09', 'OCT': '10', 'NOV': '11', 'DEC': '12'
+        }
+        month = month_map[match.group(1)]
+        day = match.group(2)
+        return f"2026-{month}-{day}"
+    return None
 
 
 @dataclass
@@ -30,6 +65,8 @@ class BetOpportunity:
     yes_ask: float  # Market ask price (for buying)
     no_ask: float  # Market ask price (for buying)
     game_time: Optional[str] = None
+    game_id: Optional[str] = None  # Game ID for cross-referencing
+    betmgm_prob: Optional[float] = None  # BetMGM implied probability
 
     @property
     def kelly_fraction(self) -> float:
@@ -79,7 +116,8 @@ class PortfolioOptimizer:
         max_bet_size: float = 50.0,
         max_single_bet_pct: float = 0.05,  # Max 5% per bet
         min_edge: float = 0.05,  # Minimum 5% edge
-        min_confidence: float = 0.68,  # Minimum Elo probability
+        min_confidence: float = 0.68,  # Minimum Elo probability required
+        excluded_segments: Optional[List[Tuple[str, str]]] = None,  # List of (sport, confidence) tuples to exclude
     ):
         """Initialize portfolio optimizer.
 
@@ -92,6 +130,8 @@ class PortfolioOptimizer:
             max_single_bet_pct: Maximum percentage of bankroll for single bet
             min_edge: Minimum edge required to consider bet
             min_confidence: Minimum Elo probability required
+            excluded_segments: List of (sport, confidence) tuples to exclude from betting.
+                              Example: [("NHL", "MEDIUM"), ("TENNIS", "LOW")] to skip these segments.
         """
         self.bankroll = bankroll
         self.max_daily_risk_pct = max_daily_risk_pct
@@ -101,6 +141,278 @@ class PortfolioOptimizer:
         self.max_single_bet_pct = max_single_bet_pct
         self.min_edge = min_edge
         self.min_confidence = min_confidence
+        self.excluded_segments = excluded_segments or []
+
+    def _fetch_betmgm_prob(self, game_id: Optional[str], bet_direction: str) -> Optional[float]:
+        """Fetch BetMGM implied probability from game_odds table.
+
+        Args:
+            game_id: Game ID to look up (format: SPORT_YYYYMMDD_HOME_AWAY)
+            bet_direction: 'home' or 'away'
+
+        Returns:
+            BetMGM implied probability or None if not found
+        """
+        if not game_id:
+            return None
+
+        try:
+            from db_manager import default_db
+            from datetime import datetime, timedelta
+
+            # Try exact match first (use :param style for SQLAlchemy)
+            query = """
+                SELECT outcome_name, price
+                FROM game_odds
+                WHERE game_id = :game_id
+                  AND LOWER(bookmaker) = 'betmgm'
+                  AND LOWER(market_name) = 'h2h'
+            """
+            result = default_db.fetch_df(query, {"game_id": game_id})
+
+            # If exact match fails, try fuzzy match by sport and team names
+            # game_id format: SPORT_YYYYMMDD_HOME_AWAY (e.g., NHL_20260129_STL_FLA)
+            if result.empty:
+                parts = game_id.split('_')
+                if len(parts) >= 4:
+                    sport = parts[0]
+                    date_part = parts[1]  # YYYYMMDD
+                    home_abbr = parts[2].upper()
+                    away_abbr = parts[3].upper()
+
+                    # Try current date first, then nearby dates (±1 day for timezone issues)
+                    try:
+                        base_date = datetime.strptime(date_part, '%Y%m%d')
+                        dates_to_try = [
+                            base_date.strftime('%Y%m%d'),
+                            (base_date + timedelta(days=1)).strftime('%Y%m%d'),
+                            (base_date - timedelta(days=1)).strftime('%Y%m%d'),
+                        ]
+                    except ValueError:
+                        dates_to_try = [date_part]
+
+                    for try_date in dates_to_try:
+                        # Query for BetMGM odds matching sport, date, and team name patterns
+                        fuzzy_query = """
+                            SELECT game_id, outcome_name, price
+                            FROM game_odds
+                            WHERE LOWER(bookmaker) = 'betmgm'
+                              AND LOWER(market_name) = 'h2h'
+                              AND game_id LIKE :date_pattern
+                              AND (
+                                  UPPER(game_id) LIKE :home_pattern
+                                  AND UPPER(game_id) LIKE :away_pattern
+                              )
+                        """
+                        # Match pattern: SPORT_YYYYMMDD_*HOME*_*AWAY*
+                        date_pattern = f"{sport}_{try_date}_%"
+                        home_pattern = f"%{home_abbr}%"
+                        away_pattern = f"%{away_abbr}%"
+
+                        result = default_db.fetch_df(fuzzy_query, {
+                            "date_pattern": date_pattern,
+                            "home_pattern": home_pattern,
+                            "away_pattern": away_pattern
+                        })
+
+                        if not result.empty:
+                            break
+
+            if result.empty:
+                return None
+
+            # Find the matching outcome (home or away)
+            for _, row in result.iterrows():
+                outcome = str(row.get('outcome_name', '')).lower()
+                price = row.get('price', 0)
+
+                if price and price > 0:
+                    # Convert decimal odds to probability: prob = 1 / decimal_odds
+                    prob = 1.0 / price
+
+                    # Match bet_direction to outcome
+                    if bet_direction == 'home' and outcome in ['home', 'h']:
+                        return prob
+                    elif bet_direction == 'away' and outcome in ['away', 'a']:
+                        return prob
+
+            return None
+
+        except Exception:
+            return None
+
+    def load_opportunities_from_database(
+        self,
+        date_str: str,
+        sports: List[str] = ["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"],
+    ) -> List[BetOpportunity]:
+        """Load all bet opportunities from PostgreSQL database for a given date.
+
+        Args:
+            date_str: Date in YYYY-MM-DD format
+            sports: List of sports to check
+
+        Returns:
+            List of BetOpportunity objects
+        """
+        from db_manager import default_db
+
+        opportunities = []
+        today = date_str  # Use the passed date as "today" for filtering
+        skipped_stale = 0
+
+        # Build SQL query
+        sports_list = ", ".join([f"'{sport}'" for sport in sports])
+        query = f"""
+            SELECT
+                sport,
+                ticker,
+                bet_on,
+                home_team,
+                away_team,
+                elo_prob,
+                market_prob,
+                edge,
+                confidence,
+                yes_ask,
+                no_ask,
+                recommendation_date,
+                bet_id
+            FROM bet_recommendations
+            WHERE recommendation_date = :rec_date
+                AND sport IN ({sports_list})
+                AND ticker IS NOT NULL
+                AND ticker != ''
+            ORDER BY sport, home_team, away_team
+        """
+
+        try:
+            results = default_db.fetch_df(query, {"rec_date": date_str})
+
+            if results.empty:
+                print(f"⚠️  No bet recommendations found in database for {date_str}")
+                return opportunities
+
+            print(f"📊 Loaded {len(results)} bet recommendations from database for {date_str}")
+
+            for _, row in results.iterrows():
+                sport = row["sport"]
+                ticker = row["ticker"]
+
+                # Skip if missing required fields or invalid ticker
+                if not ticker or pd.isna(ticker):
+                    continue
+
+                # Filter out stale tickers (ticker date before today)
+                ticker_date = extract_ticker_date(ticker)
+                if ticker_date and ticker_date < today:
+                    skipped_stale += 1
+                    continue
+
+                # Handle different sport structures
+                try:
+                    if sport == "tennis":
+                        # For tennis, bet_on is player name
+                        team = row["bet_on"]
+                        opponent = row["away_team"] if team == row["home_team"] else row["home_team"]
+                        bet_direction = "home"  # Default for tennis
+
+                        # Market prob from yes_ask/no_ask
+                        yes_ask = float(row["yes_ask"]) if row["yes_ask"] is not None else 0
+                        no_ask = float(row["no_ask"]) if row["no_ask"] is not None else 0
+
+                        # Use pre-calculated market_prob
+                        market_prob = float(row["market_prob"])
+
+                        # Estimate asks if missing so executing logic works later
+                        if yes_ask == 0 and market_prob > 0:
+                            yes_ask = int(market_prob * 100)
+                        if no_ask == 0 and market_prob > 0:
+                            no_ask = int((1 - market_prob) * 100)
+
+                    elif sport == "ncaab":
+                        # NCAAB has home/away
+                        bet_direction = row["bet_on"]
+
+                        if bet_direction == "home":
+                            team = row["home_team"]
+                            opponent = row["away_team"]
+                        else:
+                            team = row["away_team"]
+                            opponent = row["home_team"]
+
+                        # Try to get yes_ask/no_ask, fallback to calculating from market_prob
+                        yes_ask = float(row["yes_ask"]) if row["yes_ask"] is not None else 0
+                        no_ask = float(row["no_ask"]) if row["no_ask"] is not None else 0
+
+                        if yes_ask == 0:
+                            # Estimate prices from market_prob
+                            mp = float(row["market_prob"])
+                            yes_ask = int(mp * 100)
+                            no_ask = int((1 - mp) * 100)
+
+                        market_prob = float(row["market_prob"])
+
+                    else:
+                        # Traditional team sports (nba, nhl, mlb, nfl, epl, ligue1, wncaab)
+                        bet_direction = row["bet_on"]
+
+                        if bet_direction == "home":
+                            team = row["home_team"]
+                            opponent = row["away_team"]
+                        else:
+                            team = row["away_team"]
+                            opponent = row["home_team"]
+
+                        yes_ask = float(row["yes_ask"]) if row["yes_ask"] is not None else 0
+                        no_ask = float(row["no_ask"]) if row["no_ask"] is not None else 0
+
+                        if yes_ask == 0:
+                            # Estimate prices from market_prob
+                            mp = float(row["market_prob"])
+                            yes_ask = int(mp * 100)
+                            no_ask = int((1 - mp) * 100)
+
+                        market_prob = float(row["market_prob"])
+
+                    # Get game_id from bet data
+                    game_id = row.get("bet_id", "")
+
+                    # Create BetOpportunity object
+                    opportunity = BetOpportunity(
+                        sport=sport,
+                        ticker=ticker,
+                        bet_on=bet_direction,
+                        team=team,
+                        opponent=opponent,
+                        elo_prob=float(row["elo_prob"]),
+                        market_prob=market_prob,
+                        edge=float(row["edge"]),
+                        confidence=row["confidence"],
+                        yes_ask=yes_ask,
+                        no_ask=no_ask,
+                        game_id=game_id,
+                        game_time=None,  # Would need to join with unified_games to get this
+                    )
+
+                    # NOTE: BetMGM probability fetch removed - method was never implemented
+                    # This was optional cross-checking with BetMGM odds
+
+                    opportunities.append(opportunity)
+
+                except (KeyError, ValueError, TypeError) as e:
+                    print(f"⚠️  Error processing {sport} bet opportunity: {e}")
+                    continue
+
+        except Exception as e:
+            print(f"❌ Error loading opportunities from database: {e}")
+            import traceback
+            traceback.print_exc()
+
+        if skipped_stale > 0:
+            print(f"⚠️  Skipped {skipped_stale} stale opportunities (ticker date before {today})")
+
+        return opportunities
 
     def load_opportunities_from_files(
         self,
@@ -117,6 +429,8 @@ class PortfolioOptimizer:
             List of BetOpportunity objects
         """
         opportunities = []
+        today = date_str  # Use the passed date as "today" for filtering
+        skipped_stale = 0
 
         for sport in sports:
             bet_file = Path(f"data/{sport}/bets_{date_str}.json")
@@ -139,6 +453,20 @@ class PortfolioOptimizer:
                     ticker = bet.get("ticker")
                     if not ticker or ticker is None:
                         # Skip None, empty string, or other falsy tickers
+                        continue
+
+                    # Filter out stale games (games before today)
+                    game_id = bet.get("game_id", "")
+                    game_date = extract_game_date(game_id)
+                    if game_date and game_date < today:
+                        skipped_stale += 1
+                        continue
+
+                    # Filter out stale tickers (ticker date before today)
+                    # Kalshi tickers have dates like 26JAN22 embedded in them
+                    ticker_date = extract_ticker_date(ticker)
+                    if ticker_date and ticker_date < today:
+                        skipped_stale += 1
                         continue
 
                     # Handle different sport structures
@@ -245,6 +573,12 @@ class PortfolioOptimizer:
                         if market_prob <= 0:
                             continue
 
+                        # Get game_id from bet data
+                        game_id = bet.get("game_id")
+
+                        # Fetch BetMGM probability from database
+                        betmgm_prob = self._fetch_betmgm_prob(game_id, bet_direction)
+
                         opportunity = BetOpportunity(
                             sport=sport,
                             ticker=bet["ticker"],
@@ -258,6 +592,8 @@ class PortfolioOptimizer:
                             yes_ask=yes_ask,
                             no_ask=no_ask,
                             game_time=bet.get("game_time", bet.get("close_time")),
+                            game_id=game_id,
+                            betmgm_prob=betmgm_prob,
                         )
 
                         opportunities.append(opportunity)
@@ -269,12 +605,21 @@ class PortfolioOptimizer:
             except Exception as e:
                 print(f"⚠️  Error loading {bet_file}: {e}")
 
+        if skipped_stale > 0:
+            print(f"📅 Skipped {skipped_stale} stale opportunities (game date < {today})")
+
         return opportunities
 
     def filter_opportunities(
         self, opportunities: List[BetOpportunity]
     ) -> List[BetOpportunity]:
         """Filter opportunities based on minimum thresholds.
+
+        For MARKET AGREEMENT strategy, we bet when Elo and market agree.
+        Traditional edge/Kelly filters don't apply - we use different criteria.
+
+        Excluded segments are sport+confidence combinations that have been
+        identified as consistently unprofitable through backtest analysis.
 
         Args:
             opportunities: List of all opportunities
@@ -283,9 +628,17 @@ class PortfolioOptimizer:
             Filtered list meeting minimum criteria
         """
         filtered = []
+        excluded_count = 0
 
         for opp in opportunities:
-            # Check minimum edge
+            # Check excluded segments (e.g., NHL MEDIUM, TENNIS LOW)
+            # These are sport+confidence combinations identified as unprofitable
+            segment = (opp.sport.upper(), opp.confidence.upper())
+            if segment in self.excluded_segments:
+                excluded_count += 1
+                continue
+
+            # Check minimum edge (set to -1.0 for market agreement strategy)
             if opp.edge < self.min_edge:
                 continue
 
@@ -293,11 +646,15 @@ class PortfolioOptimizer:
             if opp.elo_prob < self.min_confidence:
                 continue
 
-            # Check Kelly is positive
-            if opp.kelly_fraction <= 0:
+            # For market agreement strategy, skip Kelly check if min_edge < 0
+            # (this indicates we're using market agreement, not edge-based betting)
+            if self.min_edge >= 0 and opp.kelly_fraction <= 0:
                 continue
 
             filtered.append(opp)
+
+        if excluded_count > 0:
+            print(f"🚫 Excluded {excluded_count} opportunities from unprofitable segments: {self.excluded_segments}")
 
         return filtered
 
@@ -306,7 +663,8 @@ class PortfolioOptimizer:
     ) -> List[PortfolioAllocation]:
         """Calculate optimal bet sizes for portfolio of opportunities.
 
-        Uses fractional Kelly Criterion with portfolio-level constraints.
+        For market agreement strategy (min_edge < 0), uses equal sizing across
+        all opportunities to maximize bet count for law of large numbers.
 
         Args:
             opportunities: List of filtered bet opportunities
@@ -317,18 +675,64 @@ class PortfolioOptimizer:
         if not opportunities:
             return []
 
-        # Sort by expected value (best opportunities first)
+        max_daily_allocation = self.bankroll * self.max_daily_risk_pct
+
+        # For market agreement strategy, use equal sizing to maximize bet count
+        if self.min_edge < 0:
+            # Calculate how many bets we can afford with equal sizing
+            # Minimum bet must be $1 to ensure at least 1 contract at any price (up to 99¢)
+            min_practical_bet = 1.00
+            max_bets = int(max_daily_allocation / min_practical_bet)
+
+            # Limit to available opportunities
+            num_bets = min(max_bets, len(opportunities))
+
+            # Equal size for each bet
+            if num_bets > 0:
+                bet_size = max_daily_allocation / num_bets
+                bet_size = min(bet_size, self.max_bet_size)
+                bet_size = min(bet_size, self.bankroll * self.max_single_bet_pct)
+                bet_size = max(bet_size, min_practical_bet)
+            else:
+                bet_size = min_practical_bet
+
+            # Sort by expected value and allocate equal amounts
+            sorted_opps = sorted(
+                opportunities, key=lambda x: x.expected_value, reverse=True
+            )
+
+            allocations = []
+            total_allocated = 0.0
+
+            for opp in sorted_opps:
+                if total_allocated + bet_size > max_daily_allocation:
+                    break
+
+                allocation = PortfolioAllocation(
+                    opportunity=opp,
+                    bet_size=round(bet_size, 2),
+                    kelly_fraction=0.01,  # Nominal for market agreement
+                    allocation_pct=bet_size / self.bankroll,
+                )
+                allocations.append(allocation)
+                total_allocated += bet_size
+
+            return allocations
+
+        # Original Kelly-based allocation for edge-based strategy
         sorted_opps = sorted(
             opportunities, key=lambda x: x.expected_value, reverse=True
         )
 
         allocations = []
         total_allocated = 0.0
-        max_daily_allocation = self.bankroll * self.max_daily_risk_pct
 
         for opp in sorted_opps:
             # Calculate Kelly bet size
-            kelly_size = self.bankroll * opp.kelly_fraction * self.kelly_fraction
+            if opp.kelly_fraction > 0:
+                kelly_size = self.bankroll * opp.kelly_fraction * self.kelly_fraction
+            else:
+                kelly_size = self.min_bet_size
 
             # Apply constraints
             bet_size = kelly_size
@@ -348,7 +752,7 @@ class PortfolioOptimizer:
             allocation = PortfolioAllocation(
                 opportunity=opp,
                 bet_size=round(bet_size, 2),
-                kelly_fraction=opp.kelly_fraction,
+                kelly_fraction=opp.kelly_fraction if opp.kelly_fraction > 0 else 0.01,
                 allocation_pct=bet_size / self.bankroll,
             )
 
@@ -362,19 +766,29 @@ class PortfolioOptimizer:
         return allocations
 
     def optimize_daily_bets(
-        self, date_str: str, sports: List[str] = ["nhl", "nba", "mlb", "nfl"]
+        self, date_str: str, sports: List[str] = ["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"],
+        use_database: bool = True
     ) -> Tuple[List[PortfolioAllocation], Dict]:
         """Main entry point: Load, filter, and optimize bets for a given date.
 
         Args:
             date_str: Date in YYYY-MM-DD format
             sports: List of sports to include
+            use_database: If True, load from PostgreSQL database; if False, load from JSON files
 
         Returns:
             Tuple of (allocations, summary_stats)
         """
         # Load opportunities
-        opportunities = self.load_opportunities_from_files(date_str, sports)
+        if use_database:
+            print(f"📊 Loading opportunities from database for {date_str}...")
+            opportunities = self.load_opportunities_from_database(date_str, sports)
+            if not opportunities:
+                print(f"⚠️  No opportunities found in database, falling back to files...")
+                opportunities = self.load_opportunities_from_files(date_str, sports)
+        else:
+            print(f"📊 Loading opportunities from files for {date_str}...")
+            opportunities = self.load_opportunities_from_files(date_str, sports)
 
         # Filter by criteria
         filtered_opps = self.filter_opportunities(opportunities)
@@ -391,6 +805,7 @@ class PortfolioOptimizer:
         summary = {
             "date": date_str,
             "bankroll": self.bankroll,
+            "data_source": "database" if use_database and opportunities else "files",
             "opportunities_found": len(opportunities),
             "opportunities_filtered": len(filtered_opps),
             "bets_placed": len(allocations),

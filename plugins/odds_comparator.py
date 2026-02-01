@@ -187,10 +187,14 @@ class OddsComparator:
                     if sport.lower() == "tennis":
                         # Determine tour from Kalshi ticker (external_id)
                         # ATP tickers contain 'KXATP', WTA tickers contain 'KXWTA'
-                        kalshi_ticker = tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
+                        kalshi_ticker = (
+                            tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
+                        )
                         if "KXATP" in kalshi_ticker.upper() or "ATP" in game_id.upper():
                             tour = "atp"
-                        elif "KXWTA" in kalshi_ticker.upper() or "WTA" in game_id.upper():
+                        elif (
+                            "KXWTA" in kalshi_ticker.upper() or "WTA" in game_id.upper()
+                        ):
                             tour = "wta"
                         else:
                             # Default to ATP for unrecognized tournaments
@@ -258,6 +262,29 @@ class OddsComparator:
                             else:
                                 confidence = "LOW"  # Wide disagreement but same side
 
+                            # Calculate Expected Value (EV)
+                            # EV = (elo_prob × payout) - 1
+                            # Where payout = 1 / market_prob (decimal odds)
+                            # This simplifies to: EV = edge / market_prob
+                            expected_value = (
+                                edge / market_prob if market_prob > 0 else 0.0
+                            )
+
+                            # Calculate Kelly fraction for optimal bet sizing
+                            # Kelly = (p*b - q) / b where:
+                            # p = win probability (elo_prob)
+                            # q = loss probability (1 - elo_prob)
+                            # b = net odds (1/market_prob - 1)
+                            if market_prob > 0 and market_prob < 1:
+                                p = elo_prob
+                                q = 1 - elo_prob
+                                b = (1 / market_prob) - 1
+                                kelly_fraction = (
+                                    max(0, (p * b - q) / b) if b > 0 else 0.0
+                                )
+                            else:
+                                kelly_fraction = 0.0
+
                             opportunities.append(
                                 {
                                     "sport": sport,
@@ -270,10 +297,10 @@ class OddsComparator:
                                     "market_prob": market_prob,
                                     "market_odds": market_odds,
                                     "bookmaker": "Kalshi",
-                                    "ticker": tickers_by_bm.get("Kalshi", {}).get(
-                                        side
-                                    ),
+                                    "ticker": tickers_by_bm.get("Kalshi", {}).get(side),
                                     "edge": edge,
+                                    "expected_value": expected_value,
+                                    "kelly_fraction": kelly_fraction,
                                     "sharp_confirmed": False,  # Not used in market agreement
                                     "confidence": confidence,
                                     "agreement_diff": agreement_diff,
