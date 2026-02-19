@@ -29,6 +29,8 @@ class BetLoader:
                 recommendation_date DATE NOT NULL,
                 home_team VARCHAR NOT NULL,
                 away_team VARCHAR NOT NULL,
+                home_rating DOUBLE PRECISION,
+                away_rating DOUBLE PRECISION,
                 bet_on VARCHAR NOT NULL,
                 elo_prob DOUBLE PRECISION NOT NULL,
                 market_prob DOUBLE PRECISION NOT NULL,
@@ -72,7 +74,14 @@ class BetLoader:
         for i, bet in enumerate(bets):
             home_team = bet.get("home_team", bet.get("player", "Unknown"))
             away_team = bet.get("away_team", bet.get("opponent", "Unknown"))
-            bet_id = f"{sport}_{date_str}_{i}_{home_team}_{away_team}"
+            ticker = bet.get("ticker")
+            side = bet.get("side", bet.get("bet_on", "unknown"))
+
+            # Use ticker for stable ID if possible, otherwise use matchup info
+            if ticker:
+                bet_id = f"{sport}_{date_str}_{ticker}_{side}"
+            else:
+                bet_id = f"{sport}_{date_str}_{home_team}_{away_team}_{side}_{i}"
 
             # Calculate expected_value if not already present
             expected_value = bet.get("expected_value")
@@ -93,6 +102,8 @@ class BetLoader:
                 "date_str": date_str,
                 "home_team": home_team,
                 "away_team": away_team,
+                "home_rating": bet.get("home_rating"),
+                "away_rating": bet.get("away_rating"),
                 "bet_on": bet["bet_on"],
                 "elo_prob": bet["elo_prob"],
                 "market_prob": bet["market_prob"],
@@ -110,9 +121,11 @@ class BetLoader:
                 """
                 INSERT INTO bet_recommendations
                 (bet_id, sport, recommendation_date, home_team, away_team,
+                 home_rating, away_rating,
                  bet_on, elo_prob, market_prob, edge, expected_value, kelly_fraction,
                  confidence, yes_ask, no_ask, ticker)
                 VALUES (:bet_id, :sport, :date_str, :home_team, :away_team,
+                       :home_rating, :away_rating,
                        :bet_on, :elo_prob, :market_prob, :edge, :expected_value, :kelly_fraction,
                        :confidence, :yes_ask, :no_ask, :ticker)
                 ON CONFLICT (bet_id) DO UPDATE SET
@@ -121,7 +134,9 @@ class BetLoader:
                     edge = EXCLUDED.edge,
                     expected_value = EXCLUDED.expected_value,
                     kelly_fraction = EXCLUDED.kelly_fraction,
-                    confidence = EXCLUDED.confidence
+                    confidence = EXCLUDED.confidence,
+                    home_rating = EXCLUDED.home_rating,
+                    away_rating = EXCLUDED.away_rating
                 """,
                 params,
             )

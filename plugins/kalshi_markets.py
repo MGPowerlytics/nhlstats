@@ -458,6 +458,8 @@ SPORT_SERIES = {
         "KXATPCHALLENGERMATCH",
         "KXWTACHALLENGERMATCH",
     ],
+    "unrivaled": ["KXUNRIVALED"],  # Unrivaled 3x3 women's basketball
+    "cba": ["KXCBAGAME"],  # Chinese Basketball Association (placeholder for future)
 }
 
 # Sport-specific limits (NCAAB/WNCAAB have more games)
@@ -518,3 +520,18 @@ def fetch_mlb_markets(date_str=None):
 def fetch_nfl_markets(date_str=None):
     """Fetch NFL markets from Kalshi."""
     return _fetch_sport_markets("nfl", SPORT_SERIES["nfl"], date_str=date_str)
+
+
+def fetch_unrivaled_markets(date_str=None):
+    """Fetch Unrivaled (3x3 women's basketball) markets from Kalshi."""
+    return _fetch_sport_markets("unrivaled", SPORT_SERIES["unrivaled"], date_str=date_str)
+
+
+def fetch_cba_markets(date_str=None):
+    """
+    Fetch CBA (Chinese Basketball Association) markets from Kalshi.
+
+    Note: Kalshi may not currently offer CBA markets. This function is
+    implemented for future availability. Returns empty list if no markets found.
+    """
+    return _fetch_sport_markets("cba", SPORT_SERIES["cba"], date_str=date_str)

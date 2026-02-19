@@ -34,6 +34,7 @@ def is_valid_score(score):
         return False
     return True
 
+
 # Import Elo factory
 
 
@@ -304,6 +305,51 @@ SPORTS_CONFIG = {
         "series_ticker": "KXNCAAWBGAME",
         "team_mapping": {},
     },
+    "unrivaled": {
+        "elo_module": "elo",
+        "games_module": "unrivaled_games",
+        "kalshi_function": "fetch_unrivaled_markets",
+        "elo_threshold": 0.70,  # Similar to other basketball leagues
+        "series_ticker": "KXUNRIVALED",
+        "team_mapping": {
+            "ROSE": "Rose BC",
+            "LUNAR": "Lunar Owls BC",
+            "OWLS": "Lunar Owls BC",
+            "PHANTOM": "Phantom BC",
+            "MIST": "Mist BC",
+            "VINYL": "Vinyl BC",
+            "LACES": "Laces BC",
+        },
+    },
+    "cba": {
+        "elo_module": "elo",
+        "games_module": "cba_games",
+        "kalshi_function": "fetch_cba_markets",
+        "elo_threshold": 0.70,  # Similar to other basketball leagues
+        "series_ticker": "KXCBAGAME",  # Placeholder for future Kalshi markets
+        "team_mapping": {
+            "GUA": "Guangdong Southern Tigers",
+            "LIA": "Liaoning Flying Leopards",
+            "BEI": "Beijing Ducks",
+            "SHA": "Shanghai Sharks",
+            "ZHE": "Zhejiang Lions",
+            "SZN": "Shenzhen Leopards",
+            "XIN": "Xinjiang Flying Tigers",
+            "SDG": "Shandong Heroes",
+            "JIL": "Jilin Northeast Tigers",
+            "BRF": "Beijing Royal Fighters",
+            "FUJ": "Fujian Sturgeons",
+            "SXI": "Shanxi Loongs",
+            "JSD": "Jiangsu Dragons",
+            "QDE": "Qingdao Eagles",
+            "GZL": "Guangzhou Loong Lions",
+            "TJP": "Tianjin Pioneers",
+            "SCH": "Sichuan Blue Whales",
+            "NBO": "Ningbo Rockets",
+            "NJT": "Nanjing Tongxi Monkey Kings",
+            "SZY": "Shanxi Zhongyu",
+        },
+    },
 }
 
 
@@ -314,27 +360,43 @@ def download_games(sport, **context):
     # Get date from context
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
 
+    # Calculate yesterday to ensure we capture final scores from previous day
+    current_date = datetime.strptime(date_str, "%Y-%m-%d")
+    yesterday_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
+    dates_to_process = [yesterday_str, date_str]
+
     # Import the appropriate class
     if sport == "nba":
         from nba_games import NBAGames
 
-        games = NBAGames(date_folder=date_str)
-        games.download_games_for_date(date_str)
+        for d in dates_to_process:
+            try:
+                games = NBAGames(date_folder=d)
+                games.download_games_for_date(d)
+                print(f"✓ Successfully downloaded NBA games for {d}")
+            except Exception as e:
+                print(f"⚠️  Failed to download NBA games for {d}: {e}")
+                print("⚠️  Continuing with other sports...")
+                # Don't raise the exception - let other sports continue
+                # We'll skip NBA for this run
     elif sport == "nhl":
         from nhl_game_events import NHLGameEvents
 
-        games = NHLGameEvents(date_folder=date_str)
-        games.download_games_for_date(date_str)
+        for d in dates_to_process:
+            games = NHLGameEvents(date_folder=d)
+            games.download_games_for_date(d)
     elif sport == "mlb":
         from mlb_games import MLBGames
 
-        games = MLBGames(date_folder=date_str)
-        games.download_games_for_date(date_str)
+        for d in dates_to_process:
+            games = MLBGames(date_folder=d)
+            games.download_games_for_date(d)
     elif sport == "nfl":
         from nfl_games import NFLGames
 
-        games = NFLGames(date_folder=date_str)
-        games.download_games_for_date(date_str)
+        for d in dates_to_process:
+            games = NFLGames(date_folder=d)
+            games.download_games_for_date(d)
     elif sport == "epl":
         from epl_games import EPLGames
 
@@ -355,6 +417,21 @@ def download_games(sport, **context):
 
         games = NCAABGames()
         games.download_games()
+    elif sport == "wncaab":
+        from wncaab_games import WNCAABGames
+
+        games = WNCAABGames()
+        games.download_games()
+    elif sport == "unrivaled":
+        from unrivaled_games import UnrivaledGames
+
+        games = UnrivaledGames()
+        games.download_games()
+    elif sport == "cba":
+        from cba_games import CBAGames
+
+        games = CBAGames()
+        games.download_games()
 
     print(f"✓ {sport.upper()} games downloaded")
 
@@ -364,6 +441,12 @@ def load_data_to_db(sport, **context):
     print(f"💾 Loading {sport.upper()} games into database...")
 
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+
+    # Calculate yesterday to ensure we update final scores
+    current_date = datetime.strptime(date_str, "%Y-%m-%d")
+    yesterday_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
+    dates_to_process = [yesterday_str, date_str]
+
     from db_loader import NHLDatabaseLoader
 
     with NHLDatabaseLoader() as loader:
@@ -372,14 +455,29 @@ def load_data_to_db(sport, **context):
             loader.load_tennis_history(target_date=date_str)
             count = "all"
         else:
-            count = loader.load_date(date_str)
+            count = 0
+            for d in dates_to_process:
+                count += loader.load_date(d)
 
-    print(f"✓ Loaded {count} new games/updates for {date_str}")
+    print(f"✓ Loaded {count} new games/updates for {dates_to_process}")
 
 
 def update_elo_ratings(sport, **context):
-    """Calculate current Elo ratings for a sport."""
+    """Calculate current Elo ratings for a sport with logging."""
     print(f"📊 Updating {sport.upper()} Elo ratings...")
+
+    # Load previous ratings for comparison (if available)
+    previous_ratings = {}
+    csv_path = f"data/{sport}_current_elo_ratings.csv"
+    if os.path.exists(csv_path):
+        try:
+            import pandas as pd
+
+            df = pd.read_csv(csv_path)
+            previous_ratings = dict(zip(df["team"], df["rating"]))
+            print(f"  Loaded {len(previous_ratings)} previous ratings from {csv_path}")
+        except Exception as e:
+            print(f"  ⚠️  Could not load previous ratings: {e}")
 
     SPORTS_CONFIG[sport]
 
@@ -388,78 +486,76 @@ def update_elo_ratings(sport, **context):
         from elo import get_elo_class
         from db_manager import default_db
 
-        # Query NBA games from database
+        # FIXED: Use unified_games instead of nba_games for complete historical data
+        # NBA team name to abbreviation mapping
+        nba_team_mapping = {
+            "Atlanta Hawks": "ATL",
+            "Boston Celtics": "BOS",
+            "Brooklyn Nets": "BKN",
+            "Charlotte Hornets": "CHA",
+            "Chicago Bulls": "CHI",
+            "Cleveland Cavaliers": "CLE",
+            "Dallas Mavericks": "DAL",
+            "Denver Nuggets": "DEN",
+            "Detroit Pistons": "DET",
+            "Golden State Warriors": "GSW",
+            "Houston Rockets": "HOU",
+            "Indiana Pacers": "IND",
+            "Los Angeles Clippers": "LAC",
+            "Los Angeles Lakers": "LAL",
+            "Memphis Grizzlies": "MEM",
+            "Miami Heat": "MIA",
+            "Milwaukee Bucks": "MIL",
+            "Minnesota Timberwolves": "MIN",
+            "New Orleans Pelicans": "NOP",
+            "New York Knicks": "NYK",
+            "Oklahoma City Thunder": "OKC",
+            "Orlando Magic": "ORL",
+            "Philadelphia 76ers": "PHI",
+            "Phoenix Suns": "PHX",
+            "Portland Trail Blazers": "POR",
+            "Sacramento Kings": "SAC",
+            "San Antonio Spurs": "SAS",
+            "Toronto Raptors": "TOR",
+            "Utah Jazz": "UTA",
+            "Washington Wizards": "WAS",
+            "LA Clippers": "LAC",
+            "LA Lakers": "LAL",
+        }
+
+        def map_nba_team(team_name):
+            """Map NBA team name to abbreviation."""
+            if team_name and len(team_name) <= 4:
+                return team_name  # Already an abbreviation
+            return nba_team_mapping.get(team_name, team_name)
+
         query = """
-            SELECT game_date, home_team, away_team,
+            SELECT game_date, home_team_name as home_team, away_team_name as away_team,
                    CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-            FROM nba_games
-            WHERE status = 'Final'
-            ORDER BY game_date, game_id
+            FROM unified_games
+            WHERE sport = 'NBA'
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
+            ORDER BY game_date
         """
         games_df = default_db.fetch_df(query)
-        print(f"  Loaded {len(games_df)} NBA games from PostgreSQL")
+        print(
+            f"  Loaded {len(games_df)} NBA games from unified_games (complete historical data)"
+        )
 
         EloClass = get_elo_class(sport)
         elo = EloClass(k_factor=20, home_advantage=100)
-        for _, game in games_df.iterrows():
-            elo.update(game["home_team"], game["away_team"], game["home_win"])
-    elif sport == "nhl":
-        from elo import get_elo_class
-        from db_manager import default_db
-
-        # Filter out:
-        # 1. Exhibition games (non-NHL teams)
-        # 2. Duplicates (keep first occurrence per matchup+date)
-        exhibition_teams = (
-            "CAN",
-            "USA",
-            "ATL",
-            "MET",
-            "CEN",
-            "PAC",
-            "SWE",
-            "FIN",
-            "EIS",
-            "MUN",
-            "SCB",
-            "KLS",
-            "KNG",
-            "MKN",
-            "HGS",
-            "MAT",
-            "MCD",
-        )
-
-        query = """
-            WITH ranked_games AS (
-                SELECT game_date, home_team_abbrev, away_team_abbrev,
-                       CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY game_date, home_team_abbrev, away_team_abbrev
-                           ORDER BY game_id
-                       ) as rn
-                FROM games
-                WHERE game_state IN ('OFF', 'FINAL', 'Final')
-                  AND home_team_abbrev NOT IN :ex_teams
-                  AND away_team_abbrev NOT IN :ex_teams
-            )
-            SELECT game_date, home_team_abbrev as home_team,
-                   away_team_abbrev as away_team, home_win
-            FROM ranked_games
-            WHERE rn = 1
-            ORDER BY game_date, home_team
-        """
-
-        games_df = default_db.fetch_df(query, {"ex_teams": exhibition_teams})
-        print(
-            f"  Loaded {len(games_df)} NHL games from PostgreSQL (filtered duplicates and exhibitions)"
-        )
-
-        EloClass = get_elo_class(sport)
-        elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
         last_date = None
+        games_processed = 0
         for _, game in games_df.iterrows():
+            # Map team names
+            home_full = game["home_team"]
+            away_full = game["away_team"]
+            home_team = map_nba_team(home_full)
+            away_team = map_nba_team(away_full)
+
+            # Season detection
             game_date = game["game_date"]
             if isinstance(game_date, str):
                 current_date = datetime.strptime(game_date, "%Y-%m-%d").date()
@@ -468,28 +564,180 @@ def update_elo_ratings(sport, **context):
 
             if last_date:
                 days_diff = (current_date - last_date).days
-                if days_diff > 90:
-                    print(f"📅 New NHL season detected at {current_date}")
-                    elo.apply_season_reversion(0.45)
+                if days_diff > 120:  # NBA offseason
+                    print(f"📅 New NBA season detected at {current_date}")
+                    # Check if NBA Elo class has season reversion method
+                    if hasattr(elo, "apply_season_reversion"):
+                        elo.apply_season_reversion(0.4)
+                    else:
+                        print(f"  ⚠️  NBA Elo class doesn't support season reversion")
 
             last_date = current_date
-            elo.update(
-                game["home_team"],
-                game["away_team"],
-                game["home_win"],
-                game_date=current_date,
-            )
+            elo.update(home_team, away_team, game["home_win"])
+
+            games_processed += 1
+            if games_processed % 1000 == 0:
+                print(f"    Processed {games_processed} games...")
+
+        print(f"  ✅ Processed {games_processed} total games")
+    elif sport == "nhl":
+        from elo import get_elo_class
+        from db_manager import default_db
+
+        # FIXED: Use unified_games instead of games table for complete historical data
+        # Team name to abbreviation mapping
+        # Whitelist of valid NHL abbreviations to prevent cross-sport contamination
+        valid_nhl_teams = {
+            "ANA",
+            "ARI",
+            "BOS",
+            "BUF",
+            "CGY",
+            "CAR",
+            "CHI",
+            "COL",
+            "CBJ",
+            "DAL",
+            "DET",
+            "EDM",
+            "FLA",
+            "LAK",
+            "MIN",
+            "MTL",
+            "NSH",
+            "NJD",
+            "NYI",
+            "NYR",
+            "OTT",
+            "PHI",
+            "PIT",
+            "SJS",
+            "SEA",
+            "STL",
+            "TBL",
+            "TOR",
+            "UTA",
+            "VAN",
+            "VGK",
+            "WSH",
+            "WPG",
+        }
+
+        # Known cross-sport contaminants to explicitly block
+        contaminants = {
+            "Celtics",
+            "Bills",
+            "Eagles",
+            "Cowboys",
+            "Lions",
+            "Lakers",
+            "Thunder",
+        }
+
+        nhl_team_mapping = {
+            "Anaheim Ducks": "ANA",
+            "Arizona Coyotes": "ARI",
+            "Boston Bruins": "BOS",
+            "Buffalo Sabres": "BUF",
+            "Calgary Flames": "CGY",
+            "Carolina Hurricanes": "CAR",
+            "Chicago Blackhawks": "CHI",
+            "Colorado Avalanche": "COL",
+            "Columbus Blue Jackets": "CBJ",
+            "Dallas Stars": "DAL",
+            "Detroit Red Wings": "DET",
+            "Edmonton Oilers": "EDM",
+            "Florida Panthers": "FLA",
+            "Los Angeles Kings": "LAK",
+            "Minnesota Wild": "MIN",
+            "Montreal Canadiens": "MTL",
+            "Montréal Canadiens": "MTL",
+            "Nashville Predators": "NSH",
+            "New Jersey Devils": "NJD",
+            "New York Islanders": "NYI",
+            "New York Rangers": "NYR",
+            "Ottawa Senators": "OTT",
+            "Philadelphia Flyers": "PHI",
+            "Pittsburgh Penguins": "PIT",
+            "San Jose Sharks": "SJS",
+            "Seattle Kraken": "SEA",
+            "St. Louis Blues": "STL",
+            "Tampa Bay Lightning": "TBL",
+            "Toronto Maple Leafs": "TOR",
+            "Utah Hockey Club": "UTA",
+            "Utah Mammoth": "UTA",
+            "Vancouver Canucks": "VAN",
+            "Vegas Golden Knights": "VGK",
+            "Washington Capitals": "WSH",
+            "Winnipeg Jets": "WPG",
+            "Utah": "UTA",
+        }
+
+        def map_nhl_team(team_name):
+            """Map NHL team name to abbreviation."""
+            if not team_name:
+                return None
+            if len(team_name) <= 4 and team_name.upper() in valid_nhl_teams:
+                return team_name.upper()
+
+            mapped = nhl_team_mapping.get(team_name)
+            if mapped:
+                return mapped
+
+            # If not in mapping and is a known contaminant, block it
+            if team_name in contaminants:
+                return None
+
+            return team_name  # Fallback for unknown but non-blocked names
+
+        query = """
+            SELECT
+                game_date,
+                home_team_name,
+                away_team_name,
+                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+            FROM unified_games
+            WHERE sport = 'NHL'
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
+              AND home_team_name IS NOT NULL
+              AND away_team_name IS NOT NULL
+              AND home_team_name NOT IN ('Bills', 'Celtics', 'Eagles', 'Cowboys', 'Lions')
+              AND away_team_name NOT IN ('Bills', 'Celtics', 'Eagles', 'Cowboys', 'Lions')
+            ORDER BY game_date
+        """
+
+        games_df = default_db.fetch_df(query)
+        print(f"  Loaded {len(games_df)} NHL games from unified_games")
+
+        EloClass = get_elo_class(sport)
+        elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
+
+        last_date = None
+        games_processed = 0
+        for _, game in games_df.iterrows():
+            # Map team names to abbreviations
+            home_team = map_nhl_team(game["home_team_name"])
+            away_team = map_nhl_team(game["away_team_name"])
+
+            # Skip if either team is not a valid NHL team
+            if not home_team or not away_team:
+                continue
+
     elif sport == "mlb":
         from elo import get_elo_class
         from db_manager import default_db
 
         EloClass = get_elo_class(sport)
         elo = EloClass(k_factor=20, home_advantage=50)
-        # Query mlb_games table
+        # FIXED: Use unified_games instead of mlb_games
         query = """
-            SELECT game_date, home_team, away_team, home_score, away_score
-            FROM mlb_games
-            WHERE game_date IS NOT NULL
+            SELECT game_date, home_team_name as home_team, away_team_name as away_team,
+                   home_score, away_score
+            FROM unified_games
+            WHERE sport = 'MLB'
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
             ORDER BY game_date
         """
         df = default_db.fetch_df(query)
@@ -497,6 +745,9 @@ def update_elo_ratings(sport, **context):
             print("No MLB games found in database")
             return
 
+        print(f"  Loaded {len(df)} MLB games from unified_games")
+
+        games_processed = 0
         for _, row in df.iterrows():
             home_team = row["home_team"]
             away_team = row["away_team"]
@@ -513,17 +764,26 @@ def update_elo_ratings(sport, **context):
                 home_score=home_score,
                 away_score=away_score,
             )
+
+            games_processed += 1
+            if games_processed % 1000 == 0:
+                print(f"    Processed {games_processed} games...")
+
+        print(f"  ✅ Processed {games_processed} total games")
     elif sport == "nfl":
         from elo import get_elo_class
         from db_manager import default_db
 
         EloClass = get_elo_class(sport)
         elo = EloClass(k_factor=20, home_advantage=65)
-        # Query nfl_games table
+        # FIXED: Use unified_games instead of nfl_games
         query = """
-            SELECT game_date, home_team, away_team, home_score, away_score
-            FROM nfl_games
-            WHERE game_date IS NOT NULL
+            SELECT game_date, home_team_name as home_team, away_team_name as away_team,
+                   home_score, away_score
+            FROM unified_games
+            WHERE sport = 'NFL'
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
             ORDER BY game_date
         """
         df = default_db.fetch_df(query)
@@ -531,6 +791,9 @@ def update_elo_ratings(sport, **context):
             print("No NFL games found in database")
             return
 
+        print(f"  Loaded {len(df)} NFL games from unified_games")
+
+        games_processed = 0
         for _, row in df.iterrows():
             home_team = row["home_team"]
             away_team = row["away_team"]
@@ -547,6 +810,12 @@ def update_elo_ratings(sport, **context):
                 home_score=home_score,
                 away_score=away_score,
             )
+
+            games_processed += 1
+            if games_processed % 500 == 0:
+                print(f"    Processed {games_processed} games...")
+
+        print(f"  ✅ Processed {games_processed} total games")
     elif sport == "epl":
         from elo import get_elo_class
         from db_manager import default_db
@@ -627,6 +896,31 @@ def update_elo_ratings(sport, **context):
                 is_neutral=game.get("neutral", False),
             )
 
+    elif sport == "unrivaled":
+        from elo import get_elo_class
+        from unrivaled_games import UnrivaledGames
+
+        EloClass = get_elo_class(sport)
+        # Unrivaled: No home advantage (all games at same venue), higher K-factor for 3x3
+        elo = EloClass(k_factor=24, home_advantage=0)
+        games_obj = UnrivaledGames()
+        df = games_obj.load_games()
+
+        if df.empty:
+            print("⚠️ No Unrivaled games loaded")
+            return
+
+        df = df.sort_values("date")
+        for _, game in df.iterrows():
+            home_won = 1.0 if game["home_score"] > game["away_score"] else 0.0
+            # All Unrivaled games are neutral site
+            elo.update(
+                game["home_team"],
+                game["away_team"],
+                home_won,
+                is_neutral=True,
+            )
+
     elif sport == "tennis":
         # Tennis: load full history to capture new matches.
         from elo import get_elo_class
@@ -648,6 +942,30 @@ def update_elo_ratings(sport, **context):
             except Exception:
                 continue
 
+    elif sport == "cba":
+        from elo import get_elo_class
+        from cba_games import CBAGames
+
+        EloClass = get_elo_class(sport)
+        # CBA: Strong home advantage in China
+        elo = EloClass(k_factor=20, home_advantage=80)
+        games_obj = CBAGames()
+        df = games_obj.get_completed_games()
+
+        if df.empty:
+            print("⚠️ No CBA games loaded")
+            return
+
+        df = df.sort_values("date")
+        for _, game in df.iterrows():
+            home_won = 1.0 if game["home_score"] > game["away_score"] else 0.0
+            elo.update(
+                game["home_team"],
+                game["away_team"],
+                home_won,
+                is_neutral=game.get("neutral", False),
+            )
+
     # Save ratings to CSV
     if sport == "tennis":
         Path("data").mkdir(parents=True, exist_ok=True)
@@ -660,7 +978,18 @@ def update_elo_ratings(sport, **context):
             f.write("team,rating\n")
             for player in sorted(elo.wta_ratings.keys()):
                 f.write(f"{player},{elo.wta_ratings[player]:.2f}\n")
-    elif sport in ["nba", "nhl", "mlb", "nfl", "epl", "ligue1", "ncaab", "wncaab"]:
+    elif sport in [
+        "nba",
+        "nhl",
+        "mlb",
+        "nfl",
+        "epl",
+        "ligue1",
+        "ncaab",
+        "wncaab",
+        "unrivaled",
+        "cba",
+    ]:
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
@@ -670,6 +999,54 @@ def update_elo_ratings(sport, **context):
             for team, rating in elo.ratings.items()
             if is_valid_score(rating)
         }
+
+        # LOGGING: Compare with previous ratings
+        if previous_ratings:
+            print(f"\n📊 {sport.upper()} Elo Rating Changes:")
+            print("=" * 50)
+
+            common_teams = set(valid_ratings.keys()) & set(previous_ratings.keys())
+            new_teams = set(valid_ratings.keys()) - set(previous_ratings.keys())
+            removed_teams = set(previous_ratings.keys()) - set(valid_ratings.keys())
+
+            print(
+                f"  Teams: {len(valid_ratings)} total ({len(common_teams)} updated, {len(new_teams)} new, {len(removed_teams)} removed)"
+            )
+
+            if common_teams:
+                changes = []
+                for team in common_teams:
+                    old = previous_ratings[team]
+                    new = valid_ratings[team]
+                    change = new - old
+                    changes.append((team, old, new, change))
+
+                # Sort by absolute change
+                changes.sort(key=lambda x: abs(x[3]), reverse=True)
+
+                if changes:
+                    avg_change = sum(c[3] for c in changes) / len(changes)
+                    max_increase = max(c[3] for c in changes)
+                    max_decrease = min(c[3] for c in changes)
+
+                    print(f"  Average change: {avg_change:+.2f}")
+                    print(f"  Maximum increase: {max_increase:+.2f}")
+                    print(f"  Maximum decrease: {max_decrease:+.2f}")
+
+                    print(f"\n  Top 3 increases:")
+                    count = 0
+                    for team, old, new, change in changes:
+                        if change > 0 and count < 3:
+                            print(f"    {team}: {old:.1f} → {new:.1f} ({change:+.1f})")
+                            count += 1
+
+                    print(f"\n  Top 3 decreases:")
+                    count = 0
+                    for team, old, new, change in changes:
+                        if change < 0 and count < 3:
+                            print(f"    {team}: {old:.1f} → {new:.1f} ({change:+.1f})")
+                            count += 1
+
         with open(f"data/{sport}_current_elo_ratings.csv", "w") as f:
             f.write("team,rating\n")
             for team in sorted(valid_ratings.keys()):
@@ -712,6 +1089,8 @@ def fetch_prediction_markets(sport, **context):
         fetch_ncaab_markets,
         fetch_ligue1_markets,
         fetch_wncaab_markets,
+        fetch_unrivaled_markets,
+        fetch_cba_markets,
     )
 
     SPORTS_CONFIG[sport]
@@ -725,6 +1104,8 @@ def fetch_prediction_markets(sport, **context):
         "ncaab": fetch_ncaab_markets,
         "ligue1": fetch_ligue1_markets,
         "wncaab": fetch_wncaab_markets,
+        "unrivaled": fetch_unrivaled_markets,
+        "cba": fetch_cba_markets,
     }[sport]
 
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
@@ -871,6 +1252,7 @@ def identify_good_bets(sport, **context):
     class_mapping = {
         "tennis": "TennisEloRating",
         "ncaab": "NCAABEloRating",
+        "wncaab": "WNCAABEloRating",
         "ligue1": "Ligue1EloRating",
     }
     class_name = class_mapping.get(sport, f"{sport.upper()}EloRating")
@@ -890,6 +1272,53 @@ def identify_good_bets(sport, **context):
     else:
         elo_system.ratings = elo_ratings
 
+    from naming_resolver import NamingResolver
+
+    # NCAAB specific name mapping for Elo lookup
+    if sport == "ncaab":
+        ncaab_mapping = {
+            "HOU": "Houston",
+            "PUR": "Purdue",
+            "AUB": "Auburn",
+            "ALA": "Alabama",
+            "BYU": "BYU",
+            "UGA": "Georgia",
+            "LSU": "LSU",
+            "DAY": "Dayton",
+            "VCU": "VCU",
+            "KAN": "Kansas",
+            "KEN": "Kentucky",
+            "DUK": "Duke",
+            "UNC": "North_Carolina",
+            "AZ": "Arizona",
+            "GONZ": "Gonzaga",
+            "CONN": "Connecticut",
+            "TENN": "Tennessee",
+            "ISU": "Iowa_St",
+            "BAY": "Baylor",
+            "ORE": "Oregon",
+            "KSU": "Kansas_St",
+            "FIU": "Florida_Intl",
+            "TCU": "TCU",
+            "WIS": "Wisconsin",
+            "IND": "Indiana",
+            "WKU": "Western_Kentucky",
+            "SLU": "Saint_Louis",
+            "UVM": "Vermont",
+            "SFA": "Stephen_F._Austin",
+            "LMU": "Loyola_Marymount",
+            "QUC": "Queens_University",
+            "APP": "Appalachian_St",
+            "UND": "North_Dakota",
+            "CIN": "Cincinnati",
+            "WVU": "West_Virginia",
+            "TEX": "Texas",
+        }
+        # Inject mappings into NamingResolver for this run
+        for raw, canon in ncaab_mapping.items():
+            NamingResolver.add_mapping("ncaab", "kalshi", raw, canon)
+            NamingResolver.add_mapping("ncaab", "elo", canon, canon)
+
     # Initialize OddsComparator
     from odds_comparator import OddsComparator
 
@@ -904,10 +1333,21 @@ def identify_good_bets(sport, **context):
         elo_system=elo_system,
         threshold=elo_threshold,
         min_edge=0.05,
-        use_sharp_confirmation=(
-            sport in ["tennis", "nhl", "ligue1"]
-        ),  # Enable for tennis, NHL and Ligue 1
+        use_sharp_confirmation=(sport in ["tennis", "nhl", "ligue1"]),
     )
+
+    # Deduplicate by ticker
+    seen_tickers = set()
+    unique_bets = []
+    for bet in good_bets:
+        ticker = bet.get("ticker")
+        if ticker and ticker not in seen_tickers:
+            unique_bets.append(bet)
+            seen_tickers.add(ticker)
+        elif not ticker:
+            unique_bets.append(bet)
+
+    good_bets = unique_bets
 
     # Save results
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
@@ -923,38 +1363,17 @@ def identify_good_bets(sport, **context):
     with open(bets_file, "w") as f:
         json.dump(good_bets, f, indent=2, default=json_serial)
 
-    print(f"✓ Found {len(good_bets)} {sport.upper()} betting opportunities")
+    print(f"✓ Found {len(good_bets)} unique {sport.upper()} betting opportunities")
 
     if good_bets:
         print(f"\n{sport.upper()} Betting Opportunities:")
         for bet in good_bets:
-            print(f"  {bet['away_team']} @ {bet['home_team']}")
+            home = bet.get("home_team", "Unknown")
+            away = bet.get("away_team", "Unknown")
+            print(f"  {away} @ {home}")
             print(
-                f"    Bet: {bet['bet_on']} ({bet['bookmaker']}) | Edge: {bet['edge']:.1%} | Elo: {bet['elo_prob']:.1%} | Odds: {bet['market_odds']:.2f}"
+                f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Elo: {bet['elo_prob']:.1%} | Odds: {bet['market_odds']:.2f}"
             )
-
-    # Save results
-    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
-    bets_file = Path(f"data/{sport}/bets_{date_str}.json")
-    bets_file.parent.mkdir(parents=True, exist_ok=True)
-    with open(bets_file, "w") as f:
-        json.dump(good_bets, f, indent=2)
-
-    print(f"✓ Found {len(good_bets)} {sport.upper()} betting opportunities")
-
-    if good_bets:
-        print(f"\n{sport.upper()} Betting Opportunities:")
-        for bet in good_bets:
-            if sport == "tennis":
-                print(f"  {bet.get('matchup', 'Unknown')}")
-                print(
-                    f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}"
-                )
-            else:
-                print(f"  {bet['away_team']} @ {bet['home_team']}")
-                print(
-                    f"    Bet: {bet['bet_on']} | Edge: {bet['edge']:.1%} | Confidence: {bet['confidence']}"
-                )
 
 
 def place_bets_on_recommendations(sport, **context):
@@ -1040,12 +1459,23 @@ def place_portfolio_optimized_bets(**context):
         # Initialize portfolio manager
         # EXCLUDED SEGMENTS: Based on backtest analysis (2026-01-28 to 2026-02-01)
         # These sport+confidence combinations have been unprofitable:
-        # - NHL MEDIUM: 14.7% win rate, -83.0% ROI (34 bets, -$24.45)
-        # - TENNIS LOW: 66.7% win rate, -26.3% ROI (12 bets, -$11.09)
-        # See: reports/backtest_segment_analysis_20260201.md for full analysis
+        # Based on analysis of bets since Feb 9, 2026:
+        # - TENNIS LOW: 40% win rate, -54.09% ROI (15 bets, -$62.45 loss) - NEW
+        # - WNCAAB LOW: 57% win rate, -22.77% ROI (7 bets, -$7.96 loss) - NEW
+        # - NCAAB MEDIUM: 43% win rate, -22.32% ROI (14 bets, -$16.95 loss) - NEW
+        # - WNCAAB HIGH: 0% win rate, -100.00% ROI (3 bets, -$2.06 loss) - KEEP
+        # - NBA LOW: 20% win rate, -68.31% ROI (5 bets, -$10.78 loss) - KEEP
+        # - TENNIS HIGH: 44% win rate, -45.97% ROI (9 bets, -$12.76 loss) - KEEP
+        # - TENNIS MEDIUM: 61% win rate, -15.68% ROI (18 bets, -$7.44 loss) - KEEP
+        # See: betting_analysis_since_20260209.md for full analysis
         excluded_segments = [
-            ("NHL", "MEDIUM"),   # Extremely poor: 14.7% win rate, -83% ROI
-            ("TENNIS", "LOW"),   # Poor: 66.7% win rate but -26.3% ROI (bad payouts)
+            ("TENNIS", "LOW"),  # Catastrophic: 40% win rate, -54% ROI
+            ("WNCAAB", "LOW"),  # Poor: 57% win rate, -23% ROI
+            ("NCAAB", "MEDIUM"),  # Poor: 43% win rate, -22% ROI
+            ("WNCAAB", "HIGH"),  # Catastrophic: 0% win rate, -100% ROI
+            ("NBA", "LOW"),  # Very poor: 20% win rate, -68% ROI
+            ("TENNIS", "HIGH"),  # Poor: 44% win rate, -46% ROI
+            ("TENNIS", "MEDIUM"),  # Unprofitable: 61% win rate but -16% ROI
         ]
 
         manager = PortfolioBettingManager(
@@ -1055,8 +1485,8 @@ def place_portfolio_optimized_bets(**context):
             min_bet_size=2.0,
             max_bet_size=10.0,  # Lower max to spread across more bets
             max_single_bet_pct=0.03,  # Lower single bet limit for more diversification
-            min_edge=0.0,
-            min_confidence=0.68,
+            min_edge=-1.0,  # Allow negative edge for Market Agreement strategy
+            min_confidence=0.65,
             excluded_segments=excluded_segments,
             dry_run=False,  # LIVE BETTING
         )
@@ -1064,7 +1494,18 @@ def place_portfolio_optimized_bets(**context):
         # Process daily bets
         date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
         results = manager.process_daily_bets(
-            date_str, sports=["nhl", "nba", "mlb", "nfl", "ncaab", "wncaab", "tennis", "epl", "ligue1"]
+            date_str,
+            sports=[
+                "nhl",
+                "nba",
+                "mlb",
+                "nfl",
+                "ncaab",
+                "wncaab",
+                "tennis",
+                "epl",
+                "ligue1",
+            ],
         )
 
         print("\n✓ Portfolio betting complete")
@@ -1178,7 +1619,7 @@ def send_daily_summary(**context):
 
         # Get today's placed bets
         placed_bets = []
-        for sport in ["nba", "nhl", "ncaab", "tennis", "ligue1"]:
+        for sport in ["nba", "nhl", "ncaab", "tennis", "ligue1", "unrivaled", "cba"]:
             result_file = Path(f"data/{sport}/betting_results_{today_str}.json")
             if result_file.exists():
                 with open(result_file) as f:
@@ -1269,10 +1710,10 @@ default_args = {
     "depends_on_past": False,
     "start_date": datetime(2026, 1, 1),
     "email": ["7244959219@vtext.com"],  # Verizon SMS gateway
-    "email_on_failure": True,
+    "email_on_failure": False,  # Disabled due to SMTP authentication issues
     "email_on_retry": False,
-    "retries": 1,
-    "retry_delay": timedelta(minutes=5),
+    "retries": 2,  # Increased from 1 to 2 for more resilience
+    "retry_delay": timedelta(minutes=10),  # Increased delay between retries
 }
 
 dag = DAG(
@@ -1285,7 +1726,19 @@ dag = DAG(
 )
 
 # Create tasks for each sport
-for sport in ["nba", "nhl", "mlb", "nfl", "epl", "tennis", "ncaab", "wncaab", "ligue1"]:
+for sport in [
+    "nba",
+    "nhl",
+    "mlb",
+    "nfl",
+    "epl",
+    "tennis",
+    "ncaab",
+    "wncaab",
+    "ligue1",
+    "unrivaled",
+    "cba",
+]:
     download_task = PythonOperator(
         task_id=f"{sport}_download_games",
         python_callable=download_games,
@@ -1376,10 +1829,10 @@ portfolio_betting_task = PythonOperator(
     dag=dag,
 )
 
-# Portfolio betting depends on all bets being identified
-# Get all the bets_task for each sport
-all_bets_tasks = [
-    dag.get_task(f"{sport}_identify_bets")
+# Portfolio betting depends on all bets being identified and loaded to DB
+# Get all the load_bets_task for each sport
+all_load_bets_tasks = [
+    dag.get_task(f"{sport}_load_bets_db")
     for sport in [
         "nba",
         "nhl",
@@ -1390,11 +1843,13 @@ all_bets_tasks = [
         "ncaab",
         "wncaab",
         "ligue1",
+        "unrivaled",
+        "cba",
     ]
 ]
 
-# Portfolio betting runs after all bets are identified
-all_bets_tasks >> portfolio_betting_task
+# Portfolio betting runs after all bets are loaded to DB
+all_load_bets_tasks >> portfolio_betting_task
 
 # Add CLV update task (runs after portfolio betting to update CLV data for closed markets)
 clv_update_task = PythonOperator(

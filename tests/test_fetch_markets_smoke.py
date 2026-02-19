@@ -38,7 +38,7 @@ class TestFetchMarketsImports:
         from kalshi_markets import SPORT_SERIES
 
         assert isinstance(SPORT_SERIES, dict)
-        assert len(SPORT_SERIES) == 9  # All 9 sports
+        assert len(SPORT_SERIES) == 11  # All 11 sports (including CBA and Unrivaled)
 
     def test_sport_series_has_all_sports(self):
         """SPORT_SERIES should have entries for all sports."""

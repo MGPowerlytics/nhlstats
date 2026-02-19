@@ -15,6 +15,7 @@ from plugins.elo import (
     NCAABEloRating,
     WNCAABEloRating,
     TennisEloRating,
+    UnrivaledEloRating,
 )
 
 # List of all sport Elo classes to test
@@ -28,6 +29,7 @@ ELO_CLASSES = [
     NCAABEloRating,
     WNCAABEloRating,
     TennisEloRating,
+    UnrivaledEloRating,
 ]
 
 

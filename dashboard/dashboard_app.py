@@ -1251,7 +1251,7 @@ else:
     st.sidebar.title("Configuration")
     league = st.sidebar.selectbox(
         "Select League",
-        ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "WNCAAB", "Ligue1"],
+        ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "WNCAAB", "Ligue1", "Unrivaled", "CBA"],
     )
 
     with st.spinner(f"Loading {league} data..."):

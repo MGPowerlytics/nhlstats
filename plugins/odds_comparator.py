@@ -291,6 +291,8 @@ class OddsComparator:
                                     "game_id": game_id,
                                     "home_team": row["home_team_name"],
                                     "away_team": row["away_team_name"],
+                                    "home_rating": elo_system.get_rating(elo_home) if sport != "tennis" else elo_system.get_rating(elo_home, tour=tour),
+                                    "away_rating": elo_system.get_rating(elo_away) if sport != "tennis" else elo_system.get_rating(elo_away, tour=tour),
                                     "bet_on": team_name,
                                     "side": side,
                                     "elo_prob": elo_prob,

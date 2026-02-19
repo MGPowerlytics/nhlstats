@@ -269,6 +269,43 @@ class PortfolioBettingManager:
 
         return results
 
+    def _get_rankings(self, sport: str) -> Dict[str, str]:
+        """Get rankings and ratings for all teams in a sport.
+
+        Returns:
+            Dict mapping team name to "Ranking (Rating)" string
+        """
+        import pandas as pd
+
+        ratings_files = []
+        if sport.lower() == "tennis":
+            ratings_files = ["data/atp_current_elo_ratings.csv", "data/wta_current_elo_ratings.csv"]
+        else:
+            ratings_files = [f"data/{sport.lower()}_current_elo_ratings.csv"]
+
+        all_ratings = {}
+        for f in ratings_files:
+            path = Path(f)
+            if path.exists():
+                try:
+                    df = pd.read_csv(path)
+                    for _, row in df.iterrows():
+                        all_ratings[row["team"]] = float(row["rating"])
+                except Exception:
+                    pass
+
+        if not all_ratings:
+            return {}
+
+        # Sort by rating descending
+        sorted_teams = sorted(all_ratings.items(), key=lambda x: x[1], reverse=True)
+
+        rankings = {}
+        for rank, (team, rating) in enumerate(sorted_teams, 1):
+            rankings[team] = f"#{rank} ({rating:.0f})"
+
+        return rankings
+
     def _print_comprehensive_table(
         self, allocations: List[PortfolioAllocation], results: Dict
     ) -> None:
@@ -286,95 +323,93 @@ class PortfolioBettingManager:
         skipped_tickers = {b["ticker"] for b in results.get("skipped_bets", [])}
         error_tickers = {b["ticker"] for b in results.get("errors", [])}
 
-        print(f"\n{'=' * 120}")
-        print("COMPREHENSIVE BETTING TABLE")
-        print(f"{'=' * 120}")
+        print(f"\n{'=' * 130}")
+        print("PORTFOLIO OPTIMIZED BETTING RECOMMENDATIONS")
+        print(f"{'=' * 130}")
 
-        # Header
+        # Header matches user's request exactly
         header = (
-            f"{'Game/Match':<35} {'Bet?':<8} {'Amount':>8} {'Exp Ret':>10} "
-            f"{'Elo %':>8} {'Kalshi %':>10} {'BetMGM %':>10} {'Sport':<8}"
+            f"{'Matchup (Home vs Away)':<35} {'Elo Rankings (Rating)':<40} "
+            f"{'Elo Prob':>10} {'Kalshi Prob':>12} {'Edge':>10}"
         )
         print(header)
-        print("─" * 120)
+        print("─" * 110)
 
-        # Sort by sport then by expected value
+        # Deduplicate by ticker before printing
+        seen_tickers = set()
+        unique_allocs = []
+        for alloc in allocations:
+            if alloc.opportunity.ticker not in seen_tickers:
+                unique_allocs.append(alloc)
+                seen_tickers.add(alloc.opportunity.ticker)
+
+        # Sort by sport then by edge (to highlight best value)
         sorted_allocs = sorted(
-            allocations,
-            key=lambda a: (a.opportunity.sport, -a.opportunity.expected_value)
+            unique_allocs,
+            key=lambda a: (a.opportunity.sport, -a.opportunity.edge)
         )
 
         current_sport = None
+        sport_rankings = {}
+
         for alloc in sorted_allocs:
             opp = alloc.opportunity
 
-            # Sport separator
+            # Sport separator and rankings load
             if opp.sport != current_sport:
                 if current_sport is not None:
-                    print("─" * 120)
+                    print("─" * 110)
                 current_sport = opp.sport
+                print(f"[{current_sport.upper()}]")
+                sport_rankings = self._get_rankings(current_sport)
 
-            # Game name (team vs opponent)
-            game_name = f"{opp.team} vs {opp.opponent}"
-            if len(game_name) > 33:
-                game_name = game_name[:30] + "..."
+            # Matchup
+            matchup = f"{opp.team} vs {opp.opponent}"
+            if len(matchup) > 33:
+                matchup = matchup[:30] + "..."
 
-            # Bet status
-            if opp.ticker in placed_tickers:
-                bet_status = "✓ YES"
-            elif opp.ticker in skipped_tickers:
-                bet_status = "⚠️ SKIP"
-            elif opp.ticker in error_tickers:
-                bet_status = "❌ ERR"
-            else:
-                bet_status = "PLAN"
+            # Rankings (Rating)
+            # Use explicit home/away team names from the opportunity object
+            h_team = opp.home_team
+            a_team = opp.away_team
 
-            # Bet amount
-            amount_str = f"${alloc.bet_size:.2f}"
+            h_rating = opp.home_rating
+            a_rating = opp.away_rating
 
-            # Expected return (amount * expected_value)
-            exp_return = alloc.bet_size * opp.expected_value
-            exp_return_str = f"${exp_return:+.2f}"
+            h_info = sport_rankings.get(h_team, f"({h_rating:.0f})")
+            a_info = sport_rankings.get(a_team, f"({a_rating:.0f})")
+
+            # Formatting as "HOME #Rank (Rating) vs AWAY #Rank (Rating)"
+            rankings_str = f"{h_team} {h_info} vs {a_team} {a_info}"
+            if len(rankings_str) > 38:
+                rankings_str = rankings_str[:37] + "..."
 
             # Probabilities
             elo_pct = f"{opp.elo_prob * 100:.1f}%"
             kalshi_pct = f"{opp.market_prob * 100:.1f}%"
-
-            # BetMGM probability
-            if opp.betmgm_prob is not None:
-                betmgm_pct = f"{opp.betmgm_prob * 100:.1f}%"
-            else:
-                betmgm_pct = "N/A"
-
-            # Sport
-            sport_str = opp.sport.upper()
+            edge_pct = f"{opp.edge * 100:+.1f}%"
 
             # Print row
             row = (
-                f"{game_name:<35} {bet_status:<8} {amount_str:>8} {exp_return_str:>10} "
-                f"{elo_pct:>8} {kalshi_pct:>10} {betmgm_pct:>10} {sport_str:<8}"
+                f"{matchup:<35} {rankings_str:<40} "
+                f"{elo_pct:>10} {kalshi_pct:>12} {edge_pct:>10}"
             )
             print(row)
 
-        print("─" * 120)
+        print("─" * 110)
 
         # Summary stats
         total_bet = sum(a.bet_size for a in allocations)
         total_exp_return = sum(a.bet_size * a.opportunity.expected_value for a in allocations)
-        avg_elo = sum(a.opportunity.elo_prob for a in allocations) / len(allocations)
-        avg_kalshi = sum(a.opportunity.market_prob for a in allocations) / len(allocations)
-
-        # Count BetMGM available
-        betmgm_count = sum(1 for a in allocations if a.opportunity.betmgm_prob is not None)
+        avg_edge = sum(a.opportunity.edge for a in allocations) / len(allocations) if allocations else 0
 
         print(f"\nSummary:")
-        print(f"  Total Games: {len(allocations)}")
-        print(f"  Total Bet: ${total_bet:.2f}")
-        print(f"  Total Expected Return: ${total_exp_return:+.2f}")
-        print(f"  Avg Elo Prob: {avg_elo * 100:.1f}%")
-        print(f"  Avg Kalshi Prob: {avg_kalshi * 100:.1f}%")
-        print(f"  BetMGM Odds Available: {betmgm_count}/{len(allocations)}")
-        print(f"{'=' * 120}\n")
+        print(f"  Total Recommended Bets: {len(allocations)}")
+        print(f"  Total Capital Allocated: ${total_bet:.2f}")
+        print(f"  Expected Portfolio Return: ${total_exp_return:+.2f}")
+        print(f"  Average Edge: {avg_edge * 100:.1f}%")
+        print(f"{'=' * 130}\n")
+
 
 
 def main():

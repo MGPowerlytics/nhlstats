@@ -196,10 +196,99 @@ class NHLDatabaseLoader:
         return games_loaded
 
     def _load_nba_scoreboard(self, file_path: Path):
-        """Load NBA scoreboard JSON into PostgreSQL"""
+        """Load NBA scoreboard JSON into PostgreSQL (supports ESPN and legacy NBA Stats formats)"""
         with open(file_path) as f:
             data = json.load(f)
 
+        # --- ESPN Format ---
+        if "events" in data:
+            for event in data["events"]:
+                try:
+                    game_id = event["id"]
+                    # ESPN date is ISO format e.g. "2026-02-04T00:00Z"
+                    game_date_str = event["date"].split("T")[0]
+                    season = event.get("season", {}).get("year")
+
+                    # Determine status
+                    status_desc = event.get("status", {}).get("type", {}).get("description", "Scheduled")
+                    if "Final" in status_desc:
+                        status = "Final"
+                    elif "In Progress" in status_desc or "Live" in status_desc:
+                        status = "Live"
+                    else:
+                        status = "Scheduled"
+
+                    # Get competitors
+                    home_team = None
+                    away_team = None
+                    home_score = 0
+                    away_score = 0
+
+                    competitions = event.get("competitions", [])
+                    if competitions:
+                        competitors = competitions[0].get("competitors", [])
+                        for comp in competitors:
+                            team_info = comp.get("team", {})
+                            abbrev = team_info.get("abbreviation")
+                            score = int(comp.get("score", 0))
+
+                            if comp.get("homeAway") == "home":
+                                home_team = abbrev
+                                home_score = score
+                            else:
+                                away_team = abbrev
+                                away_score = score
+
+                    if not home_team or not away_team:
+                        continue
+
+                    params = {
+                        "game_id": game_id,
+                        "game_date": game_date_str,
+                        "season": season,
+                        "game_type": "Regular",  # Simplification
+                        "home_team": home_team,
+                        "away_team": away_team,
+                        "home_score": home_score,
+                        "away_score": away_score,
+                        "status": status,
+                    }
+
+                    # Ensure table exists
+                    self.db.execute("""
+                        CREATE TABLE IF NOT EXISTS nba_games (
+                            game_id VARCHAR PRIMARY KEY,
+                            game_date DATE,
+                            season INTEGER,
+                            game_type VARCHAR,
+                            home_team VARCHAR,
+                            away_team VARCHAR,
+                            home_score INTEGER,
+                            away_score INTEGER,
+                            status VARCHAR
+                        )
+                    """)
+
+                    self.db.execute(
+                        """
+                        INSERT INTO nba_games (
+                            game_id, game_date, season, game_type,
+                            home_team, away_team, home_score, away_score, status
+                        ) VALUES (:game_id, :game_date, :season, :game_type, :home_team, :away_team, :home_score, :away_score, :status)
+                        ON CONFLICT (game_id) DO UPDATE SET
+                            home_score = EXCLUDED.home_score,
+                            away_score = EXCLUDED.away_score,
+                            status = EXCLUDED.status,
+                            game_date = EXCLUDED.game_date
+                    """,
+                        params,
+                    )
+
+                except Exception as e:
+                    print(f"    Error loading NBA game {event.get('id')}: {e}")
+            return
+
+        # --- Legacy NBA Stats Format ---
         if "resultSets" not in data:
             return
 
@@ -241,11 +330,6 @@ class NHLDatabaseLoader:
                 game_date_str = row[h_cols["GAME_DATE_EST"]].split("T")[0]
                 home_id = row[h_cols["HOME_TEAM_ID"]]
                 visitor_id = row[h_cols["VISITOR_TEAM_ID"]]
-                row[h_cols["GAMECODE"]].split("/")[1][
-                    -3:
-                ]  # CHAORL -> ORL? No, GAMECODE is 2026.../CHAORL. Usually VisitorHome?
-                # Let's trust IDs or lookup codes if needed.
-                # Actually, LineScore has TEAM_ABBREVIATION.
 
                 # Fetch team abbreviations from LineScore if possible
                 home_team = str(home_id)

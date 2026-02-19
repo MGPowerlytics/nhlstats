@@ -1,3 +1,81 @@
+## 2026-02-05 - Fixes for Portfolio Betting Integrity and Name Resolution
+
+### Fixed
+- **Rating Swaps in Logs**: Refactored `BetOpportunity` dataclass to include explicit `home_team` and `away_team` fields. Updated `_print_comprehensive_table` in `plugins/portfolio_betting.py` to use these explicit venue fields instead of guessing based on the "bet on" team. This ensures Elo ratings are always correctly pinned to the right team in the logs.
+- **Variable Leaking across Sports**: Fixed a bug in `load_opportunities_from_database` where loop variables `home_team` and `away_team` leaked from NBA iterations into NCAAB and Tennis iterations. This was causing "SAS vs DAL" to incorrectly appear as the matchup for all sports in the final portfolio logs.
+- **WNCAAB 1500 Elo Default**:
+    - Added `wncaab` to the `class_mapping` in the `identify_good_bets` DAG task, ensuring `WNCAABEloRating` is correctly instantiated.
+    - Added comprehensive WNCAAB name mappings (e.g., `AUB` -> `Auburn`, `FLA` -> `Florida`, `VAN` -> `Vanderbilt`) to the centralized `NamingResolver`.
+    - Enhanced `NamingResolver.resolve` with cross-sport fallback logic to handle abbreviations mapped in related sports (e.g., using `ncaab` mappings for `wncaab` if sport-specific mapping is missing).
+- **DAG Cleanup**: Streamlined `identify_good_bets` in `dags/multi_sport_betting_workflow.py` by removing redundant manual rating calculation loops and duplicate "Save results" blocks. The task now relies on the accurate ratings already calculated by `OddsComparator`.
+
+### Added
+- **Integrity Tests**: Used TDD to create reproduction and verification tests for the rating swap and variable leaking issues, ensuring these regressions do not return.
+
+---
+
+## 2026-02-02 - Critical Fixes for NBA Data and Betting Pipeline
+
+### Fixed
+- **NBA Data Ingestion**: Updated `download_games` in DAG to process previous day's games (T-1) in addition to current day (T). This fixes the issue where "Final" scores from yesterday were missed if the DAG ran before they were processed, preventing Elo updates.
+- **DAG Dependency Bug**: Fixed race condition where `portfolio_optimized_betting` ran before `load_bets_db` finished. Changed dependency to strictly wait for all db load tasks.
+- **Betting Strategy Config**: Changed `min_edge` from `0.0` to `-1.0` in `portfolio_optimized_betting` to allow "Market Agreement" bets (where we bet WITH the market even if edge is negative relative to model probability).
+
+### Analysis
+- **NBA Betting Volume**: These fixes restored NBA betting volume (e.g., 6 opportunities found for Feb 2nd/3rd).
+- **Market Agreement**: Confirmed that strategy requires allowing negative edges (Elo < Market) when direction matches.
+
+---
+
+## 2026-02-01 - Added Chinese Basketball Association (CBA) Support
+
+### Added
+- **CBA (Chinese Basketball Association)**: Added as 11th sport to the betting system
+  - `plugins/elo/cba_elo_rating.py`: New Elo rating class with K=20, home_advantage=80 (strong home advantage in China)
+  - `plugins/cba_games.py`: Games data loader using TheSportsDB (free API) with backfill capability
+  - `data/cba_team_mapping.json`: Team name normalization for all 20 CBA teams with Chinese aliases
+  - Updated `plugins/elo/__init__.py` and `plugins/elo/factory.py`: Registered `CBAEloRating` class
+  - Updated `plugins/kalshi_markets.py`: Added `KXCBAGAME` series ticker and `fetch_cba_markets()` function
+  - Updated `dags/multi_sport_betting_workflow.py`: Full integration with SPORTS_CONFIG and all DAG tasks
+  - Updated `dashboard/dashboard_app.py`: Added CBA to league selector
+
+### Tests
+- `tests/test_cba_elo_tdd.py`: 18 TDD tests covering inheritance, parameters, functionality, updates, registry
+- `tests/test_cba_integration.py`: 24 integration tests covering Elo, games, Kalshi, team mapping, and DAG integration
+- Updated `tests/test_fetch_markets_smoke.py`: Updated sport count expectation to 11
+- All tests passing: 1298 passed, 45 skipped
+
+### CBA-Specific Design Decisions
+- **Strong Home Advantage (80)**: CBA has very strong home court advantage
+- **Standard K-Factor (20)**: Consistent with other basketball leagues
+- **20 Teams**: Guangdong Southern Tigers, Liaoning Flying Leopards, Beijing Ducks, etc.
+- **Free Data Source**: Using TheSportsDB API (free tier)
+- **Kalshi Markets**: Placeholder for future market availability
+
+---
+
+## 2026-02-01 - Added Unrivaled Basketball Support
+
+### Added
+- **Unrivaled Basketball (3x3 Women's Pro League)**: Added as 10th sport to the betting system
+  - `plugins/elo/unrivaled_elo_rating.py`: New Elo rating class with K=24, home_advantage=0 (all neutral site)
+  - `plugins/unrivaled_games.py`: Games data loader with team name normalization and manual entry support
+  - Updated `plugins/kalshi_markets.py`: Added `KXUNRIVALED` series ticker and `fetch_unrivaled_markets()` function
+  - Updated `dags/multi_sport_betting_workflow.py`: Full integration with SPORTS_CONFIG and all DAG tasks
+
+### Tests
+- `tests/test_unrivaled_elo_tdd.py`: 32 TDD tests covering inheritance, parameters, functionality, updates, registry
+- `tests/test_unrivaled_integration.py`: 19 integration tests covering Elo, games, Kalshi, and DAG integration
+- Updated `tests/test_unified_elo_interface.py`: Added `UnrivaledEloRating` to unified interface verification
+
+### Unrivaled-Specific Design Decisions
+- **No Home Advantage**: All games at same venue → `home_advantage=0`
+- **Higher K-Factor (24)**: 3x3 basketball has higher variance than 5x5
+- **All Games Neutral**: `is_neutral=True` for all updates
+- **6 Teams**: Rose BC, Lunar Owls BC, Phantom BC, Mist BC, Vinyl BC, Laces BC
+
+---
+
 ## 2026-02-01 - Exclude Unprofitable Betting Segments (Backtest Analysis)
 
 ### Added

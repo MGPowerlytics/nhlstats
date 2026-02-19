@@ -49,7 +49,7 @@ class TennisEloRating(BaseEloRating):
         parts = name.split()
         if len(parts) >= 2:
             first = parts[0]
-            last = " ".join(parts[1:])
+            last = parts[-1]  # Use last part as last name
             return f"{last} {first[0]}."
 
         # Single word name (e.g., "Korda") - try to find matching player

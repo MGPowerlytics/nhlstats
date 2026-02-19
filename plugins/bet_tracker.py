@@ -193,11 +193,31 @@ def backfill_bet_metrics(db: DBManager = default_db) -> None:
                 WHERE placed_bets.ticker = bet_recommendations.ticker
                 AND ticker IS NOT NULL
                 ORDER BY created_at DESC LIMIT 1
+            ),
+                home_team = (
+                SELECT home_team FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                away_team = (
+                SELECT away_team FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
+            ),
+                bet_on = (
+                SELECT bet_on FROM bet_recommendations
+                WHERE placed_bets.ticker = bet_recommendations.ticker
+                AND ticker IS NOT NULL
+                ORDER BY created_at DESC LIMIT 1
             )
             WHERE elo_prob IS NULL
+               OR home_team IS NULL
+               OR home_team = 'None'
         """
         db.execute(query)
-        print("✓ Backfilled missing bet metrics from recommendations")
+        print("✓ Backfilled missing bet metrics INCLUDING team data from recommendations")
     except Exception as e:
         print(f"⚠️  Error backfilling metrics: {e}")
 
@@ -245,10 +265,18 @@ def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default
             sport = "NFL"
         elif "NCAAMBGAME" in ticker:
             sport = "NCAAB"
+        elif "NCAAWBGAME" in ticker:  # Women's NCAA Basketball
+            sport = "WNCAAB"
         elif "ATPMATCH" in ticker or "WTAMATCH" in ticker:
             sport = "TENNIS"
+        elif "ATPCHALLENGERMATCH" in ticker or "WTACHALLENGERMATCH" in ticker:
+            sport = "TENNIS"  # Challenger tournaments are still tennis
         elif "EPLGAME" in ticker:
             sport = "EPL"
+        elif "LIGUE1GAME" in ticker:
+            sport = "LIGUE1"
+        elif "CBAGAME" in ticker:
+            sport = "CBA"
 
         side = fill.get("side", "")
         count = fill.get("count", 0)
