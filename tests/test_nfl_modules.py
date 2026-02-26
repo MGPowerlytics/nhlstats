@@ -363,7 +363,7 @@ class TestNBAGamesDirect:
 
     def test_nba_api_url(self):
         """Test NBA API URL format."""
-        # NBA Stats API
-        url = "https://stats.nba.com/stats/scoreboard"
+        # ESPN API for NBA
+        url = "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
 
-        assert "stats.nba.com" in url
+        assert "site.api.espn.com" in url

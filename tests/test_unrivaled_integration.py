@@ -86,8 +86,14 @@ class TestUnrivaledGamesIntegration:
         games = UnrivaledGames()
         df = games.load_games()
 
-        required_columns = ["date", "home_team", "away_team", "home_score",
-                          "away_score", "neutral"]
+        required_columns = [
+            "date",
+            "home_team",
+            "away_team",
+            "home_score",
+            "away_score",
+            "neutral",
+        ]
 
         # Empty DataFrame should still have columns defined
         for col in required_columns:
@@ -151,6 +157,7 @@ class TestUnrivaledDAGConfiguration:
     def test_sports_config_has_unrivaled(self):
         """SPORTS_CONFIG includes unrivaled."""
         import sys
+
         sys.path.insert(0, "dags")
 
         from multi_sport_betting_workflow import SPORTS_CONFIG
@@ -167,6 +174,7 @@ class TestUnrivaledDAGConfiguration:
     def test_unrivaled_config_values(self):
         """Unrivaled config has correct values."""
         import sys
+
         sys.path.insert(0, "dags")
 
         from multi_sport_betting_workflow import SPORTS_CONFIG
@@ -182,6 +190,7 @@ class TestUnrivaledDAGConfiguration:
     def test_team_mapping_exists(self):
         """Team mapping exists for Unrivaled."""
         import sys
+
         sys.path.insert(0, "dags")
 
         from multi_sport_betting_workflow import SPORTS_CONFIG

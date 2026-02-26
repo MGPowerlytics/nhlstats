@@ -70,24 +70,39 @@ class OddsComparator:
         min_edge: float = 0.05,
         use_sharp_confirmation: bool = False,
         market_confidence_cutoff: float = 0.55,
+        enable_high_edge_disagreement: bool = False,
+        high_edge_threshold: float = 0.10,
     ) -> List[Dict]:
         """
-        Identifies betting opportunities using MARKET AGREEMENT strategy.
+        Identifies betting opportunities using MARKET AGREEMENT strategy with optional
+        high-edge disagreement strategy.
 
-        Strategy: Bet when our Elo prediction agrees with Kalshi's market prediction.
-        - If Elo predicts home win (>50%) AND market predicts home win (>cutoff), bet home.
-        - If Elo predicts away win (<50%) AND market predicts away win (<1-cutoff), bet away.
+        PRIMARY STRATEGY (Market Agreement):
+        Bet when our Elo prediction agrees with Kalshi's market prediction.
+        - If Elo predicts home win (>threshold) AND market predicts home win (>cutoff), bet home.
+        - If Elo predicts away win (<1-threshold) AND market predicts away win (<1-cutoff), bet away.
+
+        SECONDARY STRATEGY (High-Edge Disagreement - optional):
+        When enabled, also bet when Elo strongly disagrees with the market (high edge)
+        even if they don't agree on the same side.
+        - Bet if edge > high_edge_threshold AND elo_prob > threshold
+        - Only for sports where Elo has shown strong predictive power
 
         Args:
             sport: Sport code (nba, nhl, etc.)
             elo_ratings: Dictionary of team/player Elo ratings
             elo_system: Elo system instance with predict() method
-            threshold: (DEPRECATED) No longer used in market agreement strategy
+            threshold: Minimum Elo probability for a side (default 0.65)
+                - For home bets: elo_prob > threshold
+                - For away bets: elo_prob < (1 - threshold)
             min_edge: (DEPRECATED) No longer used in market agreement strategy
             use_sharp_confirmation: (DEPRECATED) No longer used in market agreement strategy
             market_confidence_cutoff: Minimum market probability for a side (default 0.55)
                 - For home bets: market_prob > cutoff
                 - For away bets: market_prob < (1 - cutoff)
+            enable_high_edge_disagreement: If True, enable high-edge disagreement strategy
+                for additional betting opportunities (default: False)
+            high_edge_threshold: Minimum edge required for disagreement strategy (default: 0.10)
         """
         opportunities = []
 
@@ -245,22 +260,47 @@ class OddsComparator:
                         edge = elo_prob - market_prob
 
                         # Market Agreement Logic:
-                        # - Elo predicts this side wins (elo_prob > 0.5)
+                        # - Elo predicts this side wins (elo_prob > threshold)
                         # - Market also predicts this side wins (market_prob > cutoff)
-                        elo_predicts_win = elo_prob > 0.5
+                        elo_predicts_win = elo_prob > threshold
                         market_predicts_win = market_prob > market_confidence_cutoff
 
-                        # Both must agree this side wins
-                        if elo_predicts_win and market_predicts_win:
+                        # High-Edge Disagreement Logic (optional):
+                        # - Elo predicts this side wins (elo_prob > threshold)
+                        # - Edge is very high (edge > high_edge_threshold)
+                        # - Market may not agree (market_prob could be low)
+                        high_edge_disagreement = (
+                            enable_high_edge_disagreement
+                            and elo_predicts_win
+                            and edge > high_edge_threshold
+                        )
+
+                        # Bet if either market agreement OR high-edge disagreement
+                        if (
+                            elo_predicts_win and market_predicts_win
+                        ) or high_edge_disagreement:
                             # Confidence based on agreement strength
                             # (how close are elo_prob and market_prob)
                             agreement_diff = abs(elo_prob - market_prob)
-                            if agreement_diff < 0.05:
-                                confidence = "HIGH"  # Very close agreement
-                            elif agreement_diff < 0.15:
-                                confidence = "MEDIUM"  # Reasonable agreement
+
+                            if high_edge_disagreement:
+                                # For high-edge disagreement bets, confidence reflects going against market
+                                if edge > 0.15:
+                                    confidence = "HIGH_DISAGREEMENT"  # Very high edge against market
+                                elif edge > 0.10:
+                                    confidence = "MEDIUM_DISAGREEMENT"  # High edge against market
+                                else:
+                                    confidence = "LOW_DISAGREEMENT"  # Moderate edge against market
                             else:
-                                confidence = "LOW"  # Wide disagreement but same side
+                                # Market agreement bets
+                                if agreement_diff < 0.05:
+                                    confidence = "HIGH"  # Very close agreement
+                                elif agreement_diff < 0.15:
+                                    confidence = "MEDIUM"  # Reasonable agreement
+                                else:
+                                    confidence = (
+                                        "LOW"  # Wide disagreement but same side
+                                    )
 
                             # Calculate Expected Value (EV)
                             # EV = (elo_prob × payout) - 1
@@ -291,8 +331,16 @@ class OddsComparator:
                                     "game_id": game_id,
                                     "home_team": row["home_team_name"],
                                     "away_team": row["away_team_name"],
-                                    "home_rating": elo_system.get_rating(elo_home) if sport != "tennis" else elo_system.get_rating(elo_home, tour=tour),
-                                    "away_rating": elo_system.get_rating(elo_away) if sport != "tennis" else elo_system.get_rating(elo_away, tour=tour),
+                                    "home_rating": (
+                                        elo_system.get_rating(elo_home)
+                                        if sport != "tennis"
+                                        else elo_system.get_rating(elo_home, tour=tour)
+                                    ),
+                                    "away_rating": (
+                                        elo_system.get_rating(elo_away)
+                                        if sport != "tennis"
+                                        else elo_system.get_rating(elo_away, tour=tour)
+                                    ),
                                     "bet_on": team_name,
                                     "side": side,
                                     "elo_prob": elo_prob,

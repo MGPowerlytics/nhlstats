@@ -203,7 +203,7 @@ class TestNHLEloRatingDeep:
     def test_init_defaults(self, nhl_elo):
         # NHL uses different defaults
         assert nhl_elo.k_factor == 20.0
-        assert nhl_elo.home_advantage == 100.0
+        assert nhl_elo.home_advantage == 65.0  # Reduced from 100 based on empirical NHL home win rates
 
     def test_predict(self, nhl_elo):
         prob = nhl_elo.predict("Maple Leafs", "Bruins")

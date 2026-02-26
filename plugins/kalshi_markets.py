@@ -10,10 +10,12 @@ Provides market fetching functions for all sports with:
 """
 
 import logging
+import re
 import time
+from abc import ABC, abstractmethod
 from datetime import datetime
 from pathlib import Path
-import re
+from typing import Optional, Tuple
 
 # Configure module logger
 logger = logging.getLogger(__name__)
@@ -21,6 +23,7 @@ logger = logging.getLogger(__name__)
 # Try to import kalshi_python - handle gracefully if missing
 try:
     from kalshi_python import Configuration, ApiClient, MarketsApi
+
     KALSHI_AVAILABLE = True
 except ImportError as e:
     logger.warning(f"⚠️  kalshi_python not installed: {e}")
@@ -59,7 +62,9 @@ class KalshiAPI:
 
     def __init__(self, api_key_id, private_key_pem):
         if not KALSHI_AVAILABLE:
-            raise ImportError("kalshi_python package not installed. Run: pip install kalshi-python")
+            raise ImportError(
+                "kalshi_python package not installed. Run: pip install kalshi-python"
+            )
 
         self.api_key_id = api_key_id
         self.private_key_pem = private_key_pem
@@ -98,18 +103,158 @@ class KalshiAPI:
                 limit=limit,
             )
             result = response.to_dict()
-            market_count = len(result.get('markets', []))
-            logger.info(f"✓ Fetched {market_count} markets from {series_ticker or 'all'}")
+            market_count = len(result.get("markets", []))
+            logger.info(
+                f"✓ Fetched {market_count} markets from {series_ticker or 'all'}"
+            )
             return result
         except Exception as e:
             error_msg = str(e)
             if "429" in error_msg or "Too Many Requests" in error_msg:
-                logger.warning(f"⚠️  Rate limited by Kalshi API for {series_ticker}: {e}")
+                logger.warning(
+                    f"⚠️  Rate limited by Kalshi API for {series_ticker}: {e}"
+                )
             elif "401" in error_msg or "403" in error_msg:
                 logger.error(f"✗ Authentication failed for Kalshi API: {e}")
             else:
                 logger.error(f"✗ Failed to get markets from {series_ticker}: {e}")
             return None
+
+
+class TickerParser(ABC):
+    """Abstract base for parsing Kalshi tickers into (home_team, away_team, game_date)."""
+
+    @abstractmethod
+    def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
+        """Return (home_team, away_team, game_date) or None if parsing fails."""
+        pass
+
+
+class StandardTickerParser(TickerParser):
+    """Parses standard sport tickers (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB)."""
+
+    # Ticker part indices
+    DATE_PART_IDX = 1
+    TEAMS_PART_IDX = 2
+    TEAM_CODE_LENGTH = 3
+    TOTAL_TEAM_CHARS = 6
+
+    def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
+        parts = ticker.split("-")
+        if len(parts) < 3:
+            return None
+
+        # Attempt 1: Old numeric date format (YYMMDD)
+        date_part = parts[self.DATE_PART_IDX]
+        teams_part = parts[self.TEAMS_PART_IDX]
+
+        game_date = self._parse_numeric_date(date_part)
+        if game_date and len(teams_part) == self.TOTAL_TEAM_CHARS:
+            away_team = teams_part[: self.TEAM_CODE_LENGTH]
+            home_team = teams_part[self.TEAM_CODE_LENGTH :]
+            return home_team, away_team, game_date
+
+        # Attempt 2: New alphanumeric date format (YYMMMDDTEAMS)
+        if len(parts) >= 2:
+            middle = parts[self.DATE_PART_IDX]
+            match = re.match(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$", middle)
+            if match:
+                y_str, m_str, d_str, teams_str = match.groups()
+                try:
+                    dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
+                    game_date = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    return None
+
+                if len(teams_str) == self.TOTAL_TEAM_CHARS:
+                    away_team = teams_str[: self.TEAM_CODE_LENGTH]
+                    home_team = teams_str[self.TEAM_CODE_LENGTH :]
+                    return home_team, away_team, game_date
+
+        # Fallback: try to extract teams from title
+        if " vs " in title:
+            # Simple fallback – caller may handle further resolution
+            return None
+
+        return None
+
+    @staticmethod
+    def _parse_numeric_date(date_part: str) -> Optional[str]:
+        """Parse YYMMDD numeric date string to YYYY-MM-DD."""
+        if len(date_part) == 6 and date_part.isdigit():
+            try:
+                year = 2000 + int(date_part[0:2])
+                month = int(date_part[2:4])
+                day = int(date_part[4:6])
+                return f"{year}-{month:02d}-{day:02d}"
+            except ValueError:
+                pass
+        return None
+
+
+class TennisTickerParser(TickerParser):
+    """Parses tennis tickers (ATP, WTA, Challenger)."""
+
+    # Regex for extracting player names from title
+    PLAYER_REGEXES = [
+        r"win the (.*?) vs (.*?) (?:match|:)",
+        r"win the (.*?) vs (.*?) match",
+    ]
+
+    def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
+        # Extract date from ticker (format: SERIES-YYMMMDD???-OUTCOME)
+        parts = ticker.split("-")
+        game_date = None
+        if len(parts) >= 2:
+            middle = parts[1]
+            match = re.match(r"^(\d{2})([A-Z]{3})(\d{2})", middle)
+            if match:
+                y_str, m_str, d_str = match.groups()
+                try:
+                    dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
+                    game_date = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    pass
+
+        # Extract player names from title
+        home_team = away_team = None
+        for pattern in self.PLAYER_REGEXES:
+            match = re.search(pattern, title)
+            if match:
+                home_team = match.group(1).strip()
+                away_team = match.group(2).strip()
+                if away_team.endswith(" match"):
+                    away_team = away_team[:-6].strip()
+                break
+
+        if not home_team or not away_team:
+            return None
+
+        return home_team, away_team, game_date
+
+
+def _get_parser(sport: str) -> TickerParser:
+    """Return appropriate parser for the given sport."""
+    if sport.lower() == "tennis":
+        return TennisTickerParser()
+    return StandardTickerParser()
+
+
+def _parse_market(
+    ticker: str, title: str, sport: str
+) -> Optional[Tuple[str, str, str]]:
+    """Parse ticker and title into home_team, away_team, game_date."""
+    parser = _get_parser(sport)
+    return parser.parse(ticker, title)
+
+
+def _resolve_names(sport: str, home_team: str, away_team: str) -> Tuple[str, str]:
+    """Resolve canonical team/player names using NamingResolver."""
+    from naming_resolver import NamingResolver
+
+    canon_home = NamingResolver.resolve(sport, "kalshi", home_team) or home_team
+    canon_away = NamingResolver.resolve(sport, "kalshi", away_team) or away_team
+    return canon_home, canon_away
 
 
 def _generate_game_id(sport, game_date, home_team, away_team):
@@ -123,6 +268,94 @@ def _generate_game_id(sport, game_date, home_team, away_team):
     return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
 
 
+def _upsert_game(
+    db_manager: DBManager,
+    sport: str,
+    game_date: str,
+    home_team: str,
+    away_team: str,
+    canon_home: str,
+    canon_away: str,
+) -> str:
+    """Upsert game into unified_games table and return game_id."""
+    game_id = _generate_game_id(sport, game_date, canon_home, canon_away)
+    db_manager.execute(
+        """
+        INSERT INTO unified_games (
+            game_id, sport, game_date, home_team_id, home_team_name,
+            away_team_id, away_team_name, status
+        ) VALUES (:game_id, :sport, :game_date, :home_id, :home_name,
+                 :away_id, :away_name, :status)
+        ON CONFLICT (game_id) DO UPDATE SET
+            status = EXCLUDED.status
+    """,
+        {
+            "game_id": game_id,
+            "sport": sport.upper(),
+            "game_date": game_date,
+            "home_id": home_team,
+            "home_name": canon_home,
+            "away_id": away_team,
+            "away_name": canon_away,
+            "status": "Scheduled",
+        },
+    )
+    return game_id
+
+
+def _upsert_odds(
+    db_manager: DBManager,
+    game_id: str,
+    market: dict,
+    home_team: str,
+    away_team: str,
+    ticker: str,
+) -> bool:
+    """Upsert odds into game_odds table. Returns True if odds were inserted."""
+    parts = ticker.split("-")
+    outcome_side = parts[-1] if len(parts) > 1 else None
+    yes_price_cents = market.get("yes_ask", 0)
+
+    if yes_price_cents <= 0 or not outcome_side:
+        return False
+
+    decimal_odds = 100.0 / yes_price_cents
+
+    def _last_name_code(name: str) -> str:
+        parts = name.split()
+        return parts[-1][:3].upper() if parts else name[:3].upper()
+
+    h_code = _last_name_code(home_team)
+    a_code = _last_name_code(away_team)
+
+    if outcome_side == h_code:
+        outcome_name = "home"
+    elif outcome_side == a_code:
+        outcome_name = "away"
+    else:
+        outcome_name = "home" if outcome_side == home_team else "away"
+
+    odds_id = f"{game_id}_kalshi_{outcome_name}"
+    db_manager.execute(
+        """
+        INSERT INTO game_odds (
+            odds_id, game_id, bookmaker, market_name, outcome_name, price, is_pregame, external_id
+        ) VALUES (:odds_id, :game_id, 'Kalshi', 'moneyline', :outcome_name, :price, True, :ticker)
+        ON CONFLICT (odds_id) DO UPDATE SET
+            price = EXCLUDED.price,
+            external_id = EXCLUDED.external_id
+    """,
+        {
+            "odds_id": odds_id,
+            "game_id": game_id,
+            "outcome_name": outcome_name,
+            "price": decimal_odds,
+            "ticker": ticker,
+        },
+    )
+    return True
+
+
 def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
     """
     Save Kalshi markets to the unified_games and game_odds tables in PostgreSQL.
@@ -130,202 +363,45 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
     if not markets:
         return 0
 
-    from naming_resolver import NamingResolver
-
     odds_count = 0
-    print(f"💾 Saving {len(markets)} {sport.upper()} Kalshi markets to PostgreSQL...")
+    logger.info(
+        f"💾 Saving {len(markets)} {sport.upper()} Kalshi markets to PostgreSQL..."
+    )
 
     for market in markets:
         ticker = market.get("ticker", "")
         title = market.get("title", "")
 
-        home_team = None
-        away_team = None
-        game_date = None
+        # Parse market
+        parsed = _parse_market(ticker, title, sport)
+        if not parsed:
+            continue
+        home_team, away_team, game_date = parsed
 
-        # Standard Kalshi Ticker Parsing
-        # Attempt 1: SERIES-YYMMDD-AWAYHOME-OUTCOME (Old format)
-        parts = ticker.split("-")
-        parsed = False
-
-        # For tennis, ALWAYS use title parsing for player names (to get full names, not 3-letter codes)
-        # We only extract the date from the ticker for tennis
-        if sport.lower() == "tennis":
-            # Extract date from ticker but use title for names
-            if len(parts) >= 2:
-                middle = parts[1]
-                match_date = re.match(r"^(\d{2})([A-Z]{3})(\d{2})", middle)
-                if match_date:
-                    y_str, m_str, d_str = match_date.groups()
-                    try:
-                        dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
-                        game_date = dt.strftime("%Y-%m-%d")
-                    except ValueError:
-                        pass
-
-            # Parse player names from title
-            match = re.search(r"win the (.*?) vs (.*?) (?:match|:)", title)
-            if not match:
-                match = re.search(r"win the (.*?) vs (.*?) match", title)
-
-            if match:
-                home_team = match.group(1).strip()
-                away_team = match.group(2).strip()
-                if away_team.endswith(" match"):
-                    away_team = away_team[:-6].strip()
-                parsed = True
-
-                # Use close_time as fallback for date
-                if not game_date:
-                    close_time = market.get("close_time")
-                    if close_time:
-                        if isinstance(close_time, str):
-                            game_date = close_time.split("T")[0]
-                        else:
-                            game_date = close_time.strftime("%Y-%m-%d")
-
-        # Non-tennis: use standard ticker parsing
-        elif len(parts) >= 3:
-            # Try numeric date format first (Old)
-            try:
-                date_part = parts[1]
-                # Check if it's purely numeric and length 6 (YYMMDD)
-                if len(date_part) == 6 and date_part.isdigit():
-                    year = 2000 + int(date_part[0:2])
-                    month = int(date_part[2:4])
-                    day = int(date_part[4:6])
-                    game_date = f"{year}-{month:02d}-{day:02d}"
-
-                    teams_part = parts[2]
-                    if len(teams_part) == 6:
-                        away_team = teams_part[0:3]
-                        home_team = teams_part[3:6]
-                        parsed = True
-            except Exception:
-                pass
-
-        # Attempt 2: SERIES-YYMMMDDTEAMS-OUTCOME (New format: 26JAN24LALDAL)
-        if not parsed and len(parts) >= 2:
-            try:
-                # The middle part contains everything: Date + Teams
-                middle = parts[1]
-                # Regex for YYMMMDDTEAMS (e.g. 26JAN24LALDAL)
-                # 2 digits Year, 3 letters Month, 2 digits Day, remaining is Teams
-                match_new = re.match(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$", middle)
-                if match_new:
-                    y_str, m_str, d_str, teams_str = match_new.groups()
-
-                    # Parse date
-                    dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
-                    game_date = dt.strftime("%Y-%m-%d")
-
-                    # Teams: Assuming 3-char codes usually, so 6 chars total?
-                    # Or split in half?
-                    # NBA/NCAAB usually 3 chars.
-                    if len(teams_str) == 6:
-                        away_team = teams_str[0:3]
-                        home_team = teams_str[3:6]
-                        parsed = True
-                    elif (
-                        " vs " in title
-                    ):  # Fallback to title if ticker teams are ambiguous
-                        pass
-            except Exception:
-                # print(f"Failed new format parse: {e}")
-                pass
-
-        # Fallback for Tennis or others where Title is key
-        if not home_team or not away_team or not game_date:
-            if sport.lower() == "tennis":
-                match = re.search(r"win the (.*?) vs (.*?) (?:match|:)", title)
-                if not match:
-                    match = re.search(r"win the (.*?) vs (.*?) match", title)
-
-                if match:
-                    home_team = match.group(1).strip()
-                    away_team = match.group(2).strip()
-                    if away_team.endswith(" match"):
-                        away_team = away_team[:-6].strip()
-
-                    close_time = market.get("close_time")
-                    if close_time:
-                        if isinstance(close_time, str):
-                            game_date = close_time.split("T")[0]
-                        else:
-                            game_date = close_time.strftime("%Y-%m-%d")
+        # If date missing, try to get it from close_time
+        if not game_date:
+            close_time = market.get("close_time")
+            if close_time:
+                if isinstance(close_time, str):
+                    game_date = close_time.split("T")[0]
+                else:
+                    game_date = close_time.strftime("%Y-%m-%d")
 
         if not home_team or not away_team or not game_date:
             continue
 
         # Resolve canonical names
-        canon_home = NamingResolver.resolve(sport, "kalshi", home_team) or home_team
-        canon_away = NamingResolver.resolve(sport, "kalshi", away_team) or away_team
+        canon_home, canon_away = _resolve_names(sport, home_team, away_team)
 
-        game_id = _generate_game_id(sport, game_date, canon_home, canon_away)
-
-        # 1. Upsert into unified_games
-        db_manager.execute(
-            """
-            INSERT INTO unified_games (
-                game_id, sport, game_date, home_team_id, home_team_name,
-                away_team_id, away_team_name, status
-            ) VALUES (:game_id, :sport, :game_date, :home_id, :home_name,
-                     :away_id, :away_name, :status)
-            ON CONFLICT (game_id) DO UPDATE SET
-                status = EXCLUDED.status
-        """,
-            {
-                "game_id": game_id,
-                "sport": sport.upper(),
-                "game_date": game_date,
-                "home_id": home_team,
-                "home_name": canon_home,
-                "away_id": away_team,
-                "away_name": canon_away,
-                "status": "Scheduled",
-            },
+        # Upsert game
+        game_id = _upsert_game(
+            db_manager, sport, game_date, home_team, away_team, canon_home, canon_away
         )
 
-        # 2. Upsert into game_odds for Kalshi
-        outcome_side = parts[-1] if len(parts) > 1 else None
-        yes_price_cents = market.get("yes_ask", 0)
-
-        if yes_price_cents > 0 and outcome_side:
-            decimal_odds = 100.0 / yes_price_cents
-
-            def get_last_name_code(name):
-                parts = name.split()
-                return parts[-1][:3].upper() if parts else name[:3].upper()
-
-            h_code = get_last_name_code(home_team)
-            a_code = get_last_name_code(away_team)
-
-            if outcome_side == h_code:
-                outcome_name = "home"
-            elif outcome_side == a_code:
-                outcome_name = "away"
-            else:
-                outcome_name = "home" if outcome_side == home_team else "away"
-
-            odds_id = f"{game_id}_kalshi_{outcome_name}"
-            db_manager.execute(
-                """
-                INSERT INTO game_odds (
-                    odds_id, game_id, bookmaker, market_name, outcome_name, price, is_pregame, external_id
-                ) VALUES (:odds_id, :game_id, 'Kalshi', 'moneyline', :outcome_name, :price, True, :ticker)
-                ON CONFLICT (odds_id) DO UPDATE SET
-                    price = EXCLUDED.price,
-                    external_id = EXCLUDED.external_id
-            """,
-                {
-                    "odds_id": odds_id,
-                    "game_id": game_id,
-                    "outcome_name": outcome_name,
-                    "price": decimal_odds,
-                    "ticker": ticker,
-                },
-            )
+        # Upsert odds
+        if _upsert_odds(db_manager, game_id, market, home_team, away_team, ticker):
             odds_count += 1
+
     return odds_count
 
 
@@ -338,11 +414,11 @@ def load_kalshi_credentials():
     if not key_file.exists():
         raise FileNotFoundError("Kalshi credentials file not found")
 
-    content = key_file.read_text()
+    content = key_file.read_text(encoding="utf-8")
 
     # 1. Extract API Key ID
     api_key_id = None
-    for line in content.split("\n"):
+    for line in content.splitlines():
         if "API key id:" in line:
             api_key_id = line.split(": ")[1].strip()
             break
@@ -351,7 +427,7 @@ def load_kalshi_credentials():
     private_key = None
     if "-----BEGIN RSA PRIVATE KEY-----" in content:
         # Key is embedded in the kalshkey file
-        lines = content.split("\n")
+        lines = content.splitlines()
         in_key = False
         key_lines = []
         for line in lines:
@@ -371,7 +447,7 @@ def load_kalshi_credentials():
             pem_file = Path(__file__).parent.parent / "kalshi_private_key.pem"
 
         if pem_file.exists():
-            private_key = pem_file.read_text()
+            private_key = pem_file.read_text(encoding="utf-8")
 
     if not api_key_id or not private_key:
         raise ValueError(
@@ -385,7 +461,7 @@ def _fetch_sport_markets(
     sport: str,
     series_tickers: list,
     limit: int = 200,
-    date_str: str = None,
+    _date_str: str = None,  # kept for API compatibility, currently unused
 ) -> list:
     """
     Generic function to fetch markets for any sport with error handling.
@@ -394,13 +470,15 @@ def _fetch_sport_markets(
         sport: Sport code (e.g., 'nba', 'nhl', 'tennis')
         series_tickers: List of Kalshi series tickers to fetch
         limit: Max markets per series (default 200)
-        date_str: Optional date string (currently unused, for API compatibility)
+        _date_str: Optional date string (currently unused, for API compatibility)
 
     Returns:
         List of market dictionaries, empty list on error
     """
     if not KALSHI_AVAILABLE:
-        logger.error(f"✗ Cannot fetch {sport.upper()} markets: kalshi_python not installed")
+        logger.error(
+            f"✗ Cannot fetch {sport.upper()} markets: kalshi_python not installed"
+        )
         return []
 
     try:
@@ -421,7 +499,8 @@ def _fetch_sport_markets(
             result = api.get_markets(series_ticker=series_ticker, limit=limit)
             if result and "markets" in result:
                 markets = [
-                    m for m in result["markets"]
+                    m
+                    for m in result["markets"]
                     if m.get("status") in ["active", "initialized", "open"]
                 ]
                 all_markets.extend(markets)
@@ -433,7 +512,9 @@ def _fetch_sport_markets(
     if all_markets:
         try:
             saved = save_to_db(sport, all_markets)
-            logger.info(f"✓ {sport.upper()}: Fetched {len(all_markets)} markets, saved {saved} odds")
+            logger.info(
+                f"✓ {sport.upper()}: Fetched {len(all_markets)} markets, saved {saved} odds"
+            )
         except Exception as e:
             logger.error(f"✗ Failed to save {sport.upper()} markets to DB: {e}")
     else:
@@ -469,69 +550,58 @@ SPORT_LIMITS = {
 }
 
 
+# Sport-specific fetch functions (unchanged signatures)
 def fetch_nba_markets(date_str=None):
-    """Fetch NBA markets from Kalshi."""
-    return _fetch_sport_markets("nba", SPORT_SERIES["nba"], date_str=date_str)
+    return _fetch_sport_markets("nba", SPORT_SERIES["nba"], _date_str=date_str)
 
 
 def fetch_nhl_markets(date_str=None):
-    """Fetch NHL markets from Kalshi."""
-    return _fetch_sport_markets("nhl", SPORT_SERIES["nhl"], date_str=date_str)
+    return _fetch_sport_markets("nhl", SPORT_SERIES["nhl"], _date_str=date_str)
 
 
 def fetch_epl_markets(date_str=None):
-    """Fetch EPL (English Premier League) markets from Kalshi."""
-    return _fetch_sport_markets("epl", SPORT_SERIES["epl"], date_str=date_str)
+    return _fetch_sport_markets("epl", SPORT_SERIES["epl"], _date_str=date_str)
 
 
 def fetch_ligue1_markets(date_str=None):
-    """Fetch Ligue 1 (French) markets from Kalshi."""
-    return _fetch_sport_markets("ligue1", SPORT_SERIES["ligue1"], date_str=date_str)
+    return _fetch_sport_markets("ligue1", SPORT_SERIES["ligue1"], _date_str=date_str)
 
 
 def fetch_tennis_markets(date_str=None):
-    """Fetch all Tennis markets from Kalshi (ATP, WTA, Challenger)."""
-    return _fetch_sport_markets("tennis", SPORT_SERIES["tennis"], date_str=date_str)
+    return _fetch_sport_markets("tennis", SPORT_SERIES["tennis"], _date_str=date_str)
 
 
 def fetch_ncaab_markets(date_str=None):
-    """Fetch NCAAB (Men's College Basketball) markets from Kalshi."""
     return _fetch_sport_markets(
-        "ncaab", SPORT_SERIES["ncaab"],
+        "ncaab",
+        SPORT_SERIES["ncaab"],
         limit=SPORT_LIMITS.get("ncaab", 200),
-        date_str=date_str
+        _date_str=date_str,
     )
 
 
 def fetch_wncaab_markets(date_str=None):
-    """Fetch WNCAAB (Women's College Basketball) markets from Kalshi."""
     return _fetch_sport_markets(
-        "wncaab", SPORT_SERIES["wncaab"],
+        "wncaab",
+        SPORT_SERIES["wncaab"],
         limit=SPORT_LIMITS.get("wncaab", 200),
-        date_str=date_str
+        _date_str=date_str,
     )
 
 
 def fetch_mlb_markets(date_str=None):
-    """Fetch MLB markets from Kalshi."""
-    return _fetch_sport_markets("mlb", SPORT_SERIES["mlb"], date_str=date_str)
+    return _fetch_sport_markets("mlb", SPORT_SERIES["mlb"], _date_str=date_str)
 
 
 def fetch_nfl_markets(date_str=None):
-    """Fetch NFL markets from Kalshi."""
-    return _fetch_sport_markets("nfl", SPORT_SERIES["nfl"], date_str=date_str)
+    return _fetch_sport_markets("nfl", SPORT_SERIES["nfl"], _date_str=date_str)
 
 
 def fetch_unrivaled_markets(date_str=None):
-    """Fetch Unrivaled (3x3 women's basketball) markets from Kalshi."""
-    return _fetch_sport_markets("unrivaled", SPORT_SERIES["unrivaled"], date_str=date_str)
+    return _fetch_sport_markets(
+        "unrivaled", SPORT_SERIES["unrivaled"], _date_str=date_str
+    )
 
 
 def fetch_cba_markets(date_str=None):
-    """
-    Fetch CBA (Chinese Basketball Association) markets from Kalshi.
-
-    Note: Kalshi may not currently offer CBA markets. This function is
-    implemented for future availability. Returns empty list if no markets found.
-    """
-    return _fetch_sport_markets("cba", SPORT_SERIES["cba"], date_str=date_str)
+    return _fetch_sport_markets("cba", SPORT_SERIES["cba"], _date_str=date_str)

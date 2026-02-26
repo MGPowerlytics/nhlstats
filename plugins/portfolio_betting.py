@@ -435,11 +435,11 @@ def main():
         print("❌ kalshkey file not found")
         return
 
-    content = kalshkey_path.read_text()
+    content = kalshkey_path.read_text(encoding="utf-8")
 
     # Extract API key ID
     api_key_id = None
-    for line in content.split("\n"):
+    for line in content.splitlines():
         if "API key id:" in line:
             api_key_id = line.split(":", 1)[1].strip()
             break
@@ -451,7 +451,7 @@ def main():
     # Save private key to temp PEM file for KalshiBetting
     private_key_lines = []
     in_key = False
-    for line in content.split("\n"):
+    for line in content.splitlines():
         if "-----BEGIN RSA PRIVATE KEY-----" in line:
             in_key = True
         if in_key:
@@ -460,7 +460,7 @@ def main():
             break
 
     temp_key_file = Path("kalshi_private_key.pem")
-    temp_key_file.write_text("\n".join(private_key_lines))
+    temp_key_file.write_text("\n".join(private_key_lines), encoding="utf-8")
 
     try:
         # Initialize Kalshi client

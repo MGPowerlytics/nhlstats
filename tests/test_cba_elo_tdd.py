@@ -109,9 +109,7 @@ class TestCBAEloFunctionality:
         elo = CBAEloRating()
         # With equal ratings, home team should have > 50% win probability
         prob = elo.predict("Guangdong Southern Tigers", "Beijing Ducks")
-        assert prob > 0.5, (
-            f"Home team should have > 50% probability, got {prob}"
-        )
+        assert prob > 0.5, f"Home team should have > 50% probability, got {prob}"
 
     def test_predict_neutral_site(self):
         """Test that neutral site removes home advantage."""

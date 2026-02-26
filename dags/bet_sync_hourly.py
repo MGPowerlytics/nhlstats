@@ -27,7 +27,13 @@ def sync_bets_from_kalshi():
     from bet_tracker import sync_bets_to_database
 
     try:
-        added, updated = sync_bets_to_database()
+        result = sync_bets_to_database()
+        # Ensure we always get a tuple back (defensive programming)
+        if result is None:
+            print("⚠️  sync_bets_to_database returned None, using (0, 0)")
+            added, updated = 0, 0
+        else:
+            added, updated = result
         print(f"✅ Synced bets: {added} added, {updated} updated")
     except Exception as e:
         print(f"❌ Failed to sync bets: {e}")

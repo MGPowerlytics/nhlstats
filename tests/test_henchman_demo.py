@@ -19,8 +19,12 @@ def test_init():
 
     # Verify default parameters
     assert elo.k_factor == 20.0, f"Expected k_factor=20.0, got {elo.k_factor}"
-    assert elo.home_advantage == 100.0, f"Expected home_advantage=100.0, got {elo.home_advantage}"
-    assert elo.initial_rating == 1500.0, f"Expected initial_rating=1500.0, got {elo.initial_rating}"
+    assert elo.home_advantage == 100.0, (
+        f"Expected home_advantage=100.0, got {elo.home_advantage}"
+    )
+    assert elo.initial_rating == 1500.0, (
+        f"Expected initial_rating=1500.0, got {elo.initial_rating}"
+    )
 
     # Verify ratings dictionary is empty initially
     assert elo.ratings == {}, f"Expected empty ratings dict, got {elo.ratings}"
@@ -44,27 +48,43 @@ def test_predict_returns_probability():
     assert isinstance(probability, float), f"Expected float, got {type(probability)}"
 
     # Verify it's between 0 and 1 (inclusive)
-    assert 0.0 <= probability <= 1.0, f"Expected probability between 0 and 1, got {probability}"
+    assert 0.0 <= probability <= 1.0, (
+        f"Expected probability between 0 and 1, got {probability}"
+    )
 
     # Lakers should have higher probability since they're higher rated and at home
-    assert probability > 0.5, f"Expected probability > 0.5 for higher rated home team, got {probability}"
+    assert probability > 0.5, (
+        f"Expected probability > 0.5 for higher rated home team, got {probability}"
+    )
 
-    print(f"✓ Test 1 passed: predict returns probability {probability:.3f} (Lakers at home)")
+    print(
+        f"✓ Test 1 passed: predict returns probability {probability:.3f} (Lakers at home)"
+    )
 
     # Test 2: Predict without home advantage (neutral court)
     probability_neutral = elo.predict("Lakers", "Celtics", is_neutral=True)
 
     # Verify it's a float between 0 and 1
-    assert isinstance(probability_neutral, float), f"Expected float, got {type(probability_neutral)}"
-    assert 0.0 <= probability_neutral <= 1.0, f"Expected probability between 0 and 1, got {probability_neutral}"
+    assert isinstance(probability_neutral, float), (
+        f"Expected float, got {type(probability_neutral)}"
+    )
+    assert 0.0 <= probability_neutral <= 1.0, (
+        f"Expected probability between 0 and 1, got {probability_neutral}"
+    )
 
     # Without home advantage, probability should be lower but still > 0.5
-    assert probability_neutral > 0.5, f"Expected probability > 0.5 for higher rated team, got {probability_neutral}"
+    assert probability_neutral > 0.5, (
+        f"Expected probability > 0.5 for higher rated team, got {probability_neutral}"
+    )
 
     # Home advantage should increase probability
-    assert probability > probability_neutral, f"Expected home advantage to increase probability ({probability:.3f} > {probability_neutral:.3f})"
+    assert probability > probability_neutral, (
+        f"Expected home advantage to increase probability ({probability:.3f} > {probability_neutral:.3f})"
+    )
 
-    print(f"✓ Test 2 passed: predict returns probability {probability_neutral:.3f} (neutral court)")
+    print(
+        f"✓ Test 2 passed: predict returns probability {probability_neutral:.3f} (neutral court)"
+    )
 
     # Test 3: Predict with equal ratings
     elo.ratings["TeamA"] = 1500.0
@@ -73,9 +93,13 @@ def test_predict_returns_probability():
     probability_equal = elo.predict("TeamA", "TeamB", is_neutral=False)
 
     # With equal ratings and home advantage, home team should have slight edge
-    assert 0.5 < probability_equal < 0.7, f"Expected probability ~0.64 for equal teams with home advantage, got {probability_equal}"
+    assert 0.5 < probability_equal < 0.7, (
+        f"Expected probability ~0.64 for equal teams with home advantage, got {probability_equal}"
+    )
 
-    print(f"✓ Test 3 passed: predict returns probability {probability_equal:.3f} (equal ratings, home advantage)")
+    print(
+        f"✓ Test 3 passed: predict returns probability {probability_equal:.3f} (equal ratings, home advantage)"
+    )
 
 
 if __name__ == "__main__":

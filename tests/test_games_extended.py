@@ -39,13 +39,17 @@ class TestNBAGamesExtended:
 
     def test_nba_api_url_format(self):
         """Test NBA API URL format."""
-        base_url = "https://stats.nba.com/stats/scoreboardv2"
+        base_url = (
+            "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+        )
         date_str = "2024-01-15"
 
-        url = f"{base_url}?GameDate={date_str}"
+        # ESPN API uses dates parameter, not GameDate
+        url = f"{base_url}?dates=20240115"
 
-        assert "scoreboardv2" in url
-        assert "GameDate=" in url
+        assert "site.api.espn.com" in url
+        assert "scoreboard" in url
+        assert "dates=" in url
 
     def test_nba_headers(self):
         """Test NBA API requires specific headers."""

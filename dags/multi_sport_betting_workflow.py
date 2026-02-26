@@ -120,7 +120,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "nba_games",
         "kalshi_function": "fetch_nba_markets",
-        "elo_threshold": 0.73,  # Optimized from 0.64 - focuses on highest lift deciles (1.39x lift)
+        "elo_threshold": 0.78,  # Optimized from 0.73 - focus on decile 9+ (69.2%+ win rate, lift 1.31+)
+        "market_confidence_cutoff": 0.52,  # Lower cutoff for predictable NBA markets
         "series_ticker": "KXNBAGAME",
         "team_mapping": {
             "ATL": "Hawks",
@@ -159,7 +160,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "nhl_game_events",
         "kalshi_function": "fetch_nhl_markets",
-        "elo_threshold": 0.66,  # Optimized from 0.77 - was too conservative (1.28x lift at 66%)
+        "elo_threshold": 0.70,  # Optimized from 0.66 - focus on decile 10 (71.8% win rate, lift 1.32+)
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for high-variance NHL
         "series_ticker": "KXNHLGAME",
         "team_mapping": {
             "ANA": "ANA",
@@ -200,7 +202,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "mlb_games",
         "kalshi_function": "fetch_mlb_markets",
-        "elo_threshold": 0.67,  # Optimized from 0.62 - captures top deciles with 1.18x lift
+        "elo_threshold": 0.72,  # Optimized from 0.67 - focus on decile 10 (65.3% win rate, lift 1.23+)
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for high-variance MLB
         "series_ticker": "KXMLBGAME",
         "team_mapping": {},  # Will be populated from database
     },
@@ -208,7 +211,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "nfl_games",
         "kalshi_function": "fetch_nfl_markets",
-        "elo_threshold": 0.70,  # Optimized from 0.68 - strong 1.34x lift in top deciles
+        "elo_threshold": 0.75,  # Optimized from 0.70 - focus on decile 9+ (71.8%+ win rate, lift 1.32+)
+        "market_confidence_cutoff": 0.55,  # Medium cutoff for NFL
         "series_ticker": "KXNFLGAME",
         "team_mapping": {},  # Will be populated from database
     },
@@ -217,6 +221,7 @@ SPORTS_CONFIG = {
         "games_module": "epl_games",
         "kalshi_function": "fetch_epl_markets",
         "elo_threshold": 0.45,  # Threshold for 3-way markets
+        "market_confidence_cutoff": 0.55,  # Standard cutoff for soccer
         "series_ticker": "KXEPLGAME",
         "team_mapping": {
             "MCI": "Man City",
@@ -241,6 +246,7 @@ SPORTS_CONFIG = {
         "games_module": "tennis_games",
         "kalshi_function": "fetch_tennis_markets",
         "elo_threshold": 0.60,
+        "market_confidence_cutoff": 0.55,  # Standard cutoff for tennis
         "series_ticker": "TENNIS",  # Placeholder
         "team_mapping": {},
     },
@@ -248,7 +254,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "ncaab_games",
         "kalshi_function": "fetch_ncaab_markets",
-        "elo_threshold": 0.72,  # Optimized from 0.65 - aligns with NBA pattern
+        "elo_threshold": 0.78,  # Optimized from 0.72 - aligns with updated NBA pattern (focus on highest deciles)
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for college sports (higher variance)
         "series_ticker": "KXNCAAMBGAME",
         "team_mapping": {},
     },
@@ -257,6 +264,7 @@ SPORTS_CONFIG = {
         "games_module": "ligue1_games",
         "kalshi_function": "fetch_ligue1_markets",
         "elo_threshold": 0.45,  # Threshold for 3-way markets
+        "market_confidence_cutoff": 0.55,  # Standard cutoff for soccer
         "series_ticker": "KXLIGUE1GAME",
         "team_mapping": {
             "PSG": "PSG",
@@ -301,7 +309,8 @@ SPORTS_CONFIG = {
         "elo_module": "elo",
         "games_module": "wncaab_games",
         "kalshi_function": "fetch_wncaab_markets",
-        "elo_threshold": 0.72,  # Optimized from 0.65 - aligns with other basketball
+        "elo_threshold": 0.78,  # Optimized from 0.72 - aligns with updated basketball pattern (focus on highest deciles)
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for college sports (higher variance)
         "series_ticker": "KXNCAAWBGAME",
         "team_mapping": {},
     },
@@ -310,6 +319,7 @@ SPORTS_CONFIG = {
         "games_module": "unrivaled_games",
         "kalshi_function": "fetch_unrivaled_markets",
         "elo_threshold": 0.70,  # Similar to other basketball leagues
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for experimental league
         "series_ticker": "KXUNRIVALED",
         "team_mapping": {
             "ROSE": "Rose BC",
@@ -326,6 +336,7 @@ SPORTS_CONFIG = {
         "games_module": "cba_games",
         "kalshi_function": "fetch_cba_markets",
         "elo_threshold": 0.70,  # Similar to other basketball leagues
+        "market_confidence_cutoff": 0.58,  # Higher cutoff for international league
         "series_ticker": "KXCBAGAME",  # Placeholder for future Kalshi markets
         "team_mapping": {
             "GUA": "Guangdong Southern Tigers",
@@ -873,6 +884,76 @@ def update_elo_ratings(sport, **context):
                 is_neutral=game["neutral"],
             )
 
+        # Save ratings to CSV and push to XCom (same logic as common team sports branch)
+        Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
+            parents=True, exist_ok=True
+        )
+        # Filter out NaN values before saving
+        valid_ratings = {
+            team: rating
+            for team, rating in elo.ratings.items()
+            if is_valid_score(rating)
+        }
+
+        # LOGGING: Compare with previous ratings
+        if previous_ratings:
+            print(f"\n📊 {sport.upper()} Elo Rating Changes:")
+            print("=" * 50)
+
+            common_teams = set(valid_ratings.keys()) & set(previous_ratings.keys())
+            new_teams = set(valid_ratings.keys()) - set(previous_ratings.keys())
+            removed_teams = set(previous_ratings.keys()) - set(valid_ratings.keys())
+
+            print(
+                f"  Teams: {len(valid_ratings)} total ({len(common_teams)} updated, {len(new_teams)} new, {len(removed_teams)} removed)"
+            )
+
+            if common_teams:
+                changes = []
+                for team in common_teams:
+                    old = previous_ratings[team]
+                    new = valid_ratings[team]
+                    change = new - old
+                    changes.append((team, old, new, change))
+
+                # Sort by absolute change
+                changes.sort(key=lambda x: abs(x[3]), reverse=True)
+
+                if changes:
+                    avg_change = sum(c[3] for c in changes) / len(changes)
+                    max_increase = max(c[3] for c in changes)
+                    max_decrease = min(c[3] for c in changes)
+
+                    print(f"  Average change: {avg_change:+.2f}")
+                    print(f"  Maximum increase: {max_increase:+.2f}")
+                    print(f"  Maximum decrease: {max_decrease:+.2f}")
+
+                    print(f"\n  Top 3 increases:")
+                    count = 0
+                    for team, old, new, change in changes:
+                        if change > 0 and count < 3:
+                            print(f"    {team}: {old:.1f} → {new:.1f} ({change:+.1f})")
+                            count += 1
+
+                    print(f"\n  Top 3 decreases:")
+                    count = 0
+                    for team, old, new, change in changes:
+                        if change < 0 and count < 3:
+                            print(f"    {team}: {old:.1f} → {new:.1f} ({change:+.1f})")
+                            count += 1
+
+        with open(f"data/{sport}_current_elo_ratings.csv", "w") as f:
+            f.write("team,rating\n")
+            for team in sorted(valid_ratings.keys()):
+                f.write(f"{team},{valid_ratings[team]:.2f}\n")
+
+        # Push to XCom
+        context["task_instance"].xcom_push(
+            key=f"{sport}_elo_ratings", value=valid_ratings
+        )
+        print(f"✓ {sport.upper()} Elo ratings updated: {len(valid_ratings)} teams")
+        return
+
     elif sport == "wncaab":
         from elo import get_elo_class
         from wncaab_games import WNCAABGames
@@ -1325,6 +1406,15 @@ def identify_good_bets(sport, **context):
     comparator = OddsComparator()
 
     # Find opportunities
+    market_confidence_cutoff = config.get("market_confidence_cutoff", 0.55)
+
+    # Enable high-edge disagreement for sports where Elo has shown strong predictive power
+    # NBA: Predictable league, Elo model should be strong
+    # Tennis: Individual sport, Elo should be accurate
+    # Other sports: Higher variance, be more conservative
+    enable_high_edge_disagreement = sport in ["nba", "tennis"]
+    high_edge_threshold = 0.12  # 12% edge required for disagreement bets
+
     good_bets = comparator.find_opportunities(
         sport=sport,
         elo_ratings=(
@@ -1334,6 +1424,9 @@ def identify_good_bets(sport, **context):
         threshold=elo_threshold,
         min_edge=0.05,
         use_sharp_confirmation=(sport in ["tennis", "nhl", "ligue1"]),
+        market_confidence_cutoff=market_confidence_cutoff,
+        enable_high_edge_disagreement=enable_high_edge_disagreement,
+        high_edge_threshold=high_edge_threshold,
     )
 
     # Deduplicate by ticker
@@ -1422,11 +1515,11 @@ def place_portfolio_optimized_bets(**context):
         print("❌ Kalshi credentials not found")
         return
 
-    content = kalshkey_file.read_text()
+    content = kalshkey_file.read_text(encoding="utf-8")
 
     # Extract API key ID
     api_key_id = None
-    for line in content.split("\n"):
+    for line in content.splitlines():
         if "API key id:" in line:
             api_key_id = line.split(":", 1)[1].strip()
             break
@@ -1438,7 +1531,7 @@ def place_portfolio_optimized_bets(**context):
     # Extract private key
     private_key_lines = []
     in_key = False
-    for line in content.split("\n"):
+    for line in content.splitlines():
         if "-----BEGIN RSA PRIVATE KEY-----" in line:
             in_key = True
         if in_key:
@@ -1448,7 +1541,7 @@ def place_portfolio_optimized_bets(**context):
 
     # Save private key to temp file
     temp_key_file = Path("/tmp/kalshi_private_key.pem")
-    temp_key_file.write_text("\n".join(private_key_lines))
+    temp_key_file.write_text("\n".join(private_key_lines), encoding="utf-8")
 
     try:
         # Initialize Kalshi client

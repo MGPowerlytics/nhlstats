@@ -220,9 +220,9 @@ class TestCBATeamMappingIntegration:
             data = json.load(f)
 
         assert len(data["teams"]) == 20, f"Expected 20 teams, got {len(data['teams'])}"
-        assert (
-            len(data["abbreviation_mapping"]) == 20
-        ), f"Expected 20 abbreviations, got {len(data['abbreviation_mapping'])}"
+        assert len(data["abbreviation_mapping"]) == 20, (
+            f"Expected 20 abbreviations, got {len(data['abbreviation_mapping'])}"
+        )
 
     def test_team_mapping_abbreviations_map_to_teams(self):
         """Test that all abbreviations map to valid teams."""

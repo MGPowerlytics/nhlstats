@@ -103,14 +103,24 @@ class KalshiBetting:
         response = requests.get(
             self.base_url + path, headers=self._get_headers("GET", path), timeout=30
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            # Log the full error for debugging
+            print(f"HTTP {response.status_code} error for {path}: {response.text}")
+            raise
         return response.json()
 
     def _post(self, path: str, data: Dict) -> Dict:
         response = requests.post(
             self.base_url + path, headers=self._get_headers("POST", path), json=data, timeout=30
         )
-        response.raise_for_status()
+        try:
+            response.raise_for_status()
+        except requests.exceptions.HTTPError:
+            # Log the full error for debugging
+            print(f"HTTP {response.status_code} error for {path}: {response.text}")
+            raise
         return response.json()
 
     def get_balance(self) -> Tuple[float, float]:
@@ -120,6 +130,11 @@ class KalshiBetting:
                 response.get("balance", 0) / 100,
                 response.get("portfolio_value", response.get("balance", 0)) / 100,
             )
+        except requests.exceptions.HTTPError as e:
+            print(f"⚠️  Failed to get balance: {e}")
+            if e.response:
+                print(f"  Response body: {e.response.text}")
+            return 100.0, 100.0
         except Exception as e:
             print(f"⚠️  Failed to get balance: {e}")
             return 100.0, 100.0

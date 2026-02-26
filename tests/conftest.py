@@ -113,6 +113,7 @@ def translate_sql(sql):
 
     # Debug logging for portfolio snapshots
     import sys
+
     print(f"[DEBUG] sql_upper: {sql_upper[:200]}", file=sys.stderr)
     if "PORTFOLIO_VALUE_SNAPSHOTS" in sql_upper:
         print(f"[DEBUG] Original SQL: {sql}", file=sys.stderr)
@@ -278,10 +279,15 @@ def translate_sql(sql):
     if "ON CONFLICT" in sql_upper and "DO UPDATE SET" in sql_upper:
         # Remove the ON CONFLICT ... DO UPDATE SET part (including multiline)
         # Use regex with DOTALL to match across newlines
-        pattern = re.compile(r'\s+ON\s+CONFLICT\s*\(.*?\)\s+DO\s+UPDATE\s+SET.*', re.IGNORECASE | re.DOTALL)
-        sql = pattern.sub('', sql)
+        pattern = re.compile(
+            r"\s+ON\s+CONFLICT\s*\(.*?\)\s+DO\s+UPDATE\s+SET.*",
+            re.IGNORECASE | re.DOTALL,
+        )
+        sql = pattern.sub("", sql)
         # Change INSERT INTO to INSERT OR REPLACE INTO (anywhere, first occurrence)
-        sql = re.sub(r'INSERT INTO', 'INSERT OR REPLACE INTO', sql, count=1, flags=re.IGNORECASE)
+        sql = re.sub(
+            r"INSERT INTO", "INSERT OR REPLACE INTO", sql, count=1, flags=re.IGNORECASE
+        )
 
     # Debug logging for portfolio snapshots
     if "PORTFOLIO_VALUE_SNAPSHOTS" in sql_upper:
@@ -308,6 +314,7 @@ def patch_sqlalchemy_execute_for_duckdb_compat():
 
         if sql_text:
             import sys
+
             print(f"[PATCH] Intercepted SQL: {sql_text[:200]}", file=sys.stderr)
             translated_sql = translate_sql(sql_text)
             if translated_sql != sql_text:
@@ -367,6 +374,7 @@ def silence_duckdb():
 # DAG Smoke Test Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_airflow_context():
     """Create a mock Airflow task context with XCom support.
@@ -398,29 +406,35 @@ def mock_airflow_context():
 def sample_nba_games():
     """Sample NBA game data for testing."""
     import pandas as pd
-    return pd.DataFrame({
-        "game_date": ["2026-01-27", "2026-01-26", "2026-01-25"],
-        "home_team": ["Lakers", "Celtics", "Warriors"],
-        "away_team": ["Celtics", "Lakers", "Bulls"],
-        "home_score": [110, 105, 120],
-        "away_score": [105, 112, 115],
-        "status": ["Final", "Final", "Final"],
-    })
+
+    return pd.DataFrame(
+        {
+            "game_date": ["2026-01-27", "2026-01-26", "2026-01-25"],
+            "home_team": ["Lakers", "Celtics", "Warriors"],
+            "away_team": ["Celtics", "Lakers", "Bulls"],
+            "home_score": [110, 105, 120],
+            "away_score": [105, 112, 115],
+            "status": ["Final", "Final", "Final"],
+        }
+    )
 
 
 @pytest.fixture
 def sample_nhl_games():
     """Sample NHL game data for testing."""
     import pandas as pd
-    return pd.DataFrame({
-        "game_date": ["2026-01-27", "2026-01-26"],
-        "home_team_abbrev": ["TOR", "MTL"],
-        "away_team_abbrev": ["MTL", "TOR"],
-        "home_score": [4, 2],
-        "away_score": [2, 3],
-        "game_state": ["FINAL", "FINAL"],
-        "game_id": [1, 2],
-    })
+
+    return pd.DataFrame(
+        {
+            "game_date": ["2026-01-27", "2026-01-26"],
+            "home_team_abbrev": ["TOR", "MTL"],
+            "away_team_abbrev": ["MTL", "TOR"],
+            "home_score": [4, 2],
+            "away_score": [2, 3],
+            "game_state": ["FINAL", "FINAL"],
+            "game_id": [1, 2],
+        }
+    )
 
 
 @pytest.fixture

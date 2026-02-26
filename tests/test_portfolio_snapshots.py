@@ -18,6 +18,7 @@ def clean_portfolio_table():
     """Clean portfolio snapshots table before each test."""
     # Ensure the table exists
     import sys
+
     print("[FIXTURE] Calling ensure_portfolio_snapshots_table", file=sys.stderr)
     ensure_portfolio_snapshots_table()
     # Clean the table

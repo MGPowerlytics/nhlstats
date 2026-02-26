@@ -31,7 +31,9 @@ def test_placed_bets_has_primary_key():
     assert not df.empty, "placed_bets table is missing a Primary Key constraint"
 
 
-@pytest.mark.skip(reason="unified_games PK constraint only enforced in production PostgreSQL, not in test DuckDB")
+@pytest.mark.skip(
+    reason="unified_games PK constraint only enforced in production PostgreSQL, not in test DuckDB"
+)
 def test_unified_games_has_primary_key():
     """Verify unified_games has a PK."""
     # Check if unified_games table exists first
@@ -53,7 +55,9 @@ def test_unified_games_has_primary_key():
     assert not df.empty, "unified_games table is missing a Primary Key constraint"
 
 
-@pytest.mark.skip(reason="game_odds PK constraint only enforced in production PostgreSQL, not in test DuckDB")
+@pytest.mark.skip(
+    reason="game_odds PK constraint only enforced in production PostgreSQL, not in test DuckDB"
+)
 def test_game_odds_has_primary_key():
     """Verify game_odds has a PK."""
     # Check if game_odds table exists first
@@ -87,7 +91,9 @@ def test_bet_recommendations_has_primary_key():
     assert not df.empty, "bet_recommendations table is missing a Primary Key constraint"
 
 
-@pytest.mark.skip(reason="game_odds FK constraint only enforced in production PostgreSQL, not in test DuckDB")
+@pytest.mark.skip(
+    reason="game_odds FK constraint only enforced in production PostgreSQL, not in test DuckDB"
+)
 def test_game_odds_has_foreign_key_to_unified_games():
     """Verify game_odds has an FK to unified_games."""
     # Check if game_odds table exists first

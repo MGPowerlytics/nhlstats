@@ -110,13 +110,17 @@ def test_find_opportunities_basic_flow():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts home wins with 65%
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.65)
+    elo_system = SimpleNamespace(
+        predict=lambda home, away: 0.65,
+        get_rating=lambda team: 1550 if team == "Lakers" else 1500,
+    )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
             sport="nba",
             elo_ratings={"Lakers": 1550, "Celtics": 1500},
             elo_system=elo_system,
+            threshold=0.60,  # Use 0.60 threshold for this test
             market_confidence_cutoff=0.55,
         )
 
@@ -174,7 +178,8 @@ def test_find_opportunities_epl_3way():
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts home with 65%
     elo_system = SimpleNamespace(
-        predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15}
+        predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15},
+        get_rating=lambda team: 1600 if team == "Arsenal" else 1500,
     )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
@@ -182,6 +187,7 @@ def test_find_opportunities_epl_3way():
             sport="epl",
             elo_ratings={"Arsenal": 1600, "Chelsea": 1500},
             elo_system=elo_system,
+            threshold=0.45,  # EPL threshold for 3-way markets
             market_confidence_cutoff=0.55,
         )
 
@@ -297,9 +303,12 @@ def test_find_opportunities_named_outcomes_resolve():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
+    db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
+    comparator = OddsComparator(db_manager=db)
     # Elo also predicts Arsenal (home) with 65%
     elo_system = SimpleNamespace(
-        predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15}
+        predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15},
+        get_rating=lambda team: 1600 if team == "Arsenal" else 1500,
     )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
@@ -307,6 +316,7 @@ def test_find_opportunities_named_outcomes_resolve():
             sport="epl",
             elo_ratings={"Arsenal": 1600, "Chelsea": 1500},
             elo_system=elo_system,
+            threshold=0.45,  # EPL threshold for 3-way markets
             market_confidence_cutoff=0.55,
         )
 
@@ -405,16 +415,19 @@ def test_find_opportunities_tennis_tour_selection():
         return odds_df
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
+    db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     elo_system = MagicMock()
     # Elo also predicts home with 65%
     elo_system.predict.return_value = 0.65
+    elo_system.get_rating = MagicMock(return_value=1500)
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
             sport="tennis",
             elo_ratings={},
             elo_system=elo_system,
+            threshold=0.60,  # Tennis threshold
             market_confidence_cutoff=0.55,
         )
 
@@ -517,18 +530,24 @@ def test_find_opportunities_confidence_levels():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home with 65% - very close to market's 62%
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.65)
+    elo_system = SimpleNamespace(
+        predict=lambda home, away: 0.65,
+        get_rating=lambda team: 1550 if team == "Lakers" else 1500,
+    )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
             sport="nba",
             elo_ratings={"Lakers": 1550, "Celtics": 1500},
             elo_system=elo_system,
+            threshold=0.60,  # Use 0.60 threshold for this test
             market_confidence_cutoff=0.55,
         )
 
     assert len(results) == 1
     # Agreement diff is ~3% (0.65 - 0.62), should be HIGH confidence
+    assert results[0]["confidence"] == "HIGH"
+    assert "agreement_diff" in results[0]
     assert results[0]["confidence"] == "HIGH"
     assert "agreement_diff" in results[0]
 
@@ -573,16 +592,21 @@ def test_find_opportunities_away_team_agreement():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts away wins (home win prob = 30%, so away = 70%)
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.30)
+    elo_system = SimpleNamespace(
+        predict=lambda home, away: 0.30,
+        get_rating=lambda team: 1450 if team == "Lakers" else 1600,
+    )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
             sport="nba",
             elo_ratings={"Lakers": 1450, "Celtics": 1600},
             elo_system=elo_system,
+            threshold=0.60,  # Use 0.60 threshold for this test
             market_confidence_cutoff=0.55,
         )
 
     assert len(results) == 1
     assert results[0]["side"] == "away"
+    assert results[0]["bet_on"] == "Celtics"
     assert results[0]["bet_on"] == "Celtics"

@@ -22,7 +22,17 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 class TestFetchMarketsImports:
     """Test that all fetch_*_markets functions can be imported."""
 
-    ALL_SPORTS = ["nba", "nhl", "mlb", "nfl", "epl", "ligue1", "ncaab", "wncaab", "tennis"]
+    ALL_SPORTS = [
+        "nba",
+        "nhl",
+        "mlb",
+        "nfl",
+        "epl",
+        "ligue1",
+        "ncaab",
+        "wncaab",
+        "tennis",
+    ]
 
     @pytest.mark.parametrize("sport", ALL_SPORTS)
     def test_fetch_function_exists(self, sport):
@@ -46,8 +56,12 @@ class TestFetchMarketsImports:
 
         for sport in self.ALL_SPORTS:
             assert sport in SPORT_SERIES, f"Missing sport: {sport}"
-            assert isinstance(SPORT_SERIES[sport], list), f"{sport} should have list of tickers"
-            assert len(SPORT_SERIES[sport]) >= 1, f"{sport} should have at least 1 ticker"
+            assert isinstance(SPORT_SERIES[sport], list), (
+                f"{sport} should have list of tickers"
+            )
+            assert len(SPORT_SERIES[sport]) >= 1, (
+                f"{sport} should have at least 1 ticker"
+            )
 
     def test_tennis_has_multiple_series(self):
         """Tennis should fetch from 4 different series."""
@@ -133,7 +147,10 @@ class TestFetchMarketsSuccess:
                             "markets": [
                                 {"ticker": "TEST-001", "status": "active"},
                                 {"ticker": "TEST-002", "status": "initialized"},
-                                {"ticker": "TEST-003", "status": "closed"},  # Should be filtered
+                                {
+                                    "ticker": "TEST-003",
+                                    "status": "closed",
+                                },  # Should be filtered
                             ]
                         }
                         mock_api_class.return_value = mock_api
@@ -218,6 +235,7 @@ class TestLogging:
 
                         with caplog.at_level(logging.INFO):
                             from kalshi_markets import fetch_nba_markets
+
                             fetch_nba_markets()
 
     def test_log_messages_on_error(self, caplog):
@@ -230,6 +248,7 @@ class TestLogging:
 
                 with caplog.at_level(logging.ERROR):
                     from kalshi_markets import fetch_nba_markets
+
                     fetch_nba_markets()
 
 

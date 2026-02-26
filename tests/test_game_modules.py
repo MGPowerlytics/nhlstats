@@ -18,7 +18,10 @@ class TestNBAGames:
 
         games = NBAGames(output_dir=str(tmp_path / "nba"))
 
-        assert games.BASE_URL == "https://stats.nba.com/stats"
+        assert (
+            games.BASE_URL
+            == "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
+        )
 
     def test_init_with_date_folder(self, tmp_path):
         """Test initialization with date folder."""
@@ -29,14 +32,15 @@ class TestNBAGames:
         assert "2024-01-01" in str(games.output_dir)
 
     def test_headers_contain_required_fields(self):
-        """Test that headers contain required fields for NBA API."""
+        """Test that headers contain required fields for ESPN API."""
         from nba_games import NBAGames
 
         headers = NBAGames.HEADERS
 
         assert "User-Agent" in headers
-        assert "Referer" in headers
-        assert "nba.com" in headers["Referer"]
+        # ESPN API doesn't require Referer header
+        # Just check that User-Agent is present and looks valid
+        assert "Mozilla" in headers["User-Agent"] or "Chrome" in headers["User-Agent"]
 
     @patch("nba_games.requests.get")
     def test_make_request_success(self, mock_get, tmp_path):
@@ -57,14 +61,20 @@ class TestNBAGames:
     def test_make_request_rate_limit_retry(self, mock_get, tmp_path):
         """Test rate limit handling with retry."""
         from nba_games import NBAGames
+        import requests
 
         # First call returns 429, second returns 200
         mock_response_429 = MagicMock()
         mock_response_429.status_code = 429
+        # When raise_for_status() is called on a 429 response, it should raise HTTPError
+        mock_response_429.raise_for_status.side_effect = requests.exceptions.HTTPError(
+            "429 Client Error"
+        )
 
         mock_response_200 = MagicMock()
         mock_response_200.status_code = 200
         mock_response_200.json.return_value = {"data": "test"}
+        mock_response_200.raise_for_status.return_value = None  # No exception for 200
 
         mock_get.side_effect = [mock_response_429, mock_response_200]
 

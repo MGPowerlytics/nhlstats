@@ -33,7 +33,7 @@ class TestNHLEloRating:
         from plugins.elo import NHLEloRating
 
         elo = NHLEloRating()
-        assert elo.home_advantage == 100.0
+        assert elo.home_advantage == 65.0  # Reduced from 100 based on empirical NHL home win rates
 
     def test_predict(self):
         from plugins.elo import NHLEloRating

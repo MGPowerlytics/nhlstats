@@ -26,44 +26,52 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "dags"))
 # DAG Import and Structure Tests
 # ============================================================================
 
+
 class TestPortfolioSnapshotDAGStructure:
     """Test portfolio_hourly_snapshot DAG structure and configuration."""
 
     def test_dag_imports_without_error(self):
         """The DAG module should import without errors."""
         import portfolio_hourly_snapshot
+
         assert portfolio_hourly_snapshot is not None
 
     def test_dag_object_exists(self):
         """The DAG object should be defined."""
         from portfolio_hourly_snapshot import dag
+
         assert dag is not None
         assert dag.dag_id == "portfolio_hourly_snapshot"
 
     def test_dag_schedule_is_hourly(self):
         """DAG should run on hourly schedule."""
         from portfolio_hourly_snapshot import dag
+
         assert dag.schedule == "@hourly"
 
     def test_dag_has_correct_start_date(self):
         """DAG should have appropriate start date."""
         from portfolio_hourly_snapshot import dag
+
         assert dag.start_date is not None
         assert dag.start_date.year == 2026
 
     def test_dag_catchup_is_disabled(self):
         """DAG should not catch up on missed runs."""
         from portfolio_hourly_snapshot import dag
+
         assert dag.catchup is False
 
     def test_dag_max_active_runs_is_one(self):
         """DAG should only have one active run at a time."""
         from portfolio_hourly_snapshot import dag
+
         assert dag.max_active_runs == 1
 
     def test_dag_has_correct_tags(self):
         """DAG should have appropriate tags."""
         from portfolio_hourly_snapshot import dag
+
         assert "kalshi" in dag.tags
         assert "portfolio" in dag.tags
         assert "postgres" in dag.tags
@@ -87,12 +95,14 @@ class TestPortfolioSnapshotDAGStructure:
 # Task Function Tests
 # ============================================================================
 
+
 class TestSnapshotPortfolioValueTask:
     """Test snapshot_portfolio_value task function."""
 
     def test_snapshot_function_is_callable(self):
         """snapshot_portfolio_value should be callable."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
+
         assert callable(snapshot_portfolio_value)
 
     def test_snapshot_creates_kalshi_client(self):
@@ -187,6 +197,7 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
 # Error Handling Tests
 # ============================================================================
 
+
 class TestPortfolioSnapshotErrorHandling:
     """Test error handling in portfolio snapshot task."""
 
@@ -254,7 +265,9 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot"):
                     mock_client = MagicMock()
-                    mock_client.get_balance.side_effect = Exception("API rate limit exceeded")
+                    mock_client.get_balance.side_effect = Exception(
+                        "API rate limit exceeded"
+                    )
                     mock_kalshi.return_value = mock_client
 
                     with pytest.raises(Exception, match="API rate limit"):
@@ -265,17 +278,20 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
 # Dependency Import Tests
 # ============================================================================
 
+
 class TestPortfolioSnapshotDependencies:
     """Test that portfolio snapshot dependencies can be imported."""
 
     def test_kalshi_betting_imports(self):
         """kalshi_betting module should import successfully."""
         from kalshi_betting import KalshiBetting
+
         assert KalshiBetting is not None
 
     def test_portfolio_snapshots_imports(self):
         """portfolio_snapshots module should import successfully."""
         from portfolio_snapshots import upsert_hourly_snapshot
+
         assert callable(upsert_hourly_snapshot)
 
     def test_airflow_imports(self):
@@ -290,6 +306,7 @@ class TestPortfolioSnapshotDependencies:
 # ============================================================================
 # Data Flow Tests
 # ============================================================================
+
 
 class TestPortfolioDataFlow:
     """Test data flow through portfolio snapshot task."""
@@ -321,9 +338,14 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
                 mock_path.return_value = mock_kalshkey
 
                 with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
-                    with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
+                    with patch(
+                        "portfolio_snapshots.upsert_hourly_snapshot"
+                    ) as mock_upsert:
                         mock_client = MagicMock()
-                        mock_client.get_balance.return_value = (balance, portfolio_value)
+                        mock_client.get_balance.return_value = (
+                            balance,
+                            portfolio_value,
+                        )
                         mock_kalshi.return_value = mock_client
 
                         snapshot_portfolio_value()

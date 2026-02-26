@@ -25,7 +25,13 @@ class TestUnrivaledEloInheritance:
     def test_has_required_methods(self):
         """UnrivaledEloRating has all required abstract methods."""
         elo = UnrivaledEloRating()
-        required_methods = ["predict", "update", "get_rating", "expected_score", "get_all_ratings"]
+        required_methods = [
+            "predict",
+            "update",
+            "get_rating",
+            "expected_score",
+            "get_all_ratings",
+        ]
         for method in required_methods:
             assert hasattr(elo, method), f"Missing method: {method}"
             assert callable(getattr(elo, method)), f"Method not callable: {method}"

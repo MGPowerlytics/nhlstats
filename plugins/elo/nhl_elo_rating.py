@@ -26,7 +26,7 @@ class NHLEloRating(BaseEloRating):
     def __init__(
         self,
         k_factor: float = 20.0,
-        home_advantage: float = 100.0,
+        home_advantage: float = 65.0,
         initial_rating: float = 1500.0,
         recency_weight: float = 1.0,
     ) -> None:
@@ -35,7 +35,10 @@ class NHLEloRating(BaseEloRating):
 
         Args:
             k_factor: K-factor for rating updates (default 20.0)
-            home_advantage: Home advantage in Elo points (default 100.0)
+            home_advantage: Home advantage in Elo points (default 65.0)
+                Reduced from 100.0 based on empirical NHL home win rates (~55%)
+                and sports analytics research showing NHL has lower home advantage
+                than NBA due to travel patterns, ice standardization, and parity.
             initial_rating: Initial rating for new teams (default 1500.0)
             recency_weight: Weight for recency adjustment (default 1.0)
         """

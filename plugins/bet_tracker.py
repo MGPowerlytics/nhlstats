@@ -217,26 +217,44 @@ def backfill_bet_metrics(db: DBManager = default_db) -> None:
                OR home_team = 'None'
         """
         db.execute(query)
-        print("✓ Backfilled missing bet metrics INCLUDING team data from recommendations")
+        print(
+            "✓ Backfilled missing bet metrics INCLUDING team data from recommendations"
+        )
     except Exception as e:
         print(f"⚠️  Error backfilling metrics: {e}")
 
 
 def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default_db):
-    """Sync all bets from Kalshi API to PostgreSQL database."""
-    api_key_id, private_key_path = _read_kalshkey()
+    """Sync all bets from Kalshi API to PostgreSQL database.
 
-    client = KalshiBetting(
-        api_key_id=api_key_id,
-        private_key_path=str(private_key_path),
-        max_bet_size=5.0,
-        production=True,
-    )
+    Returns:
+        Tuple[int, int]: (added_count, updated_count) of bets synced
+    """
+    # Initialize counts to ensure we always return something
+    added_count = 0
+    updated_count = 0
+
+    try:
+        api_key_id, private_key_path = _read_kalshkey()
+    except Exception as e:
+        print(f"❌ Failed to read Kalshi credentials: {e}")
+        raise  # Re-raise to fail the task with clear error
+
+    try:
+        client = KalshiBetting(
+            api_key_id=api_key_id,
+            private_key_path=str(private_key_path),
+            max_bet_size=5.0,
+            production=True,
+        )
+    except Exception as e:
+        print(f"❌ Failed to create Kalshi client: {e}")
+        raise  # Re-raise to fail the task with clear error
 
     fills = load_fills_from_kalshi(client)
     if not fills:
         print("⚠️  No fills found")
-        return
+        return 0, 0  # Return zero counts instead of None
 
     create_bets_table(db)
     existing_bets_df = db.fetch_df("SELECT bet_id FROM placed_bets")

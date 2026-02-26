@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "dags"))
 # Fixtures
 # ============================================================================
 
+
 @pytest.fixture
 def mock_airflow_context():
     """Create a mock Airflow task context with XCom support."""
@@ -48,30 +49,36 @@ def mock_airflow_context():
 def sample_game_data():
     """Sample game data for testing."""
     import pandas as pd
-    return pd.DataFrame({
-        "game_date": ["2026-01-27", "2026-01-26"],
-        "home_team": ["Lakers", "Celtics"],
-        "away_team": ["Celtics", "Lakers"],
-        "home_score": [110, 105],
-        "away_score": [105, 112],
-        "home_win": [1, 0],  # home_score > away_score
-        "status": ["Final", "Final"],
-    })
+
+    return pd.DataFrame(
+        {
+            "game_date": ["2026-01-27", "2026-01-26"],
+            "home_team": ["Lakers", "Celtics"],
+            "away_team": ["Celtics", "Lakers"],
+            "home_score": [110, 105],
+            "away_score": [105, 112],
+            "home_win": [1, 0],  # home_score > away_score
+            "status": ["Final", "Final"],
+        }
+    )
 
 
 @pytest.fixture
 def sample_nhl_game_data():
     """Sample NHL game data for testing."""
     import pandas as pd
-    return pd.DataFrame({
-        "game_date": ["2026-01-27", "2026-01-26"],
-        "home_team_abbrev": ["TOR", "MTL"],
-        "away_team_abbrev": ["MTL", "TOR"],
-        "home_score": [4, 2],
-        "away_score": [2, 3],
-        "game_state": ["FINAL", "FINAL"],
-        "game_id": [1, 2],
-    })
+
+    return pd.DataFrame(
+        {
+            "game_date": ["2026-01-27", "2026-01-26"],
+            "home_team_abbrev": ["TOR", "MTL"],
+            "away_team_abbrev": ["MTL", "TOR"],
+            "home_score": [4, 2],
+            "away_score": [2, 3],
+            "game_state": ["FINAL", "FINAL"],
+            "game_id": [1, 2],
+        }
+    )
 
 
 @pytest.fixture
@@ -101,6 +108,7 @@ def sample_market_data():
 # Helper Function Tests
 # ============================================================================
 
+
 class TestHelperFunctions:
     """Test helper functions in the DAG."""
 
@@ -124,7 +132,7 @@ class TestHelperFunctions:
         import math
         from multi_sport_betting_workflow import is_valid_score
 
-        assert is_valid_score(float('nan')) is False
+        assert is_valid_score(float("nan")) is False
         assert is_valid_score(math.nan) is False
 
     def test_is_valid_score_with_inf(self):
@@ -132,8 +140,8 @@ class TestHelperFunctions:
         import math
         from multi_sport_betting_workflow import is_valid_score
 
-        assert is_valid_score(float('inf')) is False
-        assert is_valid_score(float('-inf')) is False
+        assert is_valid_score(float("inf")) is False
+        assert is_valid_score(float("-inf")) is False
         assert is_valid_score(math.inf) is False
 
     def test_send_sms_disabled_returns_true(self):
@@ -150,17 +158,20 @@ class TestHelperFunctions:
 # DAG Import and Structure Tests
 # ============================================================================
 
+
 class TestDAGImportAndStructure:
     """Test that the DAG can be imported and has correct structure."""
 
     def test_dag_imports_without_error(self):
         """The DAG module should import without errors."""
         import multi_sport_betting_workflow
+
         assert multi_sport_betting_workflow is not None
 
     def test_dag_object_exists(self):
         """The DAG object should be defined."""
         from multi_sport_betting_workflow import dag
+
         assert dag is not None
         assert dag.dag_id == "multi_sport_betting_workflow"
 
@@ -168,7 +179,17 @@ class TestDAGImportAndStructure:
         """SPORTS_CONFIG should be defined with all 9 sports."""
         from multi_sport_betting_workflow import SPORTS_CONFIG
 
-        expected_sports = ["nba", "nhl", "mlb", "nfl", "epl", "ligue1", "tennis", "ncaab", "wncaab"]
+        expected_sports = [
+            "nba",
+            "nhl",
+            "mlb",
+            "nfl",
+            "epl",
+            "ligue1",
+            "tennis",
+            "ncaab",
+            "wncaab",
+        ]
         for sport in expected_sports:
             assert sport in SPORTS_CONFIG, f"Missing sport: {sport}"
             assert "elo_module" in SPORTS_CONFIG[sport]
@@ -203,6 +224,7 @@ class TestDAGImportAndStructure:
 # download_games Task Tests
 # ============================================================================
 
+
 class TestDownloadGamesTask:
     """Test download_games task function."""
 
@@ -216,8 +238,16 @@ class TestDownloadGamesTask:
 
             download_games("nba", **mock_airflow_context)
 
-            mock_nba_games.assert_called_once()
-            mock_instance.download_games_for_date.assert_called_once_with("2026-01-27")
+            # NBAGames should be called twice (for yesterday and today)
+            assert mock_nba_games.call_count == 2
+            # First call should be for yesterday (2026-01-26)
+            mock_nba_games.assert_any_call(date_folder="2026-01-26")
+            # Second call should be for today (2026-01-27)
+            mock_nba_games.assert_any_call(date_folder="2026-01-27")
+            # download_games_for_date should be called twice
+            assert mock_instance.download_games_for_date.call_count == 2
+            mock_instance.download_games_for_date.assert_any_call("2026-01-26")
+            mock_instance.download_games_for_date.assert_any_call("2026-01-27")
 
     def test_download_games_nhl_creates_instance(self, mock_airflow_context):
         """download_games creates NHLGameEvents instance for NHL sport."""
@@ -229,8 +259,16 @@ class TestDownloadGamesTask:
 
             download_games("nhl", **mock_airflow_context)
 
-            mock_nhl_events.assert_called_once()
-            mock_instance.download_games_for_date.assert_called_once_with("2026-01-27")
+            # NHLGameEvents should be called twice (for yesterday and today)
+            assert mock_nhl_events.call_count == 2
+            # First call should be for yesterday (2026-01-26)
+            mock_nhl_events.assert_any_call(date_folder="2026-01-26")
+            # Second call should be for today (2026-01-27)
+            mock_nhl_events.assert_any_call(date_folder="2026-01-27")
+            # download_games_for_date should be called twice
+            assert mock_instance.download_games_for_date.call_count == 2
+            mock_instance.download_games_for_date.assert_any_call("2026-01-26")
+            mock_instance.download_games_for_date.assert_any_call("2026-01-27")
 
     def test_download_games_tennis_creates_instance(self, mock_airflow_context):
         """download_games creates TennisGames instance for tennis sport."""
@@ -256,17 +294,25 @@ class TestDownloadGamesTask:
             mock_airflow_context["ds"] = "2026-02-15"
             download_games("nba", **mock_airflow_context)
 
-            mock_instance.download_games_for_date.assert_called_once_with("2026-02-15")
+            # download_games_for_date should be called twice (for yesterday and today)
+            assert mock_instance.download_games_for_date.call_count == 2
+            # First call should be for yesterday (2026-02-14)
+            mock_instance.download_games_for_date.assert_any_call("2026-02-14")
+            # Second call should be for today (2026-02-15)
+            mock_instance.download_games_for_date.assert_any_call("2026-02-15")
 
 
 # ============================================================================
 # update_elo_ratings Task Tests
 # ============================================================================
 
+
 class TestUpdateEloRatingsTask:
     """Test update_elo_ratings task function."""
 
-    def test_update_elo_nba_queries_database(self, mock_airflow_context, sample_game_data):
+    def test_update_elo_nba_queries_database(
+        self, mock_airflow_context, sample_game_data
+    ):
         """update_elo_ratings queries nba_games table for NBA."""
         from multi_sport_betting_workflow import update_elo_ratings
 
@@ -286,8 +332,9 @@ class TestUpdateEloRatingsTask:
                 # Verify database was queried
                 mock_db.fetch_df.assert_called_once()
                 call_args = mock_db.fetch_df.call_args
-                # Now uses nba_games instead of sport-specific tables
-                assert "nba_games" in call_args[0][0]
+                # Now uses unified_games table with sport filter
+                assert "unified_games" in call_args[0][0]
+                assert "sport = 'NBA'" in call_args[0][0]
 
     def test_update_elo_pushes_to_xcom(self, mock_airflow_context, sample_game_data):
         """update_elo_ratings pushes ratings to XCom."""
@@ -328,10 +375,13 @@ class TestUpdateEloRatingsTask:
 # fetch_prediction_markets Task Tests
 # ============================================================================
 
+
 class TestFetchPredictionMarketsTask:
     """Test fetch_prediction_markets task function."""
 
-    def test_fetch_markets_nba_calls_correct_function(self, mock_airflow_context, sample_market_data):
+    def test_fetch_markets_nba_calls_correct_function(
+        self, mock_airflow_context, sample_market_data
+    ):
         """fetch_prediction_markets calls fetch_nba_markets for NBA."""
         from multi_sport_betting_workflow import fetch_prediction_markets
 
@@ -344,7 +394,9 @@ class TestFetchPredictionMarketsTask:
 
             mock_fetch.assert_called_once_with("2026-01-27")
 
-    def test_fetch_markets_nhl_calls_correct_function(self, mock_airflow_context, sample_market_data):
+    def test_fetch_markets_nhl_calls_correct_function(
+        self, mock_airflow_context, sample_market_data
+    ):
         """fetch_prediction_markets calls fetch_nhl_markets for NHL."""
         from multi_sport_betting_workflow import fetch_prediction_markets
 
@@ -368,7 +420,9 @@ class TestFetchPredictionMarketsTask:
 
             mock_fetch.assert_called_once_with("2026-01-27")
 
-    def test_fetch_markets_pushes_to_xcom(self, mock_airflow_context, sample_market_data):
+    def test_fetch_markets_pushes_to_xcom(
+        self, mock_airflow_context, sample_market_data
+    ):
         """fetch_prediction_markets pushes markets to XCom."""
         from multi_sport_betting_workflow import fetch_prediction_markets
 
@@ -401,6 +455,7 @@ class TestFetchPredictionMarketsTask:
 # ============================================================================
 # identify_good_bets Task Tests
 # ============================================================================
+
 
 class TestIdentifyGoodBetsTask:
     """Test identify_good_bets task function."""
@@ -473,10 +528,13 @@ class TestIdentifyGoodBetsTask:
 # update_glicko2_ratings Task Tests
 # ============================================================================
 
+
 class TestUpdateGlicko2RatingsTask:
     """Test update_glicko2_ratings task function."""
 
-    def test_update_glicko2_nba_queries_database(self, mock_airflow_context, sample_game_data):
+    def test_update_glicko2_nba_queries_database(
+        self, mock_airflow_context, sample_game_data
+    ):
         """update_glicko2_ratings queries database for NBA games."""
         from multi_sport_betting_workflow import update_glicko2_ratings
 
@@ -484,7 +542,9 @@ class TestUpdateGlicko2RatingsTask:
             with patch("glicko2_rating.NBAGlicko2Rating") as mock_glicko_class:
                 mock_db.fetch_df.return_value = sample_game_data
                 mock_glicko_instance = MagicMock()
-                mock_glicko_instance.ratings = {"Lakers": {"rating": 1550, "rd": 50, "vol": 0.06}}
+                mock_glicko_instance.ratings = {
+                    "Lakers": {"rating": 1550, "rd": 50, "vol": 0.06}
+                }
                 mock_glicko_class.return_value = mock_glicko_instance
 
                 with patch("builtins.open", MagicMock()):
@@ -505,6 +565,7 @@ class TestUpdateGlicko2RatingsTask:
 # ============================================================================
 # load_bets_to_db Task Tests
 # ============================================================================
+
 
 class TestLoadBetsToDbTask:
     """Test load_bets_to_db task function."""
@@ -528,6 +589,7 @@ class TestLoadBetsToDbTask:
 # place_bets_on_recommendations Task Tests
 # ============================================================================
 
+
 class TestPlaceBetsOnRecommendationsTask:
     """Test place_bets_on_recommendations task function."""
 
@@ -540,7 +602,9 @@ class TestPlaceBetsOnRecommendationsTask:
 
         captured = capsys.readouterr()
         assert "DEPRECATED" in captured.out
-        assert "portfolio betting" in captured.out.lower() or "portfolio" in captured.out
+        assert (
+            "portfolio betting" in captured.out.lower() or "portfolio" in captured.out
+        )
 
     def test_place_bets_does_not_call_kalshi(self, mock_airflow_context):
         """Deprecated function should not call KalshiBetting."""
@@ -564,6 +628,7 @@ class TestPlaceBetsOnRecommendationsTask:
 # ============================================================================
 # Integration Smoke Tests (End-to-End Flow)
 # ============================================================================
+
 
 class TestDAGTaskFlow:
     """Test task dependencies and data flow through the DAG."""
@@ -596,6 +661,7 @@ class TestDAGTaskFlow:
 # Error Handling Tests
 # ============================================================================
 
+
 class TestErrorHandling:
     """Test error handling in task functions."""
 
@@ -604,10 +670,16 @@ class TestErrorHandling:
         from multi_sport_betting_workflow import download_games
 
         with patch("nba_games.NBAGames") as mock_nba:
-            mock_nba.return_value.download_games_for_date.side_effect = Exception("API Error")
+            mock_nba.return_value.download_games_for_date.side_effect = Exception(
+                "API Error"
+            )
 
-            with pytest.raises(Exception, match="API Error"):
-                download_games("nba", **mock_airflow_context)
+            # NBA download catches exceptions and doesn't re-raise them
+            # (see comment in download_games: "Don't raise the exception - let other sports continue")
+            # So the function should complete without raising
+            download_games("nba", **mock_airflow_context)
+            # Should have tried to download for both dates
+            assert mock_nba.return_value.download_games_for_date.call_count == 2
 
     def test_fetch_markets_propagates_errors(self, mock_airflow_context):
         """fetch_prediction_markets should propagate exceptions."""
