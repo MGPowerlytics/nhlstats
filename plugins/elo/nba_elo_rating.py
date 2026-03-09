@@ -5,8 +5,8 @@ Production-ready Elo rating system for NBA predictions.
 Inherits from BaseEloRating for unified interface.
 """
 
-from plugins.elo.base_elo_rating import BaseEloRating
-from typing import Dict, Union
+from plugins.elo.base_elo_rating import BaseEloRating, Matchup, GameResult
+from typing import Dict, Union, Optional
 import pandas as pd
 
 
@@ -40,57 +40,6 @@ class NBAEloRating(BaseEloRating):
             home_advantage=home_advantage,
             initial_rating=initial_rating,
         )
-        self.game_history = []
-        self.team_history: Dict[str, list] = {}
-
-    def get_rating(self, team: str) -> float:
-        """
-        Get current Elo rating for a team.
-
-        Args:
-            team: Team name
-
-        Returns:
-            Current Elo rating
-        """
-        if team not in self.ratings:
-            self.ratings[team] = self.initial_rating
-        return self.ratings[team]
-
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        """
-        Calculate expected score (probability of team A winning).
-
-        Args:
-            rating_a: Elo rating of team A
-            rating_b: Elo rating of team B
-
-        Returns:
-            Probability (0.0 to 1.0) of team A winning
-        """
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
-
-    def predict(
-        self, home_team: str, away_team: str, is_neutral: bool = False
-    ) -> float:
-        """
-        Predict probability of home team winning.
-
-        Args:
-            home_team: Home team name
-            away_team: Away team name
-            is_neutral: Whether the game is at a neutral site
-
-        Returns:
-            Probability (0.0 to 1.0) of home team winning
-        """
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        if not is_neutral:
-            home_rating += self.home_advantage
-
-        return self.expected_score(home_rating, away_rating)
 
     def update(
         self,
@@ -99,9 +48,9 @@ class NBAEloRating(BaseEloRating):
         home_won: Union[bool, float] = None,
         is_neutral: bool = False,
         **kwargs,
-    ) -> None:
+    ) -> float:
         """
-        Update Elo ratings after a game result.
+        Update Elo ratings after a game result with history tracking.
 
         Args:
             home_team: Home team name
@@ -110,38 +59,18 @@ class NBAEloRating(BaseEloRating):
             is_neutral: Whether the game was at a neutral site
             **kwargs: Additional arguments
         """
-        # Alias home_win
-        if home_won is None and "home_win" in kwargs:
-            home_won = kwargs["home_win"]
-        elif home_won is None:
-            raise ValueError("Must provide home_won")
+        # Save ratings before update
+        home_rating_before = self.get_rating(home_team)
+        away_rating_before = self.get_rating(away_team)
 
-        if home_team == away_team:
-            raise ValueError("Home and away teams cannot be the same")
-
-        # Get current ratings
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        # Apply home advantage
-        if not is_neutral:
-            home_rating += self.home_advantage
-
-        # Calculate expected score
-        expected_home = self.expected_score(home_rating, away_rating)
-
-        # Convert home_won to actual score (1.0 for home win, 0.0 for away win)
-        actual_home = 1.0 if home_won else 0.0
-
-        # Calculate rating change
-        change = self._calculate_rating_change(expected_home, actual_home)
-
-        # Apply changes (remove home advantage first)
-        if not is_neutral:
-            home_rating -= self.home_advantage
-
-        self.ratings[home_team] = home_rating + change
-        self.ratings[away_team] = away_rating - change
+        # Use base update for actual calculation
+        change = super().update(
+            home_team=home_team,
+            away_team=away_team,
+            home_won=home_won,
+            is_neutral=is_neutral,
+            **kwargs,
+        )
 
         # Record game history
         self.game_history.append(
@@ -149,35 +78,13 @@ class NBAEloRating(BaseEloRating):
                 "home_team": home_team,
                 "away_team": away_team,
                 "home_won": bool(home_won),
-                "home_rating_before": home_rating,
-                "away_rating_before": away_rating,
+                "home_rating_before": home_rating_before,
+                "away_rating_before": away_rating_before,
                 "change": change,
             }
         )
 
         return change
-
-    def get_all_ratings(self) -> Dict[str, float]:
-        """
-        Get all current ratings.
-
-        Returns:
-            Dictionary mapping team names to their current ratings
-        """
-        return self.ratings.copy()
-
-    def legacy_update(
-        self, home_team: str, away_team: str, home_won: bool, **kwargs
-    ) -> None:
-        """
-        Legacy update method for backward compatibility.
-
-        Args:
-            home_team: Home team name
-            away_team: Away team name
-            home_won: True if home team won
-        """
-        self.update(home_team, away_team, home_won, is_neutral=False, **kwargs)
 
     def evaluate_on_games(
         self, games: pd.DataFrame

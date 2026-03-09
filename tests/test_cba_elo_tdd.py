@@ -53,15 +53,15 @@ class TestCBAEloParameters:
         from elo import CBAEloRating
 
         elo = CBAEloRating()
-        assert elo.k_factor == 20.0, f"Expected k_factor=20.0, got {elo.k_factor}"
+        assert elo.config.k_factor == 20.0, f"Expected k_factor=20.0, got {elo.config.k_factor}"
 
     def test_default_home_advantage(self):
         """Test default home_advantage is 80 (strong home advantage in CBA)."""
         from elo import CBAEloRating
 
         elo = CBAEloRating()
-        assert elo.home_advantage == 80.0, (
-            f"Expected home_advantage=80.0, got {elo.home_advantage}"
+        assert elo.config.home_advantage == 80.0, (
+            f"Expected home_advantage=80.0, got {elo.config.home_advantage}"
         )
 
     def test_default_initial_rating(self):
@@ -69,8 +69,8 @@ class TestCBAEloParameters:
         from elo import CBAEloRating
 
         elo = CBAEloRating()
-        assert elo.initial_rating == 1500.0, (
-            f"Expected initial_rating=1500.0, got {elo.initial_rating}"
+        assert elo.config.initial_rating == 1500.0, (
+            f"Expected initial_rating=1500.0, got {elo.config.initial_rating}"
         )
 
     def test_custom_parameters(self):
@@ -78,9 +78,9 @@ class TestCBAEloParameters:
         from elo import CBAEloRating
 
         elo = CBAEloRating(k_factor=25, home_advantage=100, initial_rating=1400)
-        assert elo.k_factor == 25
-        assert elo.home_advantage == 100
-        assert elo.initial_rating == 1400
+        assert elo.config.k_factor == 25
+        assert elo.config.home_advantage == 100
+        assert elo.config.initial_rating == 1400
 
 
 class TestCBAEloFunctionality:
@@ -211,8 +211,8 @@ class TestCBAEloRegistration:
         from elo import create_elo_instance
 
         elo = create_elo_instance("cba", k_factor=30, home_advantage=90)
-        assert elo.k_factor == 30
-        assert elo.home_advantage == 90
+        assert elo.config.k_factor == 30
+        assert elo.config.home_advantage == 90
 
 
 if __name__ == "__main__":

@@ -6,7 +6,8 @@ Checks for team data completeness, Elo probability variance, and recommendation 
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "plugins"))
 from db_manager import default_db
 import pandas as pd
 
@@ -39,17 +40,19 @@ def verify_team_data():
     total_bets = 0
 
     for _, row in result.iterrows():
-        sport = row['sport']
-        missing_home = row['missing_home']
-        missing_away = row['missing_away']
-        missing_pct = row['missing_pct']
-        total_bets_sport = row['total_bets']
+        sport = row["sport"]
+        missing_home = row["missing_home"]
+        missing_away = row["missing_away"]
+        missing_pct = row["missing_pct"]
+        total_bets_sport = row["total_bets"]
 
         total_missing += max(missing_home, missing_away)  # Count worst case
         total_bets += total_bets_sport
 
         if missing_pct > 5:
-            print(f"   ❌ {sport}: {missing_pct:.1f}% missing team data ({missing_home}/{total_bets_sport} bets)")
+            print(
+                f"   ❌ {sport}: {missing_pct:.1f}% missing team data ({missing_home}/{total_bets_sport} bets)"
+            )
             all_ok = False
         else:
             print(f"   ✅ {sport}: {missing_pct:.1f}% missing team data")
@@ -96,15 +99,15 @@ def verify_elo_variance():
     all_ok = True
 
     for _, row in results.iterrows():
-        sport = row['sport']
-        uniqueness = row['uniqueness_pct'] / 100
-        std_dev = row['std_dev']
-        prob_range = row['prob_range']
-        unique_probs = row['unique_probs']
-        total_bets = row['total_bets']
+        sport = row["sport"]
+        uniqueness = row["uniqueness_pct"] / 100
+        std_dev = row["std_dev"]
+        prob_range = row["prob_range"]
+        unique_probs = row["unique_probs"]
+        total_bets = row["total_bets"]
 
         # Different thresholds for different sports
-        if sport == 'TENNIS':
+        if sport == "TENNIS":
             # Tennis can have more variance
             min_uniqueness = 0.5
             min_std_dev = 0.05
@@ -121,7 +124,7 @@ def verify_elo_variance():
         if std_dev < min_std_dev:
             issues.append(f"low std dev ({std_dev:.4f})")
 
-        if prob_range < 0.1 and sport != 'TENNIS':
+        if prob_range < 0.1 and sport != "TENNIS":
             issues.append(f"small range ({prob_range:.4f})")
 
         if issues:
@@ -129,7 +132,9 @@ def verify_elo_variance():
             print(f"      Details: {unique_probs} unique probs / {total_bets} bets")
             all_ok = False
         else:
-            print(f"   ✅ {sport}: Good variance (uniqueness={uniqueness:.1%}, std={std_dev:.4f}, range={prob_range:.4f})")
+            print(
+                f"   ✅ {sport}: Good variance (uniqueness={uniqueness:.1%}, std={std_dev:.4f}, range={prob_range:.4f})"
+            )
 
     return all_ok
 
@@ -148,7 +153,7 @@ def verify_recommendations():
 
     table_exists = default_db.fetch_df(table_check)
 
-    if not table_exists.iloc[0]['table_exists']:
+    if not table_exists.iloc[0]["table_exists"]:
         print("   ❌ FAIL: bet_recommendations table does not exist")
         return False
 
@@ -165,10 +170,10 @@ def verify_recommendations():
 
     result = default_db.fetch_df(query)
 
-    total = result.iloc[0]['total_recommendations']
-    unique_dates = result.iloc[0]['unique_dates']
-    earliest = result.iloc[0]['earliest_date']
-    latest = result.iloc[0]['latest_date']
+    total = result.iloc[0]["total_recommendations"]
+    unique_dates = result.iloc[0]["unique_dates"]
+    earliest = result.iloc[0]["earliest_date"]
+    latest = result.iloc[0]["latest_date"]
 
     if total == 0:
         print("   ❌ FAIL: No bet recommendations in last 30 days")
@@ -212,11 +217,11 @@ def verify_elo_calibration():
     all_ok = True
 
     for _, row in results.iterrows():
-        sport = row['sport']
-        bets = row['bets']
-        avg_elo = row['avg_elo_prob']
-        win_rate = row['actual_win_rate']
-        error = row['calibration_error']
+        sport = row["sport"]
+        bets = row["bets"]
+        avg_elo = row["avg_elo_prob"]
+        win_rate = row["actual_win_rate"]
+        error = row["calibration_error"]
 
         # Acceptable calibration error: ±0.05
         if abs(error) > 0.05:
@@ -236,14 +241,14 @@ def main():
     print("=" * 60)
 
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     try:
         # Test database connection
         test_query = "SELECT COUNT(*) as bet_count FROM placed_bets WHERE status IN ('won', 'lost')"
         test_result = default_db.fetch_df(test_query)
-        settled_bets = test_result.iloc[0]['bet_count']
+        settled_bets = test_result.iloc[0]["bet_count"]
         print(f"Connected to database. Found {settled_bets} settled bets.\n")
 
         # Run all checks

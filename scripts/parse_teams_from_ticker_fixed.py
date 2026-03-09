@@ -11,16 +11,36 @@ def parse_nba_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[st
     """Parse NBA teams from ticker like KXNBAGAME-26JAN30PORNYK-NYK"""
     # NBA team abbreviations (3 letters)
     NBA_TEAMS: Dict[str, str] = {
-        'ATL': 'Atlanta Hawks', 'BOS': 'Boston Celtics', 'BKN': 'Brooklyn Nets',
-        'CHA': 'Charlotte Hornets', 'CHI': 'Chicago Bulls', 'CLE': 'Cleveland Cavaliers',
-        'DAL': 'Dallas Mavericks', 'DEN': 'Denver Nuggets', 'DET': 'Detroit Pistons',
-        'GSW': 'Golden State Warriors', 'HOU': 'Houston Rockets', 'IND': 'Indiana Pacers',
-        'LAC': 'LA Clippers', 'LAL': 'Los Angeles Lakers', 'MEM': 'Memphis Grizzlies',
-        'MIA': 'Miami Heat', 'MIL': 'Milwaukee Bucks', 'MIN': 'Minnesota Timberwolves',
-        'NOP': 'New Orleans Pelicans', 'NYK': 'New York Knicks', 'OKC': 'Oklahoma City Thunder',
-        'ORL': 'Orlando Magic', 'PHI': 'Philadelphia 76ers', 'PHX': 'Phoenix Suns',
-        'POR': 'Portland Trail Blazers', 'SAC': 'Sacramento Kings', 'SAS': 'San Antonio Spurs',
-        'TOR': 'Toronto Raptors', 'UTA': 'Utah Jazz', 'WAS': 'Washington Wizards'
+        "ATL": "Atlanta Hawks",
+        "BOS": "Boston Celtics",
+        "BKN": "Brooklyn Nets",
+        "CHA": "Charlotte Hornets",
+        "CHI": "Chicago Bulls",
+        "CLE": "Cleveland Cavaliers",
+        "DAL": "Dallas Mavericks",
+        "DEN": "Denver Nuggets",
+        "DET": "Detroit Pistons",
+        "GSW": "Golden State Warriors",
+        "HOU": "Houston Rockets",
+        "IND": "Indiana Pacers",
+        "LAC": "LA Clippers",
+        "LAL": "Los Angeles Lakers",
+        "MEM": "Memphis Grizzlies",
+        "MIA": "Miami Heat",
+        "MIL": "Milwaukee Bucks",
+        "MIN": "Minnesota Timberwolves",
+        "NOP": "New Orleans Pelicans",
+        "NYK": "New York Knicks",
+        "OKC": "Oklahoma City Thunder",
+        "ORL": "Orlando Magic",
+        "PHI": "Philadelphia 76ers",
+        "PHX": "Phoenix Suns",
+        "POR": "Portland Trail Blazers",
+        "SAC": "Sacramento Kings",
+        "SAS": "San Antonio Spurs",
+        "TOR": "Toronto Raptors",
+        "UTA": "Utah Jazz",
+        "WAS": "Washington Wizards",
     }
 
     # Pattern: KXNBAGAME-DATEHOMEAWAY-BETON
@@ -28,7 +48,9 @@ def parse_nba_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[st
     # Home: POR (Portland), Away: NYK (New York), Bet on: NYK
 
     # Extract the part after GAME- and before the dash
-    match = re.search(r'GAME-(\d{2}[A-Z]{3}\d{2})([A-Z]{3})([A-Z]{3})-([A-Z]{3})$', ticker)
+    match = re.search(
+        r"GAME-(\d{2}[A-Z]{3}\d{2})([A-Z]{3})([A-Z]{3})-([A-Z]{3})$", ticker
+    )
     if match:
         date_part = match.group(1)  # 26JAN30
         home_code = match.group(2)  # POR
@@ -46,21 +68,44 @@ def parse_nba_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[st
 def parse_nhl_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[str]]:
     """Parse NHL teams from ticker."""
     NHL_TEAMS: Dict[str, str] = {
-        'ANA': 'Anaheim Ducks', 'ARI': 'Arizona Coyotes', 'BOS': 'Boston Bruins',
-        'BUF': 'Buffalo Sabres', 'CGY': 'Calgary Flames', 'CAR': 'Carolina Hurricanes',
-        'CHI': 'Chicago Blackhawks', 'COL': 'Colorado Avalanche', 'CBJ': 'Columbus Blue Jackets',
-        'DAL': 'Dallas Stars', 'DET': 'Detroit Red Wings', 'EDM': 'Edmonton Oilers',
-        'FLA': 'Florida Panthers', 'LAK': 'Los Angeles Kings', 'MIN': 'Minnesota Wild',
-        'MTL': 'Montreal Canadiens', 'NSH': 'Nashville Predators', 'NJD': 'New Jersey Devils',
-        'NYI': 'New York Islanders', 'NYR': 'New York Rangers', 'OTT': 'Ottawa Senators',
-        'PHI': 'Philadelphia Flyers', 'PIT': 'Pittsburgh Penguins', 'SJS': 'San Jose Sharks',
-        'SEA': 'Seattle Kraken', 'STL': 'St. Louis Blues', 'TBL': 'Tampa Bay Lightning',
-        'TOR': 'Toronto Maple Leafs', 'VAN': 'Vancouver Canucks', 'VGK': 'Vegas Golden Knights',
-        'WSH': 'Washington Capitals', 'WPG': 'Winnipeg Jets'
+        "ANA": "Anaheim Ducks",
+        "ARI": "Arizona Coyotes",
+        "BOS": "Boston Bruins",
+        "BUF": "Buffalo Sabres",
+        "CGY": "Calgary Flames",
+        "CAR": "Carolina Hurricanes",
+        "CHI": "Chicago Blackhawks",
+        "COL": "Colorado Avalanche",
+        "CBJ": "Columbus Blue Jackets",
+        "DAL": "Dallas Stars",
+        "DET": "Detroit Red Wings",
+        "EDM": "Edmonton Oilers",
+        "FLA": "Florida Panthers",
+        "LAK": "Los Angeles Kings",
+        "MIN": "Minnesota Wild",
+        "MTL": "Montreal Canadiens",
+        "NSH": "Nashville Predators",
+        "NJD": "New Jersey Devils",
+        "NYI": "New York Islanders",
+        "NYR": "New York Rangers",
+        "OTT": "Ottawa Senators",
+        "PHI": "Philadelphia Flyers",
+        "PIT": "Pittsburgh Penguins",
+        "SJS": "San Jose Sharks",
+        "SEA": "Seattle Kraken",
+        "STL": "St. Louis Blues",
+        "TBL": "Tampa Bay Lightning",
+        "TOR": "Toronto Maple Leafs",
+        "VAN": "Vancouver Canucks",
+        "VGK": "Vegas Golden Knights",
+        "WSH": "Washington Capitals",
+        "WPG": "Winnipeg Jets",
     }
 
     # Same pattern as NBA
-    match = re.search(r'GAME-(\d{2}[A-Z]{3}\d{2})([A-Z]{3})([A-Z]{3})-([A-Z]{3})$', ticker)
+    match = re.search(
+        r"GAME-(\d{2}[A-Z]{3}\d{2})([A-Z]{3})([A-Z]{3})-([A-Z]{3})$", ticker
+    )
     if match:
         home_code = match.group(2)
         away_code = match.group(3)
@@ -80,7 +125,7 @@ def parse_ncaab_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[
     # Need to handle variable length codes
 
     # Try to find the dash before bet code
-    parts = ticker.split('-')
+    parts = ticker.split("-")
     if len(parts) >= 3:
         # Last part is bet code
         bet_code = parts[-1]
@@ -105,7 +150,9 @@ def parse_ncaab_teams_from_ticker(ticker: str) -> Tuple[Optional[str], Optional[
     return None, None
 
 
-def parse_teams_from_ticker(ticker: str, market_title: str = None) -> Tuple[Optional[str], Optional[str]]:
+def parse_teams_from_ticker(
+    ticker: str, market_title: str = None
+) -> Tuple[Optional[str], Optional[str]]:
     """
     Parse home and away teams from Kalshi ticker.
 
@@ -122,15 +169,15 @@ def parse_teams_from_ticker(ticker: str, market_title: str = None) -> Tuple[Opti
     ticker = ticker.upper()
 
     # Try sport-specific parsing
-    if 'NBAGAME' in ticker:
+    if "NBAGAME" in ticker:
         home, away = parse_nba_teams_from_ticker(ticker)
         if home and away:
             return home, away
-    elif 'NHLGAME' in ticker:
+    elif "NHLGAME" in ticker:
         home, away = parse_nhl_teams_from_ticker(ticker)
         if home and away:
             return home, away
-    elif 'NCAAMBGAME' in ticker or 'NCAAWBGAME' in ticker:
+    elif "NCAAMBGAME" in ticker or "NCAAWBGAME" in ticker:
         home, away = parse_ncaab_teams_from_ticker(ticker)
         if home and away:
             return home, away
@@ -138,10 +185,14 @@ def parse_teams_from_ticker(ticker: str, market_title: str = None) -> Tuple[Opti
     # Fallback: parse from market title
     if market_title:
         # Remove common suffixes
-        title = market_title.replace(' Winner?', '').replace(' Winner', '').replace(' winner?', '')
+        title = (
+            market_title.replace(" Winner?", "")
+            .replace(" Winner", "")
+            .replace(" winner?", "")
+        )
 
         # Split by common separators
-        for separator in [' at ', ' vs ', ' versus ', ' - ']:
+        for separator in [" at ", " vs ", " versus ", " - "]:
             if separator in title:
                 parts = title.split(separator)
                 if len(parts) == 2:
@@ -150,7 +201,9 @@ def parse_teams_from_ticker(ticker: str, market_title: str = None) -> Tuple[Opti
     return None, None
 
 
-def determine_bet_on(side: str, home_team: str, away_team: str, ticker: str = None) -> Optional[str]:
+def determine_bet_on(
+    side: str, home_team: str, away_team: str, ticker: str = None
+) -> Optional[str]:
     """
     Determine which team the bet is on.
 
@@ -167,9 +220,9 @@ def determine_bet_on(side: str, home_team: str, away_team: str, ticker: str = No
         return None
 
     # For Kalshi: if side is 'yes', betting on the team after last dash
-    if ticker and side == 'yes':
+    if ticker and side == "yes":
         # Extract bet code (team after last dash)
-        parts = ticker.split('-')
+        parts = ticker.split("-")
         if len(parts) >= 2:
             bet_code = parts[-1].upper()
 
@@ -181,7 +234,7 @@ def determine_bet_on(side: str, home_team: str, away_team: str, ticker: str = No
                 return away_team
 
     # Fallback logic
-    if side == 'yes':
+    if side == "yes":
         return home_team  # Default to home team
     else:
         return away_team  # 'no' side typically means away team wins
@@ -191,10 +244,22 @@ def test_parsing():
     """Test the parsing functions."""
     test_cases = [
         ("KXNBAGAME-26JAN30PORNYK-NYK", "yes", "Portland at New York Knicks Winner?"),
-        ("KXNBAGAME-26FEB01LALNYK-NYK", "yes", "Los Angeles Lakers at New York Knicks Winner?"),
-        ("KXNBAGAME-26FEB06NOPMIN-MIN", "yes", "New Orleans Pelicans at Minnesota Timberwolves Winner?"),
+        (
+            "KXNBAGAME-26FEB01LALNYK-NYK",
+            "yes",
+            "Los Angeles Lakers at New York Knicks Winner?",
+        ),
+        (
+            "KXNBAGAME-26FEB06NOPMIN-MIN",
+            "yes",
+            "New Orleans Pelicans at Minnesota Timberwolves Winner?",
+        ),
         ("KXNBAGAME-26JAN31CHIMIA-MIA", "yes", "Chicago Bulls at Miami Heat Winner?"),
-        ("KXNBAGAME-26JAN18CHADEN-DEN", "yes", "Charlotte Hornets at Denver Nuggets Winner?"),
+        (
+            "KXNBAGAME-26JAN18CHADEN-DEN",
+            "yes",
+            "Charlotte Hornets at Denver Nuggets Winner?",
+        ),
     ]
 
     print("Testing team parsing from tickers:")

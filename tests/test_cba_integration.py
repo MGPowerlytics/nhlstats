@@ -46,8 +46,8 @@ class TestCBAEloFactoryIntegration:
         from elo import create_elo_instance
 
         elo = create_elo_instance("cba", k_factor=30, home_advantage=100)
-        assert elo.k_factor == 30
-        assert elo.home_advantage == 100
+        assert elo.config.k_factor == 30
+        assert elo.config.home_advantage == 100
 
     def test_get_elo_for_sport_alias(self):
         """Test get_elo_for_sport alias works for CBA."""
@@ -176,14 +176,12 @@ class TestCBAKalshiIntegration:
     @patch("kalshi_markets._fetch_sport_markets")
     def test_fetch_cba_markets_calls_internal(self, mock_fetch):
         """Test fetch_cba_markets calls internal function correctly."""
-        from kalshi_markets import fetch_cba_markets, SPORT_SERIES
+        from kalshi_markets import fetch_cba_markets
 
         mock_fetch.return_value = []
         fetch_cba_markets("2026-02-01")
 
-        mock_fetch.assert_called_once_with(
-            "cba", SPORT_SERIES["cba"], date_str="2026-02-01"
-        )
+        mock_fetch.assert_called_once_with("cba", _date_str="2026-02-01")
 
 
 class TestCBATeamMappingIntegration:

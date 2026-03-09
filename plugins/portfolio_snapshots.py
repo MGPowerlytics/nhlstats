@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional
 import pandas as pd
-from db_manager import DBManager, default_db
+from plugins.db_manager import DBManager, default_db
 
 
 @dataclass(frozen=True)
@@ -49,13 +49,8 @@ def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
     except Exception:
         pass
 
-    # Add explicit constraint if needed (for cases where PRIMARY KEY wasn't picked up correctly in earlier runs)
-    try:
-        db.execute(
-            "ALTER TABLE portfolio_value_snapshots ADD CONSTRAINT pk_snapshot_hour PRIMARY KEY (snapshot_hour_utc)"
-        )
-    except Exception:
-        pass
+    # Ensure cumulative_deposits_dollars exists and is updated
+    # (Removed redundant ALTER TABLE for PRIMARY KEY that caused log pollution)
 
 
 def _floor_to_hour_utc(ts: datetime) -> datetime:

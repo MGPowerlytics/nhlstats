@@ -12,6 +12,23 @@ import pandas as pd
 from pathlib import Path
 from datetime import datetime
 from typing import Optional, List, Dict
+from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class GameResult:
+    """
+    Represents a single game result for Unrivaled Basketball.
+    Used as a parameter object to avoid primitive obsession.
+    """
+
+    date: str
+    team1: str
+    team2: str
+    score1: int
+    score2: int
+    game_id: Optional[str] = None
+
 
 # Unrivaled teams for the 2025-2026 inaugural season
 # Team names follow the "Name BC" (Basketball Club) convention
@@ -104,10 +121,18 @@ class UnrivaledGames:
 
     def _create_empty_games_file(self) -> None:
         """Create an empty games file with the correct schema."""
-        df = pd.DataFrame(columns=[
-            "date", "home_team", "away_team", "home_score", "away_score",
-            "neutral", "season", "game_id"
-        ])
+        df = pd.DataFrame(
+            columns=[
+                "date",
+                "home_team",
+                "away_team",
+                "home_score",
+                "away_score",
+                "neutral",
+                "season",
+                "game_id",
+            ]
+        )
         df.to_csv(self.games_file, index=False)
         print(f"✓ Created empty games file at {self.games_file}")
 
@@ -122,29 +147,24 @@ class UnrivaledGames:
         df.to_csv(self.games_file, index=False)
         print(f"✓ Saved {len(games)} Unrivaled games to {self.games_file}")
 
-    def add_game(
-        self,
-        date: str,
-        team1: str,
-        team2: str,
-        score1: int,
-        score2: int,
-        game_id: Optional[str] = None,
-    ) -> None:
+    def add_game(self, game: GameResult) -> None:
         """
-        Manually add a game result.
+        Manually add a game result using a GameResult parameter object.
 
         Since Unrivaled games are all at neutral site, team1/team2 are
         arbitrarily designated as home/away for consistency.
 
         Args:
-            date: Game date in YYYY-MM-DD format
-            team1: First team name
-            team2: Second team name
-            score1: Team 1's score
-            score2: Team 2's score
-            game_id: Optional unique game identifier
+            game: GameResult object containing all game details
         """
+        # Extract values from game result
+        date = game.date
+        team1 = game.team1
+        team2 = game.team2
+        score1 = game.score1
+        score2 = game.score2
+        game_id = game.game_id
+
         # Normalize team names
         team1 = self._normalize_team_name(team1)
         team2 = self._normalize_team_name(team2)
@@ -217,10 +237,17 @@ class UnrivaledGames:
 
         if not self.games_file.exists():
             print("⚠️ No Unrivaled games file found")
-            return pd.DataFrame(columns=[
-                "date", "home_team", "away_team", "home_score", "away_score",
-                "neutral", "season"
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "date",
+                    "home_team",
+                    "away_team",
+                    "home_score",
+                    "away_score",
+                    "neutral",
+                    "season",
+                ]
+            )
 
         try:
             df = pd.read_csv(self.games_file)
@@ -240,10 +267,17 @@ class UnrivaledGames:
 
         except Exception as e:
             print(f"✗ Error loading Unrivaled games: {e}")
-            return pd.DataFrame(columns=[
-                "date", "home_team", "away_team", "home_score", "away_score",
-                "neutral", "season"
-            ])
+            return pd.DataFrame(
+                columns=[
+                    "date",
+                    "home_team",
+                    "away_team",
+                    "home_score",
+                    "away_score",
+                    "neutral",
+                    "season",
+                ]
+            )
 
     def get_games_for_date(self, date_str: str) -> pd.DataFrame:
         """
@@ -283,8 +317,8 @@ class UnrivaledGames:
 
         # Games without scores (upcoming)
         upcoming = df[
-            (df["date"] >= target_date) &
-            (df["home_score"].isna() | (df["home_score"] == 0))
+            (df["date"] >= target_date)
+            & (df["home_score"].isna() | (df["home_score"] == 0))
         ]
         return upcoming.sort_values("date")
 

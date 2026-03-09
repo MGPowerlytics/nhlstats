@@ -42,7 +42,7 @@ class TestNBAGames:
         # Just check that User-Agent is present and looks valid
         assert "Mozilla" in headers["User-Agent"] or "Chrome" in headers["User-Agent"]
 
-    @patch("nba_games.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_make_request_success(self, mock_get, tmp_path):
         """Test successful API request."""
         from nba_games import NBAGames
@@ -57,7 +57,7 @@ class TestNBAGames:
 
         assert result == {"resultSets": []}
 
-    @patch("nba_games.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_make_request_rate_limit_retry(self, mock_get, tmp_path):
         """Test rate limit handling with retry."""
         from nba_games import NBAGames
@@ -80,7 +80,7 @@ class TestNBAGames:
 
         games = NBAGames(output_dir=str(tmp_path))
 
-        with patch("nba_games.time.sleep"):  # Skip actual sleep
+        with patch("plugins.base_games.time.sleep"):  # Skip actual sleep
             result = games._make_request("https://test.com")
 
         assert result == {"data": "test"}
@@ -395,3 +395,58 @@ class TestDataValidationInGames:
 
         for name in invalid_names:
             assert not (isinstance(name, str) and len(str(name) if name else "") > 0)
+
+
+class TestNCAABGames:
+    """Test NCAABGames and MasseyGamesFetcher refactoring."""
+
+    def test_init(self, tmp_path):
+        """Test initialization of NCAABGames."""
+        from ncaab_games import NCAABGames
+
+        data_dir = str(tmp_path / "ncaab")
+        games = NCAABGames(data_dir=data_dir)
+
+        assert games.sport == "ncaab"
+        assert games.sub_id == "11590"
+        assert str(games.output_dir) == data_dir
+
+    @patch("plugins.base_games.requests.get")
+    def test_download_games(self, mock_get, tmp_path):
+        """Test download_games (mocked)."""
+        from ncaab_games import NCAABGames
+
+        # Mock successful response
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.content = b"1, Team A\n2, Team B"
+        mock_get.return_value = mock_response
+
+        data_dir = str(tmp_path / "ncaab")
+        games = NCAABGames(data_dir=data_dir)
+        # Limit seasons for faster test
+        games.seasons = [2026]
+
+        success = games.download_games()
+
+        assert success is True
+        assert (tmp_path / "ncaab" / "teams_2026.csv").exists()
+        assert (tmp_path / "ncaab" / "games_2026.csv").exists()
+
+    def test_parse_game_row(self, tmp_path):
+        """Test parsing a game row from Massey format."""
+        from ncaab_games import NCAABGames
+
+        games = NCAABGames(data_dir=str(tmp_path))
+        team_map = {1: "Team A", 2: "Team B"}
+        # Row format: Time, Date, Team1, Loc1, Score1, Team2, Loc2, Score2
+        row = [0, 20240115, 1, 1, 80, 2, -1, 70]
+
+        game = games._parse_game_row(row, team_map)
+
+        assert game["home_team"] == "Team A"
+        assert game["away_team"] == "Team B"
+        assert game["home_score"] == 80
+        assert game["away_score"] == 70
+        assert game["neutral"] is False
+        assert game["date"].strftime("%Y-%m-%d") == "2024-01-15"

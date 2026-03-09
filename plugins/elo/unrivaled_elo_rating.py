@@ -43,64 +43,6 @@ class UnrivaledEloRating(BaseEloRating):
             home_advantage=home_advantage,
             initial_rating=initial_rating,
         )
-        self.ratings: Dict[str, float] = {}
-
-    def get_rating(self, team: str) -> float:
-        """
-        Get current Elo rating for a team.
-
-        Args:
-            team: Team name
-
-        Returns:
-            Current Elo rating (or initial_rating if team not seen)
-        """
-        if team not in self.ratings:
-            self.ratings[team] = self.initial_rating
-        return self.ratings[team]
-
-    def predict(
-        self, home_team: str, away_team: str, is_neutral: bool = False
-    ) -> float:
-        """
-        Predict probability of home team winning.
-
-        Note: For Unrivaled, is_neutral is effectively always True since
-        all games are at the same venue. Home/away designation is arbitrary.
-
-        Args:
-            home_team: Name of home team (first listed team)
-            away_team: Name of away team (second listed team)
-            is_neutral: Whether the game is at a neutral site (default False,
-                       but home_advantage is 0 so effectively neutral)
-
-        Returns:
-            Probability (0.0 to 1.0) of home team winning
-        """
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        # Apply home advantage (will be 0 for Unrivaled)
-        if not is_neutral:
-            home_rating += self.home_advantage
-
-        return self.expected_score(home_rating, away_rating)
-
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        """
-        Calculate expected score (probability of team A winning).
-
-        Uses standard Elo formula:
-        P(A) = 1 / (1 + 10^((R_B - R_A) / 400))
-
-        Args:
-            rating_a: Elo rating of team A
-            rating_b: Elo rating of team B
-
-        Returns:
-            Probability (0.0 to 1.0) of team A winning
-        """
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
 
     def update(
         self,
@@ -151,41 +93,6 @@ class UnrivaledEloRating(BaseEloRating):
         self.ratings[away_team] = away_rating - change
 
         return change
-
-    def get_all_ratings(self) -> Dict[str, float]:
-        """
-        Get all current ratings.
-
-        Returns:
-            Dictionary mapping team names to their current Elo ratings
-        """
-        return self.ratings.copy()
-
-    def legacy_update(
-        self,
-        home_team: str,
-        away_team: str,
-        home_won: Union[bool, float] = None,
-        is_neutral: bool = False,
-        **kwargs,
-    ) -> float:
-        """
-        Legacy update method for backward compatibility.
-
-        Same as update() for Unrivaled.
-
-        Args:
-            home_team: Name of home team
-            away_team: Name of away team
-            home_won: True/1.0 if home team won
-            is_neutral: Whether the game was at a neutral site
-
-        Returns:
-            The rating change applied to home team
-        """
-        return self.update(
-            home_team, away_team, home_won, is_neutral=is_neutral, **kwargs
-        )
 
 
 # Known Unrivaled teams (2025 inaugural season)

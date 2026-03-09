@@ -10,7 +10,11 @@ from unittest.mock import patch, MagicMock
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
-from plugins.odds_comparator import OddsComparator
+from plugins.odds_comparator import (
+    OddsComparator,
+    BettingThresholds,
+    BettingOpportunityConfig,
+)
 
 
 class DummyDB:
@@ -71,7 +75,7 @@ def test_get_all_odds_returns_records():
 
 
 def test_find_opportunities_basic_flow():
-    """Test market agreement strategy: bet when Elo and market agree."""
+    """Test positive EV strategy: bet when Elo probability exceeds market probability."""
     today = datetime.now().strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -117,11 +121,18 @@ def test_find_opportunities_basic_flow():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1550, "Celtics": 1500},
-            elo_system=elo_system,
-            threshold=0.60,  # Use 0.60 threshold for this test
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.60,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert len(results) == 1
@@ -131,7 +142,7 @@ def test_find_opportunities_basic_flow():
 
 
 def test_find_opportunities_epl_3way():
-    """Test market agreement for soccer 3-way markets."""
+    """Test positive EV for soccer 3-way markets."""
     today = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -184,11 +195,18 @@ def test_find_opportunities_epl_3way():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="epl",
-            elo_ratings={"Arsenal": 1600, "Chelsea": 1500},
-            elo_system=elo_system,
-            threshold=0.45,  # EPL threshold for 3-way markets
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="epl",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.45,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert len(results) == 1
@@ -205,9 +223,18 @@ def test_find_opportunities_handles_db_error():
     elo_system = SimpleNamespace(predict=lambda home, away: 0.8)
 
     results = comparator.find_opportunities(
-        sport="nba",
-        elo_ratings={},
-        elo_system=elo_system,
+        config=BettingOpportunityConfig(
+            sport="nba",
+            elo_system=elo_system,
+            thresholds=BettingThresholds(
+                threshold=0.65,
+                min_edge=0.05,
+                max_edge=1.0,
+                market_confidence_cutoff=0.55,
+                enable_high_edge_disagreement=False,
+                high_edge_threshold=0.10,
+            ),
+        )
     )
 
     assert results == []
@@ -248,9 +275,18 @@ def test_find_opportunities_skips_when_no_odds():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1550, "Celtics": 1500},
-            elo_system=elo_system,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.65,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert results == []
@@ -313,18 +349,25 @@ def test_find_opportunities_named_outcomes_resolve():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="epl",
-            elo_ratings={"Arsenal": 1600, "Chelsea": 1500},
-            elo_system=elo_system,
-            threshold=0.45,  # EPL threshold for 3-way markets
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="epl",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.45,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert results
 
 
 def test_find_opportunities_no_bet_when_disagreement():
-    """Test that no bet is placed when Elo and market disagree on the winner."""
+    """Test that a bet IS placed when Elo has positive edge over market (positive EV)."""
     today = datetime.now().strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -362,19 +405,33 @@ def test_find_opportunities_no_bet_when_disagreement():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
-    # Elo predicts home wins with 70% - disagrees with market!
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.70)
+    # Elo predicts home wins with 70% - positive edge of 30% against market's 40%
+    elo_system = SimpleNamespace(
+        predict=lambda home, away: 0.70,
+        get_rating=lambda team: 1550 if team == "Lakers" else 1500,
+    )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1550, "Celtics": 1500},
-            elo_system=elo_system,
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.65,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
-    # No bet because Elo says home (70%) but market says away (60%)
-    assert results == []
+    # In positive EV: Elo says home 70%, market implies home 40% → edge = 30% → BET
+    assert len(results) == 1
+    assert results[0]["side"] == "home"
+    assert results[0]["bet_on"] == "Lakers"
+    assert results[0]["edge"] > 0.05
 
 
 def test_find_opportunities_tennis_tour_selection():
@@ -424,11 +481,18 @@ def test_find_opportunities_tennis_tour_selection():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="tennis",
-            elo_ratings={},
-            elo_system=elo_system,
-            threshold=0.60,  # Tennis threshold
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="tennis",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.60,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     elo_system.predict.assert_called()
@@ -437,7 +501,7 @@ def test_find_opportunities_tennis_tour_selection():
 
 
 def test_find_opportunities_market_below_cutoff_no_bet():
-    """Test that no bet is placed when market confidence is below cutoff (coin flip)."""
+    """Test that no bet when edge is below min_edge threshold."""
     today = datetime.now().strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -450,20 +514,20 @@ def test_find_opportunities_market_below_cutoff_no_bet():
             }
         ]
     )
-    # Market is close to 50/50 - below the 55% cutoff
+    # Market is close to Elo - edge below min_edge threshold
     odds_df = pd.DataFrame(
         [
             {
                 "bookmaker": "Kalshi",
                 "outcome_name": "home",
-                "price": 1.92,  # ~52% implied - below 55% cutoff
+                "price": 1.72,  # ~58% implied
                 "last_update": "now",
                 "external_id": "kalshi-home",
             },
             {
                 "bookmaker": "Kalshi",
                 "outcome_name": "away",
-                "price": 2.08,  # ~48% implied
+                "price": 2.38,  # ~42% implied
                 "last_update": "now",
                 "external_id": "kalshi-away",
             },
@@ -475,23 +539,34 @@ def test_find_opportunities_market_below_cutoff_no_bet():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
-    # Elo says home wins with 60%
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.60)
+    # Elo says home wins with 60% - edge is only ~2% (below 5% min_edge)
+    elo_system = SimpleNamespace(
+        predict=lambda home, away: 0.60,
+        get_rating=lambda team: 1520 if team == "Lakers" else 1500,
+    )
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1550, "Celtics": 1500},
-            elo_system=elo_system,
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.65,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
-    # No bet because market prob (52%) is below cutoff (55%)
+    # No bet because edge (~2%) is below min_edge (5%)
     assert results == []
 
 
 def test_find_opportunities_confidence_levels():
-    """Test that confidence is assigned based on agreement strength."""
+    """Test that confidence is assigned based on edge size (positive EV)."""
     today = datetime.now().strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -504,20 +579,20 @@ def test_find_opportunities_confidence_levels():
             }
         ]
     )
-    # Market says home wins with 62%
+    # Market says home wins with 60%
     odds_df = pd.DataFrame(
         [
             {
                 "bookmaker": "Kalshi",
                 "outcome_name": "home",
-                "price": 1.61,  # ~62% implied
+                "price": 1.67,  # ~60% implied
                 "last_update": "now",
                 "external_id": "kalshi-home",
             },
             {
                 "bookmaker": "Kalshi",
                 "outcome_name": "away",
-                "price": 2.63,  # ~38% implied
+                "price": 2.50,  # ~40% implied
                 "last_update": "now",
                 "external_id": "kalshi-away",
             },
@@ -529,7 +604,7 @@ def test_find_opportunities_confidence_levels():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
-    # Elo predicts home with 65% - very close to market's 62%
+    # Elo predicts home with 65% - edge ~5% over market's 60%
     elo_system = SimpleNamespace(
         predict=lambda home, away: 0.65,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
@@ -537,23 +612,27 @@ def test_find_opportunities_confidence_levels():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1550, "Celtics": 1500},
-            elo_system=elo_system,
-            threshold=0.60,  # Use 0.60 threshold for this test
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.60,
+                    min_edge=0.03,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert len(results) == 1
-    # Agreement diff is ~3% (0.65 - 0.62), should be HIGH confidence
-    assert results[0]["confidence"] == "HIGH"
-    assert "agreement_diff" in results[0]
-    assert results[0]["confidence"] == "HIGH"
-    assert "agreement_diff" in results[0]
+    # Edge is ~5% (0.65 - 0.60), which is < 8% → LOW confidence
+    assert results[0]["confidence"] == "LOW"
 
 
 def test_find_opportunities_away_team_agreement():
-    """Test betting on away team when both Elo and market agree away wins."""
+    """Test betting on away team when Elo finds positive EV on away side."""
     today = datetime.now().strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -591,7 +670,8 @@ def test_find_opportunities_away_team_agreement():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
-    # Elo also predicts away wins (home win prob = 30%, so away = 70%)
+    # Elo also predicts away wins (home win prob = 30%, away = 70%)
+    # Away edge: 70% - 65% = 5% positive edge on away
     elo_system = SimpleNamespace(
         predict=lambda home, away: 0.30,
         get_rating=lambda team: 1450 if team == "Lakers" else 1600,
@@ -599,14 +679,20 @@ def test_find_opportunities_away_team_agreement():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
-            sport="nba",
-            elo_ratings={"Lakers": 1450, "Celtics": 1600},
-            elo_system=elo_system,
-            threshold=0.60,  # Use 0.60 threshold for this test
-            market_confidence_cutoff=0.55,
+            config=BettingOpportunityConfig(
+                sport="nba",
+                elo_system=elo_system,
+                thresholds=BettingThresholds(
+                    threshold=0.60,
+                    min_edge=0.05,
+                    max_edge=1.0,
+                    market_confidence_cutoff=0.55,
+                    enable_high_edge_disagreement=False,
+                    high_edge_threshold=0.10,
+                ),
+            )
         )
 
     assert len(results) == 1
     assert results[0]["side"] == "away"
-    assert results[0]["bet_on"] == "Celtics"
     assert results[0]["bet_on"] == "Celtics"

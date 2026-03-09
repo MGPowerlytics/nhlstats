@@ -3,6 +3,7 @@ Updated update_elo_ratings function for Airflow DAG.
 This version uses unified_games table and includes proper logging.
 """
 
+
 def update_elo_ratings(sport, **context):
     """Calculate current Elo ratings for a sport with proper logging."""
     print(f"📊 Updating {sport.upper()} Elo ratings...")
@@ -13,8 +14,9 @@ def update_elo_ratings(sport, **context):
     if os.path.exists(csv_path):
         try:
             import pandas as pd
+
             df = pd.read_csv(csv_path)
-            previous_ratings = dict(zip(df['team'], df['rating']))
+            previous_ratings = dict(zip(df["team"], df["rating"]))
             print(f"  Loaded {len(previous_ratings)} previous ratings from {csv_path}")
         except Exception as e:
             print(f"  ⚠️  Could not load previous ratings: {e}")
@@ -44,17 +46,38 @@ def update_elo_ratings(sport, **context):
 
         # Map full team names to abbreviations
         nba_team_mapping = {
-            'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
-            'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
-            'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
-            'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
-            'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
-            'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
-            'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
-            'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
-            'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
-            'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
-            'LA Clippers': 'LAC', 'LA Lakers': 'LAL',
+            "Atlanta Hawks": "ATL",
+            "Boston Celtics": "BOS",
+            "Brooklyn Nets": "BKN",
+            "Charlotte Hornets": "CHA",
+            "Chicago Bulls": "CHI",
+            "Cleveland Cavaliers": "CLE",
+            "Dallas Mavericks": "DAL",
+            "Denver Nuggets": "DEN",
+            "Detroit Pistons": "DET",
+            "Golden State Warriors": "GSW",
+            "Houston Rockets": "HOU",
+            "Indiana Pacers": "IND",
+            "Los Angeles Clippers": "LAC",
+            "Los Angeles Lakers": "LAL",
+            "Memphis Grizzlies": "MEM",
+            "Miami Heat": "MIA",
+            "Milwaukee Bucks": "MIL",
+            "Minnesota Timberwolves": "MIN",
+            "New Orleans Pelicans": "NOP",
+            "New York Knicks": "NYK",
+            "Oklahoma City Thunder": "OKC",
+            "Orlando Magic": "ORL",
+            "Philadelphia 76ers": "PHI",
+            "Phoenix Suns": "PHX",
+            "Portland Trail Blazers": "POR",
+            "Sacramento Kings": "SAC",
+            "San Antonio Spurs": "SAS",
+            "Toronto Raptors": "TOR",
+            "Utah Jazz": "UTA",
+            "Washington Wizards": "WAS",
+            "LA Clippers": "LAC",
+            "LA Lakers": "LAL",
         }
 
         last_date = None
@@ -109,18 +132,41 @@ def update_elo_ratings(sport, **context):
 
         # Team name to abbreviation mapping
         nhl_team_mapping = {
-            'Anaheim Ducks': 'ANA', 'Arizona Coyotes': 'ARI', 'Boston Bruins': 'BOS',
-            'Buffalo Sabres': 'BUF', 'Calgary Flames': 'CGY', 'Carolina Hurricanes': 'CAR',
-            'Chicago Blackhawks': 'CHI', 'Colorado Avalanche': 'COL', 'Columbus Blue Jackets': 'CBJ',
-            'Dallas Stars': 'DAL', 'Detroit Red Wings': 'DET', 'Edmonton Oilers': 'EDM',
-            'Florida Panthers': 'FLA', 'Los Angeles Kings': 'LAK', 'Minnesota Wild': 'MIN',
-            'Montreal Canadiens': 'MTL', 'Nashville Predators': 'NSH', 'New Jersey Devils': 'NJD',
-            'New York Islanders': 'NYI', 'New York Rangers': 'NYR', 'Ottawa Senators': 'OTT',
-            'Philadelphia Flyers': 'PHI', 'Pittsburgh Penguins': 'PIT', 'San Jose Sharks': 'SJS',
-            'Seattle Kraken': 'SEA', 'St. Louis Blues': 'STL', 'Tampa Bay Lightning': 'TBL',
-            'Toronto Maple Leafs': 'TOR', 'Utah Hockey Club': 'UTA', 'Vancouver Canucks': 'VAN',
-            'Vegas Golden Knights': 'VGK', 'Washington Capitals': 'WSH', 'Winnipeg Jets': 'WPG',
-            'Montréal Canadiens': 'MTL', 'Utah Mammoth': 'UTA',
+            "Anaheim Ducks": "ANA",
+            "Arizona Coyotes": "ARI",
+            "Boston Bruins": "BOS",
+            "Buffalo Sabres": "BUF",
+            "Calgary Flames": "CGY",
+            "Carolina Hurricanes": "CAR",
+            "Chicago Blackhawks": "CHI",
+            "Colorado Avalanche": "COL",
+            "Columbus Blue Jackets": "CBJ",
+            "Dallas Stars": "DAL",
+            "Detroit Red Wings": "DET",
+            "Edmonton Oilers": "EDM",
+            "Florida Panthers": "FLA",
+            "Los Angeles Kings": "LAK",
+            "Minnesota Wild": "MIN",
+            "Montreal Canadiens": "MTL",
+            "Nashville Predators": "NSH",
+            "New Jersey Devils": "NJD",
+            "New York Islanders": "NYI",
+            "New York Rangers": "NYR",
+            "Ottawa Senators": "OTT",
+            "Philadelphia Flyers": "PHI",
+            "Pittsburgh Penguins": "PIT",
+            "San Jose Sharks": "SJS",
+            "Seattle Kraken": "SEA",
+            "St. Louis Blues": "STL",
+            "Tampa Bay Lightning": "TBL",
+            "Toronto Maple Leafs": "TOR",
+            "Utah Hockey Club": "UTA",
+            "Vancouver Canucks": "VAN",
+            "Vegas Golden Knights": "VGK",
+            "Washington Capitals": "WSH",
+            "Winnipeg Jets": "WPG",
+            "Montréal Canadiens": "MTL",
+            "Utah Mammoth": "UTA",
         }
 
         last_date = None
@@ -243,7 +289,18 @@ def update_elo_ratings(sport, **context):
             f.write("team,rating\n")
             for player in sorted(elo.wta_ratings.keys()):
                 f.write(f"{player},{elo.wta_ratings[player]:.2f}\n")
-    elif sport in ["nba", "nhl", "mlb", "nfl", "epl", "ligue1", "ncaab", "wncaab", "unrivaled", "cba"]:
+    elif sport in [
+        "nba",
+        "nhl",
+        "mlb",
+        "nfl",
+        "epl",
+        "ligue1",
+        "ncaab",
+        "wncaab",
+        "unrivaled",
+        "cba",
+    ]:
         Path(f"data/{sport}_current_elo_ratings.csv").parent.mkdir(
             parents=True, exist_ok=True
         )
@@ -263,7 +320,9 @@ def update_elo_ratings(sport, **context):
             new_teams = set(valid_ratings.keys()) - set(previous_ratings.keys())
             removed_teams = set(previous_ratings.keys()) - set(valid_ratings.keys())
 
-            print(f"  Teams: {len(valid_ratings)} total ({len(common_teams)} updated, {len(new_teams)} new, {len(removed_teams)} removed)")
+            print(
+                f"  Teams: {len(valid_ratings)} total ({len(common_teams)} updated, {len(new_teams)} new, {len(removed_teams)} removed)"
+            )
 
             if common_teams:
                 changes = []

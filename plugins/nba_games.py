@@ -5,42 +5,34 @@ Download NBA game data from ESPN API.
 
 import requests
 import json
-import time
-from pathlib import Path
-from datetime import datetime, timedelta
+from datetime import datetime
 
 
-class NBAGames:
+from plugins.base_games import BaseGamesFetcher
+
+
+class NBAGames(BaseGamesFetcher):
     """Fetch NBA game data from ESPN."""
 
+    SPORT = "nba"
     BASE_URL = "http://site.api.espn.com/apis/site/v2/sports/basketball/nba/scoreboard"
     HEADERS = {
         "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     }
 
-    def __init__(self, output_dir="data/nba", date_folder=None):
-        self.output_dir = Path(output_dir)
-        if date_folder:
-            self.output_dir = self.output_dir / date_folder
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    def _make_request(self, url, params=None, max_retries=3, request_config=None):
+        # Create RequestConfig if not provided, using max_retries parameter
+        if request_config is None:
+            from plugins.base_games import RequestConfig
 
-    def _make_request(self, url, params=None, max_retries=3):
-        """Make HTTP request with exponential backoff for rate limits."""
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(
-                    url, headers=self.HEADERS, params=params, timeout=30
-                )
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.RequestException as e:
-                if attempt == max_retries - 1:
-                    print(f"Error fetching {url}: {e}")
-                    raise
-                wait_time = (2**attempt) * 2
-                time.sleep(wait_time)
+            request_config = RequestConfig(max_retries=max_retries)
 
-        raise Exception(f"Failed to fetch {url} after {max_retries} attempts")
+        return super()._make_request(
+            url,
+            params=params,
+            headers=self.HEADERS,
+            request_config=request_config,
+        )
 
     def get_games_for_date(self, date_str):
         """
@@ -49,9 +41,7 @@ class NBAGames:
         """
         # ESPN expects YYYYMMDD in the dates parameter
         date_formatted = date_str.replace("-", "")
-        params = {
-            "dates": date_formatted
-        }
+        params = {"dates": date_formatted}
         return self._make_request(self.BASE_URL, params)
 
     def download_games_for_date(self, date_str):
@@ -62,7 +52,7 @@ class NBAGames:
         scoreboard = self.get_games_for_date(date_str)
 
         # Check if we got valid data
-        if not scoreboard or 'events' not in scoreboard:
+        if not scoreboard or "events" not in scoreboard:
             print("  No events found or invalid response")
             return 0
 
@@ -71,7 +61,7 @@ class NBAGames:
             json.dump(scoreboard, f, indent=2)
         print(f"  Saved scoreboard to {scoreboard_file}")
 
-        events = scoreboard.get('events', [])
+        events = scoreboard.get("events", [])
         print(f"  Found {len(events)} games")
 
         # Note: We are currently only downloading the scoreboard as it contains
@@ -84,6 +74,7 @@ class NBAGames:
 if __name__ == "__main__":
     # Test
     import sys
+
     date = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y-%m-%d")
     fetcher = NBAGames()
     fetcher.download_games_for_date(date)

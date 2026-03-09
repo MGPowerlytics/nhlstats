@@ -1,17 +1,22 @@
 """
-Stub for CLV (Customer Lifetime Value) backfilling.
+Stub for CLV (Closing Line Value) backfilling.
 TODO: Implement actual backfilling logic.
 """
+
+from typing import Optional
+from plugins.db_manager import DBManager
 
 
 class CLVBackfiller:
     """Backfill CLV metrics for historical bets."""
 
-    def __init__(self, db_manager=None):
+    def __init__(self, db_manager: Optional[DBManager] = None):
         """Initialize with optional DB manager."""
         self.db = db_manager
 
-    def backfill(self, start_date=None, end_date=None):
+    def backfill(
+        self, start_date: Optional[str] = None, end_date: Optional[str] = None
+    ) -> int:
         """Backfill CLV data for given date range.
 
         Args:

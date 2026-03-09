@@ -5,9 +5,8 @@ Production-ready Elo rating system for NFL predictions.
 Inherits from BaseEloRating for unified interface.
 """
 
-from plugins.elo.base_elo_rating import BaseEloRating
-from typing import Dict, Union
-import math
+from plugins.elo.base_elo_rating import BaseEloRating, Matchup, GameResult
+from typing import Dict, Union, Optional
 
 
 class NFLEloRating(BaseEloRating):
@@ -25,91 +24,60 @@ class NFLEloRating(BaseEloRating):
             initial_rating=initial_rating,
         )
 
-    def get_rating(self, team: str) -> float:
-        if team not in self.ratings:
-            self.ratings[team] = self.initial_rating
-        return self.ratings[team]
-
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
-
-    def predict(
-        self, home_team: str, away_team: str, is_neutral: bool = False
+    def update(
+        self,
+        home_team: Optional[str] = None,
+        away_team: Optional[str] = None,
+        home_won: Optional[Union[bool, float]] = None,
+        is_neutral: bool = False,
+        matchup: Optional[Matchup] = None,
+        result: Optional[GameResult] = None,
+        **kwargs,
     ) -> float:
+        """
+        Update Elo ratings after a game result with NFL-specific MOV multiplier.
+        """
+        parsed = self.parser.parse_update_args(
+            home_team=home_team,
+            away_team=away_team,
+            home_won=home_won,
+            is_neutral=is_neutral,
+            matchup=matchup,
+            result=result,
+            **kwargs,
+        )
+        matchup = parsed.matchup
+        result = parsed.result
+
+        home_team = matchup.home_team
+        away_team = matchup.away_team
+        is_neutral = matchup.is_neutral
+        home_won = result.home_won
+
         home_rating = self.get_rating(home_team)
         away_rating = self.get_rating(away_team)
 
         if not is_neutral:
-            home_rating += self.home_advantage
-
-        return self.expected_score(home_rating, away_rating)
-
-    def update(
-        self,
-        home_team: str,
-        away_team: str,
-        home_won: Union[bool, float] = None,
-        is_neutral: bool = False,
-        **kwargs,
-    ) -> None:
-        # Handle kwargs for backward compatibility
-        home_score = kwargs.get("home_score")
-        away_score = kwargs.get("away_score")
-
-        real_home_won = home_won
-        real_is_neutral = is_neutral
-
-        if home_score is None and away_score is None:
-            # Check positional args
-            if isinstance(home_won, (int, float)) and isinstance(
-                is_neutral, (int, float)
-            ):
-                if home_won > 1 or is_neutral > 1:
-                    home_score = home_won
-                    away_score = is_neutral
-                    real_home_won = None
-                    real_is_neutral = False
-
-        # If home_won not provided, determine from scores
-        if real_home_won is None and home_score is not None and away_score is not None:
-            real_home_won = home_score > away_score
-        elif real_home_won is None:
-            if "home_win" in kwargs:
-                real_home_won = kwargs["home_win"]
-            else:
-                raise ValueError("Must provide home_won or scores")
-
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        if not real_is_neutral:
-            home_rating += self.home_advantage
+            home_rating += self.config.home_advantage
 
         expected_home = self.expected_score(home_rating, away_rating)
-        actual_home = 1.0 if real_home_won else 0.0
-        change = self._calculate_rating_change(expected_home, actual_home)
+        actual_home = 1.0 if home_won else 0.0
+        change = self.calculator.calculate_rating_change(expected_home, actual_home)
 
-        # Simple MOV multiplier if scores provided
-        if home_score is not None and away_score is not None:
-            mov = abs(home_score - away_score)
-            mov_multiplier = math.log(max(mov, 1) + 1.0) * (
-                2.2 / ((0.001 * (home_rating - away_rating)) + 2.2)
+        # Apply MOV multiplier if scores provided
+        if result.home_score is not None and result.away_score is not None:
+            mov_multiplier = self.calculator.calculate_mov_multiplier(
+                result, home_rating - away_rating
             )
             change *= mov_multiplier
 
-        if not real_is_neutral:
-            home_rating -= self.home_advantage
+        if not is_neutral:
+            home_rating -= self.config.home_advantage
 
-        self.ratings[home_team] = home_rating + change
-        self.ratings[away_team] = away_rating - change
+        self.store.set_rating(home_team, home_rating + change)
+        self.store.set_rating(away_team, away_rating - change)
 
-    def get_all_ratings(self) -> Dict[str, float]:
-        return self.ratings.copy()
-
-    def legacy_update(
-        self, home_team: str, away_team: str, home_won: bool = None, **kwargs
-    ) -> None:
-        self.update(home_team, away_team, home_won, is_neutral=False, **kwargs)
+        return change
 
 
 def calculate_current_elo_ratings(output_path=None):
@@ -122,7 +90,7 @@ def calculate_current_elo_ratings(output_path=None):
     Returns:
         NFLEloRating instance with updated ratings, or None if no games.
     """
-    from db_manager import default_db
+    from plugins.db_manager import default_db
     from pathlib import Path
 
     elo = NFLEloRating()

@@ -23,6 +23,23 @@ from plugins.elo.factory import (
     get_elo_for_sport,
 )
 
+# Export dataclasses and components for advanced usage
+from plugins.elo.elo_dataclasses import (
+    Matchup,
+    GameResult,
+    EloConfig,
+    UpdateArgs,
+    DEFAULT_K_FACTOR,
+    DEFAULT_HOME_ADVANTAGE,
+    DEFAULT_INITIAL_RATING,
+    ELO_RATING_SCALE,
+    ELO_EXPONENT_BASE,
+    MOV_MULTIPLIER_CONSTANT,
+    MOV_ELO_SCALING_FACTOR,
+    MOV_MINIMUM_VALUE,
+    MOV_LOG_OFFSET,
+)
+
 __all__ = [
     "BaseEloRating",
     "NHLEloRating",
@@ -40,4 +57,18 @@ __all__ = [
     "get_elo_class",
     "create_elo_instance",
     "get_elo_for_sport",
+    # Dataclasses and constants
+    "Matchup",
+    "GameResult",
+    "EloConfig",
+    "UpdateArgs",
+    "DEFAULT_K_FACTOR",
+    "DEFAULT_HOME_ADVANTAGE",
+    "DEFAULT_INITIAL_RATING",
+    "ELO_RATING_SCALE",
+    "ELO_EXPONENT_BASE",
+    "MOV_MULTIPLIER_CONSTANT",
+    "MOV_ELO_SCALING_FACTOR",
+    "MOV_MINIMUM_VALUE",
+    "MOV_LOG_OFFSET",
 ]

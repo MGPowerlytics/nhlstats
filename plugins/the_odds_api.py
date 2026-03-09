@@ -9,7 +9,12 @@ from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
 import os
-from db_manager import DBManager, default_db
+from plugins.db_manager import DBManager, default_db
+from naming_resolver import NamingResolver, NamingContext
+from base_games import UnifiedGameInfo
+
+# Constants
+AMERICAN_ODDS_BASE = 100
 
 
 class TheOddsAPI:
@@ -47,32 +52,135 @@ class TheOddsAPI:
 
         self.session = requests.Session()
 
-    def _generate_game_id(
-        self, sport: str, game_date: str, home_team: str, away_team: str
-    ) -> str:
+    def _generate_game_id(self, game: UnifiedGameInfo) -> str:
         """
         Generates a consistent and unique game_id.
         Format: SPORT_YYYYMMDD_HOMEABBREV_AWAYABBREV
         """
         # Parse ISO date or YYYY-MM-DD
-        if "T" in game_date:
-            dt = datetime.fromisoformat(game_date.replace("Z", "+00:00"))
+        if "T" in game.game_date:
+            dt = datetime.fromisoformat(game.game_date.replace("Z", "+00:00"))
             date_str = dt.strftime("%Y%m%d")
         else:
-            dt = datetime.strptime(game_date, "%Y-%m-%d")
+            dt = datetime.strptime(game.game_date, "%Y-%m-%d")
             date_str = dt.strftime("%Y%m%d")
 
         # Simple slugification for team names
-        home_slug = "".join(filter(str.isalnum, home_team)).upper()
-        away_slug = "".join(filter(str.isalnum, away_team)).upper()
-        return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
+        home_slug = "".join(filter(str.isalnum, game.home_team)).upper()
+        away_slug = "".join(filter(str.isalnum, game.away_team)).upper()
+        return f"{game.sport.upper()}_{date_str}_{home_slug}_{away_slug}"
 
     def american_to_decimal(self, american_odds: int) -> float:
         """Convert American odds to decimal odds."""
         if american_odds > 0:
-            return (american_odds / 100) + 1
+            return (american_odds / AMERICAN_ODDS_BASE) + 1
         else:
-            return (100 / abs(american_odds)) + 1
+            return (AMERICAN_ODDS_BASE / abs(american_odds)) + 1
+
+    def _upsert_team_mappings(self, game: UnifiedGameInfo) -> None:
+        """Register team mappings for future resolution."""
+        NamingResolver.add_mapping(
+            context=NamingContext(game.sport, "the_odds_api", game.home_team),
+            canonical_name=game.home_team,
+        )
+        NamingResolver.add_mapping(
+            context=NamingContext(game.sport, "the_odds_api", game.away_team),
+            canonical_name=game.away_team,
+        )
+
+    def _upsert_unified_game(self, game: UnifiedGameInfo) -> None:
+        """Upsert into unified_games table."""
+        self.db.execute(
+            """
+            INSERT INTO unified_games (
+                game_id, sport, game_date, home_team_id, home_team_name,
+                away_team_id, away_team_name, commence_time, status
+            ) VALUES (:game_id, :sport, :game_date, :home_team_id, :home_team_name,
+                     :away_team_id, :away_team_name, :commence_time, :status)
+            ON CONFLICT (game_id) DO UPDATE SET
+                commence_time = EXCLUDED.commence_time
+        """,
+            {
+                "game_id": game.game_id,
+                "sport": game.sport.upper(),
+                "game_date": game.game_date,
+                "home_team_id": game.home_team,
+                "home_team_name": game.home_team,
+                "away_team_id": game.away_team,
+                "away_team_name": game.away_team,
+                "commence_time": game.commence_time,
+                "status": game.status,
+            },
+        )
+
+    def _upsert_game_odds_for_bookmaker(
+        self,
+        game: UnifiedGameInfo,
+        bm_name: str,
+        bm_data: Dict,
+    ) -> int:
+        """Upsert into game_odds for each bookmaker."""
+        odds_count = 0
+        # Determine outcome names
+        if game.sport.lower() == "tennis":
+            h_outcome = game.home_team
+            a_outcome = game.away_team
+        else:
+            h_outcome = "home"
+            a_outcome = "away"
+
+        # Home win odds
+        home_odds_id = f"{game.game_id}_{bm_name}_h2h_{h_outcome.replace(' ', '_')}"
+        self.db.execute(
+            """
+            INSERT INTO game_odds (
+                odds_id, game_id, bookmaker, market_name, outcome_name,
+                price, last_update, is_pregame
+            ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
+                     :price, :last_update, :is_pregame)
+            ON CONFLICT (odds_id) DO UPDATE SET
+                price = EXCLUDED.price,
+                last_update = EXCLUDED.last_update
+        """,
+            {
+                "odds_id": home_odds_id,
+                "game_id": game.game_id,
+                "bookmaker": bm_name,
+                "market_name": "h2h",
+                "outcome_name": h_outcome,
+                "price": bm_data["home_odds"],
+                "last_update": bm_data["last_update"],
+                "is_pregame": True,
+            },
+        )
+        odds_count += 1
+
+        # Away win odds
+        away_odds_id = f"{game.game_id}_{bm_name}_h2h_{a_outcome.replace(' ', '_')}"
+        self.db.execute(
+            """
+            INSERT INTO game_odds (
+                odds_id, game_id, bookmaker, market_name, outcome_name,
+                price, last_update, is_pregame
+            ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
+                     :price, :last_update, :is_pregame)
+            ON CONFLICT (odds_id) DO UPDATE SET
+                price = EXCLUDED.price,
+                last_update = EXCLUDED.last_update
+        """,
+            {
+                "odds_id": away_odds_id,
+                "game_id": game.game_id,
+                "bookmaker": bm_name,
+                "market_name": "h2h",
+                "outcome_name": a_outcome,
+                "price": bm_data["away_odds"],
+                "last_update": bm_data["last_update"],
+                "is_pregame": True,
+            },
+        )
+        odds_count += 1
+        return odds_count
 
     def save_to_db(self, parsed_markets: List[Dict]) -> int:
         """
@@ -91,110 +199,34 @@ class TheOddsAPI:
         print(f"💾 Saving {len(parsed_markets)} games and their odds to PostgreSQL...")
 
         try:
-            for game in parsed_markets:
-                sport = game["sport"]
-                commence_time = game["commence_time"]
-                game_date = commence_time.split("T")[0]
-                home_team = game["home_team"]
-                away_team = game["away_team"]
+            for game_data in parsed_markets:
+                commence_time = game_data["commence_time"]
 
-                game_id = self._generate_game_id(sport, game_date, home_team, away_team)
-
-                # 0. Register team mappings for future resolution
-                from naming_resolver import NamingResolver
-
-                NamingResolver.add_mapping(sport, "the_odds_api", home_team, home_team)
-                NamingResolver.add_mapping(sport, "the_odds_api", away_team, away_team)
-
-                # 1. Upsert into unified_games
-                self.db.execute(
-                    """
-                    INSERT INTO unified_games (
-                        game_id, sport, game_date, home_team_id, home_team_name,
-                        away_team_id, away_team_name, commence_time, status
-                    ) VALUES (:game_id, :sport, :game_date, :home_team_id, :home_team_name,
-                             :away_team_id, :away_team_name, :commence_time, :status)
-                    ON CONFLICT (game_id) DO UPDATE SET
-                        commence_time = EXCLUDED.commence_time
-                """,
-                    {
-                        "game_id": game_id,
-                        "sport": sport.upper(),
-                        "game_date": game_date,
-                        "home_team_id": home_team,
-                        "home_team_name": home_team,
-                        "away_team_id": away_team,
-                        "away_team_name": away_team,
-                        "commence_time": commence_time,
-                        "status": "Scheduled",
-                    },
+                # Create UnifiedGameInfo object
+                game = UnifiedGameInfo(
+                    sport=game_data["sport"],
+                    game_date=commence_time.split("T")[0],
+                    home_team=game_data["home_team"],
+                    away_team=game_data["away_team"],
+                    canon_home=game_data["home_team"],  # Initially use raw names
+                    canon_away=game_data["away_team"],
+                    commence_time=commence_time,
                 )
 
+                # Generate and set game_id
+                game.game_id = self._generate_game_id(game)
+
+                # 0. Register team mappings for future resolution
+                self._upsert_team_mappings(game)
+
+                # 1. Upsert into unified_games
+                self._upsert_unified_game(game)
+
                 # 2. Upsert into game_odds for each bookmaker
-                for bm_name, bm_data in game["bookmakers"].items():
-                    # Determine outcome names
-                    if sport.lower() == "tennis":
-                        h_outcome = home_team
-                        a_outcome = away_team
-                    else:
-                        h_outcome = "home"
-                        a_outcome = "away"
-
-                    # Home win odds
-                    home_odds_id = (
-                        f"{game_id}_{bm_name}_h2h_{h_outcome.replace(' ', '_')}"
+                for bm_name, bm_data in game_data["bookmakers"].items():
+                    odds_count += self._upsert_game_odds_for_bookmaker(
+                        game, bm_name, bm_data
                     )
-                    self.db.execute(
-                        """
-                        INSERT INTO game_odds (
-                            odds_id, game_id, bookmaker, market_name, outcome_name,
-                            price, last_update, is_pregame
-                        ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
-                                 :price, :last_update, :is_pregame)
-                        ON CONFLICT (odds_id) DO UPDATE SET
-                            price = EXCLUDED.price,
-                            last_update = EXCLUDED.last_update
-                    """,
-                        {
-                            "odds_id": home_odds_id,
-                            "game_id": game_id,
-                            "bookmaker": bm_name,
-                            "market_name": "h2h",
-                            "outcome_name": h_outcome,
-                            "price": bm_data["home_odds"],
-                            "last_update": bm_data["last_update"],
-                            "is_pregame": True,
-                        },
-                    )
-
-                    # Away win odds
-                    away_odds_id = (
-                        f"{game_id}_{bm_name}_h2h_{a_outcome.replace(' ', '_')}"
-                    )
-                    self.db.execute(
-                        """
-                        INSERT INTO game_odds (
-                            odds_id, game_id, bookmaker, market_name, outcome_name,
-                            price, last_update, is_pregame
-                        ) VALUES (:odds_id, :game_id, :bookmaker, :market_name, :outcome_name,
-                                 :price, :last_update, :is_pregame)
-                        ON CONFLICT (odds_id) DO UPDATE SET
-                            price = EXCLUDED.price,
-                            last_update = EXCLUDED.last_update
-                    """,
-                        {
-                            "odds_id": away_odds_id,
-                            "game_id": game_id,
-                            "bookmaker": bm_name,
-                            "market_name": "h2h",
-                            "outcome_name": a_outcome,
-                            "price": bm_data["away_odds"],
-                            "last_update": bm_data["last_update"],
-                            "is_pregame": True,
-                        },
-                    )
-
-                    odds_count += 2
 
             print(f"  ✓ Saved {odds_count} odds records to PostgreSQL.")
             return odds_count
@@ -273,36 +305,7 @@ class TheOddsAPI:
             commence_time = game.get("commence_time")
 
             # Extract odds from all bookmakers
-            bookmakers = {}
-
-            for bookmaker in game.get("bookmakers", []):
-                bm_name = bookmaker.get("key")
-
-                # Get h2h odds
-                for market in bookmaker.get("markets", []):
-                    if market.get("key") == "h2h":
-                        outcomes = market.get("outcomes", [])
-
-                        home_odds = None
-                        away_odds = None
-
-                        for outcome in outcomes:
-                            if outcome.get("name") == home_team:
-                                home_odds = outcome.get("price")
-                            elif outcome.get("name") == away_team:
-                                away_odds = outcome.get("price")
-
-                        if home_odds and away_odds:
-                            home_prob = 1 / home_odds
-                            away_prob = 1 / away_odds
-
-                            bookmakers[bm_name] = {
-                                "home_odds": home_odds,
-                                "away_odds": away_odds,
-                                "home_prob": home_prob,
-                                "away_prob": away_prob,
-                                "last_update": bookmaker.get("last_update"),
-                            }
+            bookmakers = self._extract_bookmaker_odds(game, home_team, away_team)
 
             if not bookmakers:
                 return None
@@ -331,6 +334,91 @@ class TheOddsAPI:
         except Exception as e:
             print(f"⚠️  Error parsing game: {e}")
             return None
+
+    def _extract_bookmaker_odds(
+        self, game: Dict, home_team: str, away_team: str
+    ) -> Dict[str, Dict]:
+        """Extract odds from all bookmakers in a game.
+
+        Args:
+            game: Raw game data from API
+            home_team: Name of home team
+            away_team: Name of away team
+
+        Returns:
+            Dictionary mapping bookmaker names to their odds data
+        """
+        bookmakers = {}
+
+        for bookmaker in game.get("bookmakers", []):
+            bm_name = bookmaker.get("key")
+            odds_data = self._extract_odds_from_bookmaker(
+                bookmaker, home_team, away_team
+            )
+
+            if odds_data:
+                bookmakers[bm_name] = odds_data
+
+        return bookmakers
+
+    def _extract_odds_from_bookmaker(
+        self, bookmaker: Dict, home_team: str, away_team: str
+    ) -> Optional[Dict]:
+        """Extract odds data from a single bookmaker.
+
+        Args:
+            bookmaker: Raw bookmaker data from API
+            home_team: Name of home team
+            away_team: Name of away team
+
+        Returns:
+            Dictionary with odds data or None if no valid h2h market found
+        """
+        for market in bookmaker.get("markets", []):
+            if market.get("key") == "h2h":
+                return self._extract_odds_from_h2h_market(
+                    market, home_team, away_team, bookmaker
+                )
+
+        return None
+
+    def _extract_odds_from_h2h_market(
+        self, market: Dict, home_team: str, away_team: str, bookmaker: Dict
+    ) -> Optional[Dict]:
+        """Extract odds from an h2h market.
+
+        Args:
+            market: Raw market data from API
+            home_team: Name of home team
+            away_team: Name of away team
+            bookmaker: Parent bookmaker data (for last_update)
+
+        Returns:
+            Dictionary with odds data or None if home/away odds not found
+        """
+        home_odds = None
+        away_odds = None
+
+        for outcome in market.get("outcomes", []):
+            outcome_name = outcome.get("name")
+            if outcome_name == home_team:
+                home_odds = outcome.get("price")
+            elif outcome_name == away_team:
+                away_odds = outcome.get("price")
+
+        if home_odds and away_odds:
+            home_prob = 1 / home_odds
+            away_prob = 1 / away_odds
+
+            return {
+                "home_odds": home_odds,
+                "away_odds": away_odds,
+                "home_prob": home_prob,
+                "away_prob": away_prob,
+                "last_update": bookmaker.get("last_update"),
+            }
+
+        return None
 
     def _count_bookmakers(self, games: List[Dict]) -> int:
         """Count unique bookmakers."""

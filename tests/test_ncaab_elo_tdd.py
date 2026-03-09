@@ -49,8 +49,8 @@ class TestNCAABEloInheritance:
         update_sig = inspect.signature(elo.update)
         assert "home_team" in update_sig.parameters
         assert "away_team" in update_sig.parameters
-        assert "home_win" in update_sig.parameters
-        assert "is_neutral" in update_sig.parameters
+        assert "home_won" in update_sig.parameters
+        assert "kwargs" in update_sig.parameters
 
 
 class TestNCAABEloFunctionality:

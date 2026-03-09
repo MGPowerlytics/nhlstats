@@ -7,20 +7,25 @@ import sys
 import os
 
 # Set up path like DAG does
-sys.path.insert(0, 'plugins')
+sys.path.insert(0, "plugins")
 
 # Import the actual function from DAG
 import importlib.util
 import tempfile
 
+
 # Create a test context
 class MockTaskInstance:
     def xcom_push(self, key, value):
-        print(f"  XCom push: {key} = {len(value) if isinstance(value, dict) else value}")
+        print(
+            f"  XCom push: {key} = {len(value) if isinstance(value, dict) else value}"
+        )
+
 
 class MockContext:
     def __init__(self):
         self.task_instance = MockTaskInstance()
+
 
 # We need to import the function directly. Let me extract it
 dag_path = "dags/multi_sport_betting_workflow.py"
@@ -39,41 +44,41 @@ try:
 
     # NHL team mapping
     nhl_team_mapping = {
-        'Anaheim Ducks': 'ANA',
-        'Arizona Coyotes': 'ARI',
-        'Boston Bruins': 'BOS',
-        'Buffalo Sabres': 'BUF',
-        'Calgary Flames': 'CGY',
-        'Carolina Hurricanes': 'CAR',
-        'Chicago Blackhawks': 'CHI',
-        'Colorado Avalanche': 'COL',
-        'Columbus Blue Jackets': 'CBJ',
-        'Dallas Stars': 'DAL',
-        'Detroit Red Wings': 'DET',
-        'Edmonton Oilers': 'EDM',
-        'Florida Panthers': 'FLA',
-        'Los Angeles Kings': 'LAK',
-        'Minnesota Wild': 'MIN',
-        'Montreal Canadiens': 'MTL',
-        'Montréal Canadiens': 'MTL',
-        'Nashville Predators': 'NSH',
-        'New Jersey Devils': 'NJD',
-        'New York Islanders': 'NYI',
-        'New York Rangers': 'NYR',
-        'Ottawa Senators': 'OTT',
-        'Philadelphia Flyers': 'PHI',
-        'Pittsburgh Penguins': 'PIT',
-        'San Jose Sharks': 'SJS',
-        'Seattle Kraken': 'SEA',
-        'St. Louis Blues': 'STL',
-        'Tampa Bay Lightning': 'TBL',
-        'Toronto Maple Leafs': 'TOR',
-        'Utah Hockey Club': 'UTA',
-        'Utah Mammoth': 'UTA',
-        'Vancouver Canucks': 'VAN',
-        'Vegas Golden Knights': 'VGK',
-        'Washington Capitals': 'WSH',
-        'Winnipeg Jets': 'WPG',
+        "Anaheim Ducks": "ANA",
+        "Arizona Coyotes": "ARI",
+        "Boston Bruins": "BOS",
+        "Buffalo Sabres": "BUF",
+        "Calgary Flames": "CGY",
+        "Carolina Hurricanes": "CAR",
+        "Chicago Blackhawks": "CHI",
+        "Colorado Avalanche": "COL",
+        "Columbus Blue Jackets": "CBJ",
+        "Dallas Stars": "DAL",
+        "Detroit Red Wings": "DET",
+        "Edmonton Oilers": "EDM",
+        "Florida Panthers": "FLA",
+        "Los Angeles Kings": "LAK",
+        "Minnesota Wild": "MIN",
+        "Montreal Canadiens": "MTL",
+        "Montréal Canadiens": "MTL",
+        "Nashville Predators": "NSH",
+        "New Jersey Devils": "NJD",
+        "New York Islanders": "NYI",
+        "New York Rangers": "NYR",
+        "Ottawa Senators": "OTT",
+        "Philadelphia Flyers": "PHI",
+        "Pittsburgh Penguins": "PIT",
+        "San Jose Sharks": "SJS",
+        "Seattle Kraken": "SEA",
+        "St. Louis Blues": "STL",
+        "Tampa Bay Lightning": "TBL",
+        "Toronto Maple Leafs": "TOR",
+        "Utah Hockey Club": "UTA",
+        "Utah Mammoth": "UTA",
+        "Vancouver Canucks": "VAN",
+        "Vegas Golden Knights": "VGK",
+        "Washington Capitals": "WSH",
+        "Winnipeg Jets": "WPG",
     }
 
     def map_nhl_team(team_name):
@@ -102,7 +107,7 @@ try:
     print(f"  Loaded {len(games_df)} NHL games from unified_games")
 
     # Initialize Elo
-    EloClass = get_elo_class('nhl')
+    EloClass = get_elo_class("nhl")
     elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
     # Process games
@@ -144,7 +149,9 @@ try:
         min_rating = min(ratings_list)
         max_rating = max(ratings_list)
         rating_range = max_rating - min_rating
-        print(f"  Rating range: {min_rating:.1f} - {max_rating:.1f} ({rating_range:.1f})")
+        print(
+            f"  Rating range: {min_rating:.1f} - {max_rating:.1f} ({rating_range:.1f})"
+        )
 
         if rating_range > 100:
             print("  ✅ Good rating range (should improve with more games)")
@@ -156,6 +163,7 @@ try:
 except Exception as e:
     print(f"❌ NHL test failed: {e}")
     import traceback
+
     traceback.print_exc()
 
 # Test 2: Test NBA Elo update
@@ -164,38 +172,38 @@ print("\n2. Testing NBA Elo update (small sample):")
 try:
     # NBA team mapping
     nba_team_mapping = {
-        'Atlanta Hawks': 'ATL',
-        'Boston Celtics': 'BOS',
-        'Brooklyn Nets': 'BKN',
-        'Charlotte Hornets': 'CHA',
-        'Chicago Bulls': 'CHI',
-        'Cleveland Cavaliers': 'CLE',
-        'Dallas Mavericks': 'DAL',
-        'Denver Nuggets': 'DEN',
-        'Detroit Pistons': 'DET',
-        'Golden State Warriors': 'GSW',
-        'Houston Rockets': 'HOU',
-        'Indiana Pacers': 'IND',
-        'Los Angeles Clippers': 'LAC',
-        'Los Angeles Lakers': 'LAL',
-        'Memphis Grizzlies': 'MEM',
-        'Miami Heat': 'MIA',
-        'Milwaukee Bucks': 'MIL',
-        'Minnesota Timberwolves': 'MIN',
-        'New Orleans Pelicans': 'NOP',
-        'New York Knicks': 'NYK',
-        'Oklahoma City Thunder': 'OKC',
-        'Orlando Magic': 'ORL',
-        'Philadelphia 76ers': 'PHI',
-        'Phoenix Suns': 'PHX',
-        'Portland Trail Blazers': 'POR',
-        'Sacramento Kings': 'SAC',
-        'San Antonio Spurs': 'SAS',
-        'Toronto Raptors': 'TOR',
-        'Utah Jazz': 'UTA',
-        'Washington Wizards': 'WAS',
-        'LA Clippers': 'LAC',
-        'LA Lakers': 'LAL',
+        "Atlanta Hawks": "ATL",
+        "Boston Celtics": "BOS",
+        "Brooklyn Nets": "BKN",
+        "Charlotte Hornets": "CHA",
+        "Chicago Bulls": "CHI",
+        "Cleveland Cavaliers": "CLE",
+        "Dallas Mavericks": "DAL",
+        "Denver Nuggets": "DEN",
+        "Detroit Pistons": "DET",
+        "Golden State Warriors": "GSW",
+        "Houston Rockets": "HOU",
+        "Indiana Pacers": "IND",
+        "Los Angeles Clippers": "LAC",
+        "Los Angeles Lakers": "LAL",
+        "Memphis Grizzlies": "MEM",
+        "Miami Heat": "MIA",
+        "Milwaukee Bucks": "MIL",
+        "Minnesota Timberwolves": "MIN",
+        "New Orleans Pelicans": "NOP",
+        "New York Knicks": "NYK",
+        "Oklahoma City Thunder": "OKC",
+        "Orlando Magic": "ORL",
+        "Philadelphia 76ers": "PHI",
+        "Phoenix Suns": "PHX",
+        "Portland Trail Blazers": "POR",
+        "Sacramento Kings": "SAC",
+        "San Antonio Spurs": "SAS",
+        "Toronto Raptors": "TOR",
+        "Utah Jazz": "UTA",
+        "Washington Wizards": "WAS",
+        "LA Clippers": "LAC",
+        "LA Lakers": "LAL",
     }
 
     def map_nba_team(team_name):
@@ -219,7 +227,7 @@ try:
     print(f"  Loaded {len(games_df)} NBA games from unified_games")
 
     # Initialize Elo
-    EloClass = get_elo_class('nba')
+    EloClass = get_elo_class("nba")
     elo = EloClass(k_factor=20, home_advantage=100)
 
     # Process games
@@ -261,6 +269,7 @@ try:
 except Exception as e:
     print(f"❌ NBA test failed: {e}")
     import traceback
+
     traceback.print_exc()
 
 print("\n" + "=" * 60)

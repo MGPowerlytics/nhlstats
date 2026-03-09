@@ -7,7 +7,7 @@ import sys
 import os
 
 # Set up path like DAG does
-sys.path.insert(0, 'plugins')
+sys.path.insert(0, "plugins")
 
 # Import what the DAG imports
 from db_manager import default_db
@@ -40,7 +40,9 @@ old_query = """
 try:
     old_df = default_db.fetch_df(old_query)
     print(f"   ✅ OLD query works: {len(old_df)} games from 'games' table")
-    print(f"   Sample: {old_df.iloc[0]['home_team']} vs {old_df.iloc[0]['away_team']} on {old_df.iloc[0]['game_date']}")
+    print(
+        f"   Sample: {old_df.iloc[0]['home_team']} vs {old_df.iloc[0]['away_team']} on {old_df.iloc[0]['game_date']}"
+    )
 except Exception as e:
     print(f"   ❌ OLD query failed: {e}")
 
@@ -65,11 +67,13 @@ new_query = """
 try:
     new_df = default_db.fetch_df(new_query)
     print(f"   ✅ NEW query works: {len(new_df)} games from 'unified_games' table")
-    print(f"   Sample: {new_df.iloc[0]['home_team_name']} vs {new_df.iloc[0]['away_team_name']} on {new_df.iloc[0]['game_date']}")
+    print(
+        f"   Sample: {new_df.iloc[0]['home_team_name']} vs {new_df.iloc[0]['away_team_name']} on {new_df.iloc[0]['game_date']}"
+    )
 
     # Check if we have proper team names
-    sample_home = new_df.iloc[0]['home_team_name']
-    sample_away = new_df.iloc[0]['away_team_name']
+    sample_home = new_df.iloc[0]["home_team_name"]
+    sample_away = new_df.iloc[0]["away_team_name"]
     print(f"   Team names: '{sample_home}', '{sample_away}'")
 
 except Exception as e:
@@ -84,7 +88,7 @@ try:
         FROM games
         WHERE game_state IN ('OFF', 'FINAL', 'Final')
     """
-    games_count = default_db.fetch_df(count_games).iloc[0]['count']
+    games_count = default_db.fetch_df(count_games).iloc[0]["count"]
 
     # Count in unified_games
     count_unified = """
@@ -94,7 +98,7 @@ try:
           AND home_score IS NOT NULL
           AND away_score IS NOT NULL
     """
-    unified_count = default_db.fetch_df(count_unified).iloc[0]['count']
+    unified_count = default_db.fetch_df(count_unified).iloc[0]["count"]
 
     print(f"   'games' table: {games_count} completed NHL games")
     print(f"   'unified_games' table: {unified_count} completed NHL games")
@@ -111,18 +115,41 @@ except Exception as e:
 # Test 4: Test team mapping
 print("\n4. Testing team name mapping:")
 nhl_team_mapping = {
-    'Anaheim Ducks': 'ANA', 'Arizona Coyotes': 'ARI', 'Boston Bruins': 'BOS',
-    'Buffalo Sabres': 'BUF', 'Calgary Flames': 'CGY', 'Carolina Hurricanes': 'CAR',
-    'Chicago Blackhawks': 'CHI', 'Colorado Avalanche': 'COL', 'Columbus Blue Jackets': 'CBJ',
-    'Dallas Stars': 'DAL', 'Detroit Red Wings': 'DET', 'Edmonton Oilers': 'EDM',
-    'Florida Panthers': 'FLA', 'Los Angeles Kings': 'LAK', 'Minnesota Wild': 'MIN',
-    'Montreal Canadiens': 'MTL', 'Nashville Predators': 'NSH', 'New Jersey Devils': 'NJD',
-    'New York Islanders': 'NYI', 'New York Rangers': 'NYR', 'Ottawa Senators': 'OTT',
-    'Philadelphia Flyers': 'PHI', 'Pittsburgh Penguins': 'PIT', 'San Jose Sharks': 'SJS',
-    'Seattle Kraken': 'SEA', 'St. Louis Blues': 'STL', 'Tampa Bay Lightning': 'TBL',
-    'Toronto Maple Leafs': 'TOR', 'Utah Hockey Club': 'UTA', 'Vancouver Canucks': 'VAN',
-    'Vegas Golden Knights': 'VGK', 'Washington Capitals': 'WSH', 'Winnipeg Jets': 'WPG',
-    'Montréal Canadiens': 'MTL', 'Utah Mammoth': 'UTA',
+    "Anaheim Ducks": "ANA",
+    "Arizona Coyotes": "ARI",
+    "Boston Bruins": "BOS",
+    "Buffalo Sabres": "BUF",
+    "Calgary Flames": "CGY",
+    "Carolina Hurricanes": "CAR",
+    "Chicago Blackhawks": "CHI",
+    "Colorado Avalanche": "COL",
+    "Columbus Blue Jackets": "CBJ",
+    "Dallas Stars": "DAL",
+    "Detroit Red Wings": "DET",
+    "Edmonton Oilers": "EDM",
+    "Florida Panthers": "FLA",
+    "Los Angeles Kings": "LAK",
+    "Minnesota Wild": "MIN",
+    "Montreal Canadiens": "MTL",
+    "Nashville Predators": "NSH",
+    "New Jersey Devils": "NJD",
+    "New York Islanders": "NYI",
+    "New York Rangers": "NYR",
+    "Ottawa Senators": "OTT",
+    "Philadelphia Flyers": "PHI",
+    "Pittsburgh Penguins": "PIT",
+    "San Jose Sharks": "SJS",
+    "Seattle Kraken": "SEA",
+    "St. Louis Blues": "STL",
+    "Tampa Bay Lightning": "TBL",
+    "Toronto Maple Leafs": "TOR",
+    "Utah Hockey Club": "UTA",
+    "Vancouver Canucks": "VAN",
+    "Vegas Golden Knights": "VGK",
+    "Washington Capitals": "WSH",
+    "Winnipeg Jets": "WPG",
+    "Montréal Canadiens": "MTL",
+    "Utah Mammoth": "UTA",
 }
 
 # Get unique team names from unified_games
@@ -138,8 +165,8 @@ try:
 
     print(f"   Sample team names from unified_games:")
     for _, row in teams_df.iterrows():
-        team_name = row['team_name']
-        abbreviation = nhl_team_mapping.get(team_name, 'NOT FOUND')
+        team_name = row["team_name"]
+        abbreviation = nhl_team_mapping.get(team_name, "NOT FOUND")
         print(f"     '{team_name}' → '{abbreviation}'")
 
     # Check mapping coverage
@@ -152,10 +179,12 @@ try:
     """ % ", ".join(["'%s'" % team for team in nhl_team_mapping.keys()])
 
     coverage_df = default_db.fetch_df(coverage_query)
-    total = coverage_df.iloc[0]['total_teams']
-    mapped = coverage_df.iloc[0]['mapped_teams']
+    total = coverage_df.iloc[0]["total_teams"]
+    mapped = coverage_df.iloc[0]["mapped_teams"]
 
-    print(f"   Mapping coverage: {mapped}/{total} teams mapped ({mapped/total*100:.1f}%)")
+    print(
+        f"   Mapping coverage: {mapped}/{total} teams mapped ({mapped / total * 100:.1f}%)"
+    )
 
 except Exception as e:
     print(f"   ❌ Team mapping test failed: {e}")

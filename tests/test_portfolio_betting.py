@@ -14,6 +14,9 @@ import sys
 # Add plugins to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
+# Import KalshiBetting classes for use in tests
+from kalshi_betting import KalshiBetting, KalshiConfig, BettingConfig
+
 from portfolio_betting import PortfolioBettingManager
 from portfolio_optimizer import BetOpportunity, PortfolioAllocation
 
@@ -24,12 +27,12 @@ class TestPortfolioBettingErrorHandling:
     @pytest.fixture
     def mock_kalshi_client(self):
         """Create a mocked KalshiBetting client."""
-        from kalshi_betting import KalshiBetting
-
         # Mock the initialization requirements
         with patch("kalshi_betting.serialization.load_pem_private_key"):
             with patch("builtins.open", mock_open(read_data=b"fake_key")):
-                client = KalshiBetting(api_key_id="test", private_key_path="test.pem")
+                client = KalshiBetting(
+                    config=KalshiConfig(api_key_id="test", private_key_path="test.pem")
+                )
 
                 # Mock methods we'll use
                 client.get_balance = Mock(return_value=(1000.0, 0.0))
@@ -42,8 +45,11 @@ class TestPortfolioBettingErrorHandling:
         """Should return error for None ticker without crashing."""
         mock_kalshi_client.get_market_details.return_value = None
 
+        from portfolio_optimizer import PortfolioConfig
+
+        config = PortfolioConfig(bankroll=1000.0)
         manager = PortfolioBettingManager(
-            kalshi_client=mock_kalshi_client, initial_bankroll=1000.0, dry_run=True
+            kalshi_client=mock_kalshi_client, config=config, dry_run=True
         )
 
         # Create allocation with None ticker
@@ -84,8 +90,11 @@ class TestPortfolioBettingErrorHandling:
             "ticker": "KXWTAMATCH-26JAN20TJEPLI-TJE",
         }
 
+        from portfolio_optimizer import PortfolioConfig
+
+        config = PortfolioConfig(bankroll=1000.0)
         manager = PortfolioBettingManager(
-            kalshi_client=mock_kalshi_client, initial_bankroll=1000.0, dry_run=True
+            kalshi_client=mock_kalshi_client, config=config, dry_run=True
         )
 
         opp = BetOpportunity(
@@ -127,8 +136,11 @@ class TestPortfolioBettingErrorHandling:
             "close_time": past_time,
         }
 
+        from portfolio_optimizer import PortfolioConfig
+
+        config = PortfolioConfig(bankroll=1000.0)
         manager = PortfolioBettingManager(
-            kalshi_client=mock_kalshi_client, initial_bankroll=1000.0, dry_run=True
+            kalshi_client=mock_kalshi_client, config=config, dry_run=True
         )
 
         opp = BetOpportunity(
@@ -170,9 +182,12 @@ class TestPortfolioBettingErrorHandling:
         # Mock place_bet to return None (which happens when ticker is locked)
         mock_kalshi_client.place_bet.return_value = None
 
+        from portfolio_optimizer import PortfolioConfig
+
+        config = PortfolioConfig(bankroll=1000.0)
         manager = PortfolioBettingManager(
             kalshi_client=mock_kalshi_client,
-            initial_bankroll=1000.0,
+            config=config,
             dry_run=False,  # Test actual placement path
         )
 
@@ -218,8 +233,11 @@ class TestPortfolioBettingErrorHandling:
 
         mock_kalshi_client.get_market_details.side_effect = mock_get_market
 
+        from portfolio_optimizer import PortfolioConfig
+
+        config = PortfolioConfig(bankroll=1000.0)
         manager = PortfolioBettingManager(
-            kalshi_client=mock_kalshi_client, initial_bankroll=1000.0, dry_run=True
+            kalshi_client=mock_kalshi_client, config=config, dry_run=True
         )
 
         allocations = [
@@ -303,7 +321,9 @@ class TestKalshiBettingNoneTicker:
 
         mock_load_key.return_value = MagicMock()
 
-        betting = KalshiBetting(api_key_id="test", private_key_path="test.pem")
+        betting = KalshiBetting(
+            config=KalshiConfig(api_key_id="test", private_key_path="test.pem")
+        )
 
         # Mock _get to ensure it's not called
         betting._get = Mock()
@@ -322,7 +342,9 @@ class TestKalshiBettingNoneTicker:
 
         mock_load_key.return_value = MagicMock()
 
-        betting = KalshiBetting(api_key_id="test", private_key_path="test.pem")
+        betting = KalshiBetting(
+            config=KalshiConfig(api_key_id="test", private_key_path="test.pem")
+        )
 
         # Mock _get to ensure it's not called
         betting._get = Mock()
@@ -337,13 +359,16 @@ class TestKalshiBettingNoneTicker:
     @patch("builtins.open", mock_open(read_data=b"fake_key"))
     def test_place_bet_none_ticker(self, mock_load_key):
         """place_bet should handle None ticker gracefully."""
-        from kalshi_betting import KalshiBetting
+        from kalshi_betting import KalshiBetting, MarketSide
 
         mock_load_key.return_value = MagicMock()
 
-        betting = KalshiBetting(api_key_id="test", private_key_path="test.pem")
+        betting = KalshiBetting(
+            config=KalshiConfig(api_key_id="test", private_key_path="test.pem")
+        )
+        market = MarketSide(ticker=None, side="yes", trade_date="2024-01-01")
 
-        result = betting.place_bet(ticker=None, side="yes", amount=10.0)
+        result = betting.place_bet(market=market, amount=10.0)
 
         # Should return None without attempting reservation or API call
         assert result is None

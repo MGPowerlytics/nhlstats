@@ -58,6 +58,9 @@ class TestKalshiAPI:
 
         assert api.api_key_id == "test_key"
         assert api.private_key_pem == "test_pem"
+        mock_config.assert_called_once_with(
+            host="https://api.elections.kalshi.com/trade-api/v2"
+        )
 
     @patch("kalshi_markets.ApiClient")
     @patch("kalshi_markets.Configuration")

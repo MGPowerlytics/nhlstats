@@ -9,12 +9,15 @@ import json
 import pandas as pd
 import requests
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
-class CBAGames:
+from plugins.base_games import BaseGamesFetcher
+
+
+class CBAGames(BaseGamesFetcher):
     """Download and manage CBA game data from TheSportsDB."""
 
     # TheSportsDB API endpoints (free tier)
@@ -23,22 +26,24 @@ class CBAGames:
     # CBA League ID in TheSportsDB
     LEAGUE_ID = "4387"  # Chinese Basketball Association
 
-    def __init__(self, data_dir: str = "data/cba"):
+    # Seasons to fetch (CBA season is Oct-Apr, labeled by end year)
+    # e.g., 2024-25 season is "2025"
+    DEFAULT_SEASONS = ["2022", "2023", "2024", "2025", "2026"]
+
+    def __init__(self, data_dir: str = "data/cba", seasons: Optional[List[str]] = None):
         """
         Initialize CBA games downloader.
 
         Args:
             data_dir: Directory to store downloaded data
+            seasons: Optional list of seasons to fetch
         """
-        self.data_dir = Path(data_dir)
-        self.data_dir.mkdir(parents=True, exist_ok=True)
+        super().__init__(sport="cba", output_dir=data_dir)
 
         # Load team mapping for name normalization
         self.team_mapping = self._load_team_mapping()
 
-        # Seasons to fetch (CBA season is Oct-Apr, labeled by end year)
-        # e.g., 2024-25 season is "2025"
-        self.seasons = ["2022", "2023", "2024", "2025", "2026"]
+        self.seasons = seasons or self.DEFAULT_SEASONS
 
     def _load_team_mapping(self) -> Dict:
         """Load team name mapping from JSON file."""
@@ -147,9 +152,6 @@ class CBAGames:
         print(f"📥 Downloading CBA games for {date_str}...")
 
         try:
-            # Parse date
-            target_date = datetime.strptime(date_str, "%Y-%m-%d")
-
             # TheSportsDB events by day endpoint
             url = f"{self.BASE_URL}/eventsday.php"
             params = {"d": date_str, "l": self.LEAGUE_ID}
@@ -240,49 +242,26 @@ class CBAGames:
             Parsed game dict or None if invalid
         """
         try:
-            # Extract basic info
-            event_id = event.get("idEvent", "")
-            date_str = event.get("dateEvent", "")
-
+            # Extract basic event info
+            event_id, date_str = self._extract_basic_event_info(event)
             if not date_str:
                 return None
 
-            # Parse date
-            game_date = pd.to_datetime(date_str)
-
-            # Get teams - TheSportsDB uses strHomeTeam/strAwayTeam
-            home_team_raw = event.get("strHomeTeam", "")
-            away_team_raw = event.get("strAwayTeam", "")
-
-            if not home_team_raw or not away_team_raw:
+            # Parse game date
+            game_date = self._parse_game_date(date_str)
+            if game_date is None:
                 return None
 
-            # Normalize team names
-            home_team = self.normalize_team_name(home_team_raw)
-            away_team = self.normalize_team_name(away_team_raw)
+            # Get and normalize team names
+            home_team, away_team = self._normalize_team_names(event)
+            if not home_team or not away_team:
+                return None
 
-            # Get scores
-            home_score = event.get("intHomeScore")
-            away_score = event.get("intAwayScore")
+            # Parse scores
+            home_score, away_score = self._parse_scores(event)
 
-            # Convert scores to int if present
-            if home_score is not None:
-                try:
-                    home_score = int(home_score)
-                except (ValueError, TypeError):
-                    home_score = None
-
-            if away_score is not None:
-                try:
-                    away_score = int(away_score)
-                except (ValueError, TypeError):
-                    away_score = None
-
-            # Get season
-            season = event.get("strSeason", "")
-            if "-" in season:
-                # "2024-2025" -> "2025"
-                season = season.split("-")[-1]
+            # Extract season
+            season = self._extract_season(event)
 
             # Game status
             status = event.get("strStatus", "")
@@ -302,6 +281,91 @@ class CBAGames:
         except Exception as e:
             print(f"⚠️ Error parsing event: {e}")
             return None
+
+    def _extract_basic_event_info(self, event: Dict) -> Tuple[str, str]:
+        """Extract basic event information from raw API data.
+
+        Args:
+            event: Raw event from API
+
+        Returns:
+            Tuple of (event_id, date_str)
+        """
+        event_id = event.get("idEvent", "")
+        date_str = event.get("dateEvent", "")
+        return event_id, date_str
+
+    def _parse_game_date(self, date_str: str) -> Optional[pd.Timestamp]:
+        """Parse game date string to pandas Timestamp.
+
+        Args:
+            date_str: Date string from API
+
+        Returns:
+            Parsed timestamp or None if invalid
+        """
+        try:
+            return pd.to_datetime(date_str)
+        except Exception:
+            return None
+
+    def _normalize_team_names(self, event: Dict) -> Tuple[Optional[str], Optional[str]]:
+        """Extract and normalize home and away team names.
+
+        Args:
+            event: Raw event from API
+
+        Returns:
+            Tuple of (home_team, away_team) or (None, None) if missing
+        """
+        home_team_raw = event.get("strHomeTeam", "")
+        away_team_raw = event.get("strAwayTeam", "")
+
+        if not home_team_raw or not away_team_raw:
+            return None, None
+
+        home_team = self.normalize_team_name(home_team_raw)
+        away_team = self.normalize_team_name(away_team_raw)
+
+        return home_team, away_team
+
+    def _parse_scores(self, event: Dict) -> Tuple[Optional[int], Optional[int]]:
+        """Parse home and away scores from event data.
+
+        Args:
+            event: Raw event from API
+
+        Returns:
+            Tuple of (home_score, away_score)
+        """
+        home_score = event.get("intHomeScore")
+        away_score = event.get("intAwayScore")
+
+        # Convert scores to int if present
+        def _safe_int(score) -> Optional[int]:
+            if score is None:
+                return None
+            try:
+                return int(score)
+            except (ValueError, TypeError):
+                return None
+
+        return _safe_int(home_score), _safe_int(away_score)
+
+    def _extract_season(self, event: Dict) -> str:
+        """Extract season from event data.
+
+        Args:
+            event: Raw event from API
+
+        Returns:
+            Season string (e.g., "2025")
+        """
+        season = event.get("strSeason", "")
+        if "-" in season:
+            # "2024-2025" -> "2025"
+            season = season.split("-")[-1]
+        return season
 
     def get_games_for_date(self, date_str: str) -> pd.DataFrame:
         """

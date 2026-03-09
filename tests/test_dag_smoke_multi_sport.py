@@ -486,6 +486,7 @@ class TestIdentifyGoodBetsTask:
     def test_identify_bets_uses_min_edge(self, mock_airflow_context):
         """identify_good_bets uses min_edge parameter."""
         from multi_sport_betting_workflow import identify_good_bets
+        from odds_comparator import BettingThresholds, BettingOpportunityConfig
 
         mock_airflow_context["task_instance"].xcom_pull = MagicMock(
             return_value={"Lakers": 1550, "Celtics": 1520}
@@ -503,9 +504,13 @@ class TestIdentifyGoodBetsTask:
                     with patch("multi_sport_betting_workflow.Path"):
                         identify_good_bets("nba", **mock_airflow_context)
 
-                # Verify min_edge parameter is used
-                call_kwargs = mock_comparator_instance.find_opportunities.call_args[1]
-                assert call_kwargs["min_edge"] == 0.05
+                # Verify find_opportunities is called with correct config
+                mock_comparator_instance.find_opportunities.assert_called_once()
+                config_arg = mock_comparator_instance.find_opportunities.call_args[0][0]
+                assert isinstance(config_arg, BettingOpportunityConfig)
+                assert (
+                    config_arg.thresholds.min_edge == 0.03
+                )  # MIN_EDGE_THRESHOLD from DAG
 
     def test_identify_bets_handles_missing_ratings(self, mock_airflow_context):
         """identify_good_bets returns early when no Elo ratings available."""

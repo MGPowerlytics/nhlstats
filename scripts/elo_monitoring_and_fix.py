@@ -28,26 +28,26 @@ class EloMonitor:
     def __init__(self, send_alerts=False):
         self.send_alerts = send_alerts
         self.results = {}
-        self.timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        self.timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     def check_sport_elo(self, sport: str):
         """Check Elo ratings for a specific sport."""
         print(f"\n🔍 Checking {sport.upper()} Elo ratings...")
 
         result = {
-            'sport': sport,
-            'timestamp': self.timestamp,
-            'status': 'unknown',
-            'issues': [],
-            'changes': [],
-            'stats': {}
+            "sport": sport,
+            "timestamp": self.timestamp,
+            "status": "unknown",
+            "issues": [],
+            "changes": [],
+            "stats": {},
         }
 
         # 1. Check if Elo file exists
         csv_path = f"data/{sport}_current_elo_ratings.csv"
         if not os.path.exists(csv_path):
-            result['issues'].append(f"Elo file not found: {csv_path}")
-            result['status'] = 'error'
+            result["issues"].append(f"Elo file not found: {csv_path}")
+            result["status"] = "error"
             print(f"  ❌ Elo file not found: {csv_path}")
             self.results[sport] = result
             return result
@@ -55,26 +55,26 @@ class EloMonitor:
         # 2. Load current ratings
         try:
             df = pd.read_csv(csv_path)
-            current_ratings = dict(zip(df['team'], df['rating']))
-            result['stats']['current_teams'] = len(current_ratings)
+            current_ratings = dict(zip(df["team"], df["rating"]))
+            result["stats"]["current_teams"] = len(current_ratings)
             print(f"  Loaded {len(current_ratings)} current ratings")
         except Exception as e:
-            result['issues'].append(f"Failed to load Elo file: {e}")
-            result['status'] = 'error'
+            result["issues"].append(f"Failed to load Elo file: {e}")
+            result["status"] = "error"
             print(f"  ❌ Failed to load Elo file: {e}")
             self.results[sport] = result
             return result
 
         # 3. Check data quality
         issues = self._check_elo_quality(sport, current_ratings)
-        result['issues'].extend(issues)
+        result["issues"].extend(issues)
 
         if issues:
-            result['status'] = 'warning'
+            result["status"] = "warning"
             for issue in issues:
                 print(f"  ⚠️  {issue}")
         else:
-            result['status'] = 'ok'
+            result["status"] = "ok"
             print(f"  ✅ Elo ratings look good")
 
         # 4. Check for recent changes (compare with yesterday)
@@ -82,27 +82,31 @@ class EloMonitor:
         if yesterday_file and os.path.exists(yesterday_file):
             try:
                 yesterday_df = pd.read_csv(yesterday_file)
-                yesterday_ratings = dict(zip(yesterday_df['team'], yesterday_df['rating']))
+                yesterday_ratings = dict(
+                    zip(yesterday_df["team"], yesterday_df["rating"])
+                )
 
                 changes = self._compare_ratings(current_ratings, yesterday_ratings)
-                result['changes'] = changes
-                result['stats']['yesterday_teams'] = len(yesterday_ratings)
+                result["changes"] = changes
+                result["stats"]["yesterday_teams"] = len(yesterday_ratings)
 
                 if changes:
                     print(f"  📈 Found {len(changes)} rating changes since yesterday")
                     # Log top changes
                     for change in changes[:3]:
-                        print(f"    {change['team']}: {change['old']:.1f} → {change['new']:.1f} ({change['change']:+.1f})")
+                        print(
+                            f"    {change['team']}: {change['old']:.1f} → {change['new']:.1f} ({change['change']:+.1f})"
+                        )
             except Exception as e:
-                result['issues'].append(f"Failed to compare with yesterday: {e}")
+                result["issues"].append(f"Failed to compare with yesterday: {e}")
                 print(f"  ⚠️  Could not compare with yesterday: {e}")
 
         # 5. Check probability variance (for team sports)
-        if sport in ['nhl', 'nba', 'mlb', 'nfl', 'ncaab']:
+        if sport in ["nhl", "nba", "mlb", "nfl", "ncaab"]:
             variance_issue = self._check_probability_variance(sport, current_ratings)
             if variance_issue:
-                result['issues'].append(variance_issue)
-                result['status'] = 'warning'
+                result["issues"].append(variance_issue)
+                result["status"] = "warning"
                 print(f"  ⚠️  {variance_issue}")
 
         self.results[sport] = result
@@ -124,17 +128,19 @@ class EloMonitor:
 
         # Expected ranges by sport
         expected_ranges = {
-            'nhl': 200,  # NHL should have ~200 point range
-            'nba': 300,  # NBA should have ~300 point range
-            'mlb': 250,  # MLB should have ~250 point range
-            'nfl': 200,  # NFL should have ~200 point range
-            'ncaab': 400,  # NCAAB should have large range
+            "nhl": 200,  # NHL should have ~200 point range
+            "nba": 300,  # NBA should have ~300 point range
+            "mlb": 250,  # MLB should have ~250 point range
+            "nfl": 200,  # NFL should have ~200 point range
+            "ncaab": 400,  # NCAAB should have large range
         }
 
         if sport in expected_ranges:
             expected = expected_ranges[sport]
             if rating_range < expected * 0.5:  # Less than 50% of expected
-                issues.append(f"Rating range too narrow: {rating_range:.1f} (expected ~{expected})")
+                issues.append(
+                    f"Rating range too narrow: {rating_range:.1f} (expected ~{expected})"
+                )
 
         # Check for teams clustered around 1500
         near_1500 = sum(1 for r in ratings_list if 1490 < r < 1510)
@@ -156,7 +162,7 @@ class EloMonitor:
         probabilities = []
 
         for i in range(sample_size):
-            for j in range(i+1, sample_size):
+            for j in range(i + 1, sample_size):
                 home = teams[i]
                 away = teams[j]
 
@@ -174,11 +180,11 @@ class EloMonitor:
 
         # Expected probability ranges
         expected_ranges = {
-            'nhl': 0.3,  # 30% range expected
-            'nba': 0.4,  # 40% range expected
-            'mlb': 0.35, # 35% range expected
-            'nfl': 0.3,  # 30% range expected
-            'ncaab': 0.5, # 50% range expected
+            "nhl": 0.3,  # 30% range expected
+            "nba": 0.4,  # 40% range expected
+            "mlb": 0.35,  # 35% range expected
+            "nfl": 0.3,  # 30% range expected
+            "ncaab": 0.5,  # 50% range expected
         }
 
         if sport in expected_ranges:
@@ -190,13 +196,14 @@ class EloMonitor:
 
     def _get_yesterday_elo_file(self, sport: str) -> str:
         """Get path to yesterday's Elo file if it exists."""
-        yesterday = (datetime.now() - timedelta(days=1)).strftime('%Y%m%d')
+        yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y%m%d")
 
         # Check for backup files
         backup_dir = "data/elo_backups"
         if os.path.exists(backup_dir):
             pattern = f"{sport}_current_elo_ratings_{yesterday}*.csv"
             import glob
+
             files = glob.glob(os.path.join(backup_dir, pattern))
             if files:
                 return sorted(files)[-1]  # Get most recent
@@ -214,17 +221,19 @@ class EloMonitor:
             change = new - old
 
             if abs(change) > 0.1:  # Only log meaningful changes
-                changes.append({
-                    'team': team,
-                    'old': float(old),
-                    'new': float(new),
-                    'change': float(change),
-                    'in_current': team in current,
-                    'in_previous': team in previous
-                })
+                changes.append(
+                    {
+                        "team": team,
+                        "old": float(old),
+                        "new": float(new),
+                        "change": float(change),
+                        "in_current": team in current,
+                        "in_previous": team in previous,
+                    }
+                )
 
         # Sort by absolute change
-        changes.sort(key=lambda x: abs(x['change']), reverse=True)
+        changes.sort(key=lambda x: abs(x["change"]), reverse=True)
         return changes
 
     def backup_current_elo(self, sport: str):
@@ -236,10 +245,13 @@ class EloMonitor:
         backup_dir = "data/elo_backups"
         os.makedirs(backup_dir, exist_ok=True)
 
-        backup_path = os.path.join(backup_dir, f"{sport}_current_elo_ratings_{self.timestamp}.csv")
+        backup_path = os.path.join(
+            backup_dir, f"{sport}_current_elo_ratings_{self.timestamp}.csv"
+        )
 
         try:
             import shutil
+
             shutil.copy2(csv_path, backup_path)
             print(f"  💾 Backed up to {backup_path}")
             return True
@@ -250,18 +262,20 @@ class EloMonitor:
     def generate_report(self):
         """Generate monitoring report."""
         report = {
-            'timestamp': self.timestamp,
-            'sports_checked': list(self.results.keys()),
-            'results': self.results,
-            'summary': self._generate_summary()
+            "timestamp": self.timestamp,
+            "sports_checked": list(self.results.keys()),
+            "results": self.results,
+            "summary": self._generate_summary(),
         }
 
         # Save report
         report_dir = "data/elo_reports"
         os.makedirs(report_dir, exist_ok=True)
-        report_path = os.path.join(report_dir, f"elo_monitoring_report_{self.timestamp}.json")
+        report_path = os.path.join(
+            report_dir, f"elo_monitoring_report_{self.timestamp}.json"
+        )
 
-        with open(report_path, 'w') as f:
+        with open(report_path, "w") as f:
             json.dump(report, f, indent=2)
 
         print(f"\n📊 Report saved to {report_path}")
@@ -272,8 +286,16 @@ class EloMonitor:
         print("=" * 80)
 
         for sport, result in self.results.items():
-            status_icon = "✅" if result['status'] == 'ok' else "⚠️" if result['status'] == 'warning' else "❌"
-            print(f"{status_icon} {sport.upper():6s}: {result['status']:7s} - {len(result.get('issues', []))} issues")
+            status_icon = (
+                "✅"
+                if result["status"] == "ok"
+                else "⚠️"
+                if result["status"] == "warning"
+                else "❌"
+            )
+            print(
+                f"{status_icon} {sport.upper():6s}: {result['status']:7s} - {len(result.get('issues', []))} issues"
+            )
 
         print("\n" + "=" * 80)
 
@@ -282,20 +304,22 @@ class EloMonitor:
     def _generate_summary(self):
         """Generate summary statistics."""
         total_sports = len(self.results)
-        ok_sports = sum(1 for r in self.results.values() if r['status'] == 'ok')
-        warning_sports = sum(1 for r in self.results.values() if r['status'] == 'warning')
-        error_sports = sum(1 for r in self.results.values() if r['status'] == 'error')
+        ok_sports = sum(1 for r in self.results.values() if r["status"] == "ok")
+        warning_sports = sum(
+            1 for r in self.results.values() if r["status"] == "warning"
+        )
+        error_sports = sum(1 for r in self.results.values() if r["status"] == "error")
 
-        total_issues = sum(len(r.get('issues', [])) for r in self.results.values())
-        total_changes = sum(len(r.get('changes', [])) for r in self.results.values())
+        total_issues = sum(len(r.get("issues", [])) for r in self.results.values())
+        total_changes = sum(len(r.get("changes", [])) for r in self.results.values())
 
         return {
-            'total_sports': total_sports,
-            'ok_sports': ok_sports,
-            'warning_sports': warning_sports,
-            'error_sports': error_sports,
-            'total_issues': total_issues,
-            'total_changes': total_changes
+            "total_sports": total_sports,
+            "ok_sports": ok_sports,
+            "warning_sports": warning_sports,
+            "error_sports": error_sports,
+            "total_issues": total_issues,
+            "total_changes": total_changes,
         }
 
     def send_alert_if_needed(self):
@@ -307,10 +331,10 @@ class EloMonitor:
         alert_body = "Elo Monitoring Alert\\n\\n"
 
         for sport, result in self.results.items():
-            if result['status'] in ['warning', 'error'] and result.get('issues'):
+            if result["status"] in ["warning", "error"] and result.get("issues"):
                 issues_found = True
                 alert_body += f"{sport.upper()} ({result['status']}):\\n"
-                for issue in result['issues']:
+                for issue in result["issues"]:
                     alert_body += f"  • {issue}\\n"
                 alert_body += "\\n"
 
@@ -328,8 +352,8 @@ class EloMonitor:
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     print("=" * 80)
     print("ELO RATING MONITORING AND FIX")
@@ -340,7 +364,7 @@ def main():
         monitor = EloMonitor(send_alerts=False)
 
         # Check all sports
-        sports = ['nhl', 'nba', 'mlb', 'nfl', 'ncaab', 'wncaab', 'tennis']
+        sports = ["nhl", "nba", "mlb", "nfl", "ncaab", "wncaab", "tennis"]
 
         for sport in sports:
             # Backup current file
@@ -358,8 +382,8 @@ def main():
         print(f"\n✅ Monitoring complete. Report: {report_path}")
 
         # Check if NHL needs fixing (our main issue)
-        nhl_result = monitor.results.get('nhl', {})
-        if nhl_result.get('status') in ['warning', 'error']:
+        nhl_result = monitor.results.get("nhl", {})
+        if nhl_result.get("status") in ["warning", "error"]:
             print("\n⚠️  NHL Elo ratings need attention!")
             print("   Run: python scripts/fix_elo_for_all_sports.py")
 
@@ -368,6 +392,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 1
 

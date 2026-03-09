@@ -101,7 +101,7 @@ class TestUnrivaledGamesIntegration:
 
     def test_add_game_functionality(self):
         """Can add games to the dataset."""
-        from unrivaled_games import UnrivaledGames
+        from unrivaled_games import UnrivaledGames, GameResult
         import tempfile
         import shutil
 
@@ -110,13 +110,14 @@ class TestUnrivaledGamesIntegration:
             games = UnrivaledGames(data_dir=tmpdir)
 
             # Add a test game
-            games.add_game(
+            result = GameResult(
                 date="2025-01-15",
                 team1="Rose BC",
                 team2="Lunar Owls BC",
                 score1=25,
                 score2=21,
             )
+            games.add_game(result)
 
             # Verify game was added
             df = games.load_games()

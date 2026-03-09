@@ -13,8 +13,37 @@ Advantages over Elo:
 """
 
 import math
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from collections import defaultdict
+from dataclasses import dataclass, asdict
+
+# Glicko-2 system constants
+GLICKO_OFFSET = 1500.0
+GLICKO_SCALE = 173.7178  # 400 / ln(10)
+DEFAULT_INITIAL_RD = 350.0
+DEFAULT_INITIAL_VOL = 0.06
+GLICKO_FORMULA_C = 3.0  # Constant in g(phi) formula
+
+
+@dataclass
+class GlickoRating:
+    """Data class representing a Glicko-2 rating state."""
+
+    rating: float
+    rd: float
+    vol: float
+
+    def __getitem__(self, key: str) -> float:
+        """Allow subscripting for backward compatibility."""
+        return getattr(self, key)
+
+    def to_dict(self) -> Dict[str, float]:
+        """Convert rating to dictionary format."""
+        return asdict(self)
+
+    def copy(self) -> "GlickoRating":
+        """Return a copy of the rating."""
+        return GlickoRating(self.rating, self.rd, self.vol)
 
 
 class Glicko2Rating:
@@ -23,13 +52,14 @@ class Glicko2Rating:
     # Glicko-2 system constants
     TAU = 0.5  # System volatility constant (0.3-1.2, lower = more stable)
     EPSILON = 0.000001
+    HOME_ADVANTAGE = 100.0
 
     def __init__(
         self,
-        initial_rating: float = 1500,
-        initial_rd: float = 350,
-        initial_vol: float = 0.06,
-        home_advantage: float = 100,
+        initial_rating: float = GLICKO_OFFSET,
+        initial_rd: float = DEFAULT_INITIAL_RD,
+        initial_vol: float = DEFAULT_INITIAL_VOL,
+        home_advantage: Optional[float] = None,
     ):
         """
         Initialize Glicko-2 rating system.
@@ -38,39 +68,52 @@ class Glicko2Rating:
             initial_rating: Starting rating (1500 is average)
             initial_rd: Starting rating deviation (350 = completely uncertain)
             initial_vol: Starting volatility (0.06 is typical)
-            home_advantage: Home advantage in rating points
+            home_advantage: Home advantage in rating points (defaults to class HOME_ADVANTAGE)
         """
         self.ratings = defaultdict(
-            lambda: {"rating": initial_rating, "rd": initial_rd, "vol": initial_vol}
+            lambda: GlickoRating(rating=initial_rating, rd=initial_rd, vol=initial_vol)
         )
-        self.home_advantage = home_advantage
+        self.home_advantage = (
+            home_advantage if home_advantage is not None else self.HOME_ADVANTAGE
+        )
         self.initial_rating = initial_rating
         self.initial_rd = initial_rd
         self.initial_vol = initial_vol
 
+    def _get_rating_obj(self, team: str) -> GlickoRating:
+        """Get rating as a GlickoRating object, handling legacy dicts."""
+        val = self.ratings[team]
+        if isinstance(val, dict):
+            return GlickoRating(
+                rating=val.get("rating", self.initial_rating),
+                rd=val.get("rd", self.initial_rd),
+                vol=val.get("vol", self.initial_vol),
+            )
+        return val
+
     def _scale_down(self, rating: float, rd: float) -> Tuple[float, float]:
         """Convert from Glicko-1 scale to Glicko-2 scale."""
-        mu = (rating - 1500) / 173.7178
-        phi = rd / 173.7178
+        mu = (rating - GLICKO_OFFSET) / GLICKO_SCALE
+        phi = rd / GLICKO_SCALE
         return mu, phi
 
     def _scale_up(self, mu: float, phi: float) -> Tuple[float, float]:
         """Convert from Glicko-2 scale to Glicko-1 scale."""
-        rating = mu * 173.7178 + 1500
-        rd = phi * 173.7178
+        rating = mu * GLICKO_SCALE + GLICKO_OFFSET
+        rd = phi * GLICKO_SCALE
         return rating, rd
 
     def _g(self, phi: float) -> float:
         """Calculate g(φ) function."""
-        return 1 / math.sqrt(1 + 3 * phi**2 / math.pi**2)
+        return 1 / math.sqrt(1 + GLICKO_FORMULA_C * phi**2 / math.pi**2)
 
     def _e(self, mu: float, mu_j: float, phi_j: float) -> float:
         """Calculate E(μ, μ_j, φ_j) - expected score."""
         return 1 / (1 + math.exp(-self._g(phi_j) * (mu - mu_j)))
 
-    def get_rating(self, team: str) -> Dict:
+    def get_rating(self, team: str) -> Dict[str, float]:
         """Get current Glicko-2 rating for a team."""
-        return self.ratings[team].copy()
+        return self._get_rating_obj(team).to_dict()
 
     def predict(self, home_team: str, away_team: str) -> float:
         """
@@ -83,15 +126,15 @@ class Glicko2Rating:
         Returns:
             Probability of home team winning (0.0 to 1.0)
         """
-        home = self.ratings[home_team]
-        away = self.ratings[away_team]
+        home = self._get_rating_obj(home_team)
+        away = self._get_rating_obj(away_team)
 
         # Apply home advantage
-        home_rating_adj = home["rating"] + self.home_advantage
+        home_rating_adj = home.rating + self.home_advantage
 
         # Scale to Glicko-2
-        mu_home, phi_home = self._scale_down(home_rating_adj, home["rd"])
-        mu_away, phi_away = self._scale_down(away["rating"], away["rd"])
+        mu_home, phi_home = self._scale_down(home_rating_adj, home.rd)
+        mu_away, phi_away = self._scale_down(away.rating, away.rd)
 
         # Calculate expected score using Glicko-2 formula
         # Account for both teams' rating deviations
@@ -116,33 +159,30 @@ class Glicko2Rating:
         away = self.ratings[away_team]
 
         # Apply home advantage for prediction only (not for update)
-        home_rating_for_prediction = home["rating"] + self.home_advantage
+        home_rating_for_prediction = home.rating + self.home_advantage
 
         # Update home team
         home_change = self._update_team(
-            home["rating"],
-            home["rd"],
-            home["vol"],
-            away["rating"],
-            away["rd"],
+            home,
+            away,
             1.0 if home_won else 0.0,
-            home_advantage=self.home_advantage,
+        )
+
+        # Create temporary GlickoRating for away team update because of home advantage
+        home_with_adv = GlickoRating(
+            rating=home_rating_for_prediction, rd=home.rd, vol=home.vol
         )
 
         # Update away team
         away_change = self._update_team(
-            away["rating"],
-            away["rd"],
-            away["vol"],
-            home_rating_for_prediction,
-            home["rd"],
+            away,
+            home_with_adv,
             1.0 if not home_won else 0.0,
-            home_advantage=0,  # Away team doesn't get advantage
         )
 
         # Store new ratings
-        self.ratings[home_team] = home_change["new"]
-        self.ratings[away_team] = away_change["new"]
+        self.ratings[home_team] = GlickoRating(**home_change["new"])
+        self.ratings[away_team] = GlickoRating(**away_change["new"])
 
         return {
             "home_team": home_team,
@@ -154,15 +194,16 @@ class Glicko2Rating:
 
     def _update_team(
         self,
-        rating: float,
-        rd: float,
-        vol: float,
-        opp_rating: float,
-        opp_rd: float,
+        rating_obj: GlickoRating,
+        opp_rating_obj: GlickoRating,
         score: float,
-        home_advantage: float = 0,
     ) -> Dict:
         """Update a single team's rating using Glicko-2 algorithm."""
+        rating = rating_obj.rating
+        rd = rating_obj.rd
+        vol = rating_obj.vol
+        opp_rating = opp_rating_obj.rating
+        opp_rd = opp_rating_obj.rd
 
         # Step 1: Scale down to Glicko-2 scale
         mu, phi = self._scale_down(rating, rd)
@@ -228,14 +269,10 @@ class Glicko2Rating:
         # Step 7: Scale back up
         new_rating, new_rd = self._scale_up(new_mu, new_phi)
 
-        old_rating = rating
-        old_rd = rd
-        old_vol = vol
-
         return {
-            "old": {"rating": old_rating, "rd": old_rd, "vol": old_vol},
+            "old": {"rating": rating, "rd": rd, "vol": vol},
             "new": {"rating": new_rating, "rd": new_rd, "vol": new_vol},
-            "delta": new_rating - old_rating,
+            "delta": new_rating - rating,
             "expected_score": e_score,
             "actual_score": score,
         }
@@ -250,13 +287,13 @@ class Glicko2Rating:
             periods: Number of rating periods of inactivity
         """
         team_data = self.ratings[team]
-        mu, phi = self._scale_down(team_data["rating"], team_data["rd"])
+        mu, phi = self._scale_down(team_data.rating, team_data.rd)
 
         for _ in range(periods):
-            phi = math.sqrt(phi**2 + team_data["vol"] ** 2)
+            phi = math.sqrt(phi**2 + team_data.vol**2)
 
         _, new_rd = self._scale_up(mu, phi)
-        team_data["rd"] = min(new_rd, self.initial_rd)  # Cap at initial RD
+        team_data.rd = min(new_rd, self.initial_rd)  # Cap at initial RD
 
 
 # Sport-specific implementations
@@ -265,37 +302,25 @@ class Glicko2Rating:
 class NBAGlicko2Rating(Glicko2Rating):
     """NBA-specific Glicko-2 rating."""
 
-    def __init__(self):
-        super().__init__(
-            initial_rating=1500, initial_rd=350, initial_vol=0.06, home_advantage=100
-        )
+    HOME_ADVANTAGE = 100.0
 
 
 class NHLGlicko2Rating(Glicko2Rating):
     """NHL-specific Glicko-2 rating."""
 
-    def __init__(self):
-        super().__init__(
-            initial_rating=1500, initial_rd=350, initial_vol=0.06, home_advantage=50
-        )
+    HOME_ADVANTAGE = 50.0
 
 
 class MLBGlicko2Rating(Glicko2Rating):
     """MLB-specific Glicko-2 rating."""
 
-    def __init__(self):
-        super().__init__(
-            initial_rating=1500, initial_rd=350, initial_vol=0.06, home_advantage=50
-        )
+    HOME_ADVANTAGE = 50.0
 
 
 class NFLGlicko2Rating(Glicko2Rating):
     """NFL-specific Glicko-2 rating."""
 
-    def __init__(self):
-        super().__init__(
-            initial_rating=1500, initial_rd=350, initial_vol=0.06, home_advantage=65
-        )
+    HOME_ADVANTAGE = 65.0
 
 
 if __name__ == "__main__":
@@ -343,4 +368,4 @@ if __name__ == "__main__":
     print("-" * 60)
     for team in sorted(glicko.ratings.keys()):
         r = glicko.ratings[team]
-        print(f"{team:15} {r['rating']:7.1f} ± {r['rd']:5.1f}  (vol: {r['vol']:.4f})")
+        print(f"{team:15} {r.rating:7.1f} ± {r.rd:5.1f}  (vol: {r.vol:.4f})")

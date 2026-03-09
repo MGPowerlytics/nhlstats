@@ -6,7 +6,8 @@ bet_recommendations has correct Elo probabilities calculated with team data.
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "plugins"))
 from db_manager import default_db
 
 
@@ -26,9 +27,9 @@ def sync_elo_probabilities():
     """
 
     check_result = default_db.fetch_df(check_query)
-    total_bets = check_result.iloc[0]['total_bets']
-    has_elo = check_result.iloc[0]['has_elo']
-    has_recommendation_elo = check_result.iloc[0]['has_recommendation_elo']
+    total_bets = check_result.iloc[0]["total_bets"]
+    has_elo = check_result.iloc[0]["has_elo"]
+    has_recommendation_elo = check_result.iloc[0]["has_recommendation_elo"]
 
     print(f"Total settled bets: {total_bets}")
     print(f"Bets with Elo probabilities: {has_elo}")
@@ -76,7 +77,7 @@ def sync_elo_probabilities():
         """
 
         after_result = default_db.fetch_df(after_query)
-        updated_count = after_result.iloc[0]['updated_count']
+        updated_count = after_result.iloc[0]["updated_count"]
         print(f"   Total bets with synced Elo probabilities: {updated_count}")
 
         return True
@@ -111,19 +112,21 @@ def analyze_elo_variance_after_sync():
 
     print("Elo probability distribution by sport:")
     for _, row in results.iterrows():
-        sport = row['sport']
-        unique_probs = row['unique_probs']
-        total_bets = row['total_bets']
-        uniqueness = row['uniqueness_pct']
-        std_dev = row['std_dev']
-        prob_range = row['prob_range']
+        sport = row["sport"]
+        unique_probs = row["unique_probs"]
+        total_bets = row["total_bets"]
+        uniqueness = row["uniqueness_pct"]
+        std_dev = row["std_dev"]
+        prob_range = row["prob_range"]
 
         print(f"  {sport}:")
-        print(f"    Bets: {total_bets}, Unique probabilities: {unique_probs} ({uniqueness}%)")
+        print(
+            f"    Bets: {total_bets}, Unique probabilities: {unique_probs} ({uniqueness}%)"
+        )
         print(f"    Std dev: {std_dev:.4f}, Range: {prob_range:.4f}")
 
         # Check if variance is reasonable
-        if sport != 'TENNIS':  # Tennis has different characteristics
+        if sport != "TENNIS":  # Tennis has different characteristics
             if uniqueness < 30 or std_dev < 0.02:
                 print(f"    ⚠️  WARNING: Low variance")
             else:
@@ -155,11 +158,11 @@ def analyze_calibration_after_sync():
 
     print("Elo calibration by sport:")
     for _, row in results.iterrows():
-        sport = row['sport']
-        bets = row['bets']
-        avg_elo = row['avg_elo_prob']
-        win_rate = row['actual_win_rate']
-        error = row['calibration_error']
+        sport = row["sport"]
+        bets = row["bets"]
+        avg_elo = row["avg_elo_prob"]
+        win_rate = row["actual_win_rate"]
+        error = row["calibration_error"]
 
         print(f"  {sport}:")
         print(f"    Bets: {bets}, Avg Elo: {avg_elo:.3f}, Win rate: {win_rate:.3f}")
@@ -176,14 +179,16 @@ def analyze_calibration_after_sync():
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     try:
         # Test connection
-        test_query = "SELECT COUNT(*) as count FROM placed_bets WHERE status IN ('won', 'lost')"
+        test_query = (
+            "SELECT COUNT(*) as count FROM placed_bets WHERE status IN ('won', 'lost')"
+        )
         test_result = default_db.fetch_df(test_query)
-        settled_bets = test_result.iloc[0]['count']
+        settled_bets = test_result.iloc[0]["count"]
         print(f"Connected to database. Found {settled_bets} settled bets.\n")
 
         # Sync Elo probabilities
@@ -198,25 +203,25 @@ def main():
         calibration_results = analyze_calibration_after_sync()
 
         # Summary
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("SYNC SUMMARY")
-        print("="*60)
+        print("=" * 60)
 
         # Check if variance improved
         poor_variance_sports = []
         for _, row in variance_results.iterrows():
-            sport = row['sport']
-            uniqueness = row['uniqueness_pct']
-            std_dev = row['std_dev']
+            sport = row["sport"]
+            uniqueness = row["uniqueness_pct"]
+            std_dev = row["std_dev"]
 
-            if sport != 'TENNIS' and (uniqueness < 30 or std_dev < 0.02):
+            if sport != "TENNIS" and (uniqueness < 30 or std_dev < 0.02):
                 poor_variance_sports.append(sport)
 
         # Check calibration
         poor_calibration_sports = []
         for _, row in calibration_results.iterrows():
-            sport = row['sport']
-            error = abs(row['calibration_error'])
+            sport = row["sport"]
+            error = abs(row["calibration_error"])
 
             if error > 0.05:
                 poor_calibration_sports.append(sport)

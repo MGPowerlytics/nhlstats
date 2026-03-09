@@ -63,8 +63,9 @@ class TestLoadFillsFromKalshi:
         mock_client = Mock()
         mock_client._get.side_effect = Exception("API Error")
 
-        result = load_fills_from_kalshi(mock_client)
-        assert result == []
+        # Should raise exception instead of returning empty list
+        with pytest.raises(Exception, match="API Error"):
+            load_fills_from_kalshi(mock_client)
 
 
 class TestGetMarketStatus:
@@ -123,9 +124,9 @@ class TestSyncBetsToDatabase:
         """Test sync_bets_to_database handles missing credentials"""
         from bet_tracker import sync_bets_to_database
 
-        # Mock _read_kalshkey to raise FileNotFoundError
+        # Mock _create_kalshi_client to raise FileNotFoundError
         with patch(
-            "bet_tracker._read_kalshkey",
+            "bet_tracker._create_kalshi_client",
             side_effect=FileNotFoundError("kalshkey file not found"),
         ):
             # Should raise the error

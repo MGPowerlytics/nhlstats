@@ -48,22 +48,45 @@ def test_nhl_elo_update():
 
     # NHL team mapping
     nhl_team_mapping = {
-        'Anaheim Ducks': 'ANA', 'Arizona Coyotes': 'ARI', 'Boston Bruins': 'BOS',
-        'Buffalo Sabres': 'BUF', 'Calgary Flames': 'CGY', 'Carolina Hurricanes': 'CAR',
-        'Chicago Blackhawks': 'CHI', 'Colorado Avalanche': 'COL', 'Columbus Blue Jackets': 'CBJ',
-        'Dallas Stars': 'DAL', 'Detroit Red Wings': 'DET', 'Edmonton Oilers': 'EDM',
-        'Florida Panthers': 'FLA', 'Los Angeles Kings': 'LAK', 'Minnesota Wild': 'MIN',
-        'Montreal Canadiens': 'MTL', 'Nashville Predators': 'NSH', 'New Jersey Devils': 'NJD',
-        'New York Islanders': 'NYI', 'New York Rangers': 'NYR', 'Ottawa Senators': 'OTT',
-        'Philadelphia Flyers': 'PHI', 'Pittsburgh Penguins': 'PIT', 'San Jose Sharks': 'SJS',
-        'Seattle Kraken': 'SEA', 'St. Louis Blues': 'STL', 'Tampa Bay Lightning': 'TBL',
-        'Toronto Maple Leafs': 'TOR', 'Utah Hockey Club': 'UTA', 'Vancouver Canucks': 'VAN',
-        'Vegas Golden Knights': 'VGK', 'Washington Capitals': 'WSH', 'Winnipeg Jets': 'WPG',
-        'Montréal Canadiens': 'MTL', 'Utah Mammoth': 'UTA',
+        "Anaheim Ducks": "ANA",
+        "Arizona Coyotes": "ARI",
+        "Boston Bruins": "BOS",
+        "Buffalo Sabres": "BUF",
+        "Calgary Flames": "CGY",
+        "Carolina Hurricanes": "CAR",
+        "Chicago Blackhawks": "CHI",
+        "Colorado Avalanche": "COL",
+        "Columbus Blue Jackets": "CBJ",
+        "Dallas Stars": "DAL",
+        "Detroit Red Wings": "DET",
+        "Edmonton Oilers": "EDM",
+        "Florida Panthers": "FLA",
+        "Los Angeles Kings": "LAK",
+        "Minnesota Wild": "MIN",
+        "Montreal Canadiens": "MTL",
+        "Nashville Predators": "NSH",
+        "New Jersey Devils": "NJD",
+        "New York Islanders": "NYI",
+        "New York Rangers": "NYR",
+        "Ottawa Senators": "OTT",
+        "Philadelphia Flyers": "PHI",
+        "Pittsburgh Penguins": "PIT",
+        "San Jose Sharks": "SJS",
+        "Seattle Kraken": "SEA",
+        "St. Louis Blues": "STL",
+        "Tampa Bay Lightning": "TBL",
+        "Toronto Maple Leafs": "TOR",
+        "Utah Hockey Club": "UTA",
+        "Vancouver Canucks": "VAN",
+        "Vegas Golden Knights": "VGK",
+        "Washington Capitals": "WSH",
+        "Winnipeg Jets": "WPG",
+        "Montréal Canadiens": "MTL",
+        "Utah Mammoth": "UTA",
     }
 
     # Initialize Elo
-    EloClass = get_elo_class('nhl')
+    EloClass = get_elo_class("nhl")
     elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
     # Process games
@@ -120,21 +143,42 @@ def test_nba_elo_update():
 
     # NBA team mapping
     nba_team_mapping = {
-        'Atlanta Hawks': 'ATL', 'Boston Celtics': 'BOS', 'Brooklyn Nets': 'BKN',
-        'Charlotte Hornets': 'CHA', 'Chicago Bulls': 'CHI', 'Cleveland Cavaliers': 'CLE',
-        'Dallas Mavericks': 'DAL', 'Denver Nuggets': 'DEN', 'Detroit Pistons': 'DET',
-        'Golden State Warriors': 'GSW', 'Houston Rockets': 'HOU', 'Indiana Pacers': 'IND',
-        'Los Angeles Clippers': 'LAC', 'Los Angeles Lakers': 'LAL', 'Memphis Grizzlies': 'MEM',
-        'Miami Heat': 'MIA', 'Milwaukee Bucks': 'MIL', 'Minnesota Timberwolves': 'MIN',
-        'New Orleans Pelicans': 'NOP', 'New York Knicks': 'NYK', 'Oklahoma City Thunder': 'OKC',
-        'Orlando Magic': 'ORL', 'Philadelphia 76ers': 'PHI', 'Phoenix Suns': 'PHX',
-        'Portland Trail Blazers': 'POR', 'Sacramento Kings': 'SAC', 'San Antonio Spurs': 'SAS',
-        'Toronto Raptors': 'TOR', 'Utah Jazz': 'UTA', 'Washington Wizards': 'WAS',
-        'LA Clippers': 'LAC', 'LA Lakers': 'LAL',
+        "Atlanta Hawks": "ATL",
+        "Boston Celtics": "BOS",
+        "Brooklyn Nets": "BKN",
+        "Charlotte Hornets": "CHA",
+        "Chicago Bulls": "CHI",
+        "Cleveland Cavaliers": "CLE",
+        "Dallas Mavericks": "DAL",
+        "Denver Nuggets": "DEN",
+        "Detroit Pistons": "DET",
+        "Golden State Warriors": "GSW",
+        "Houston Rockets": "HOU",
+        "Indiana Pacers": "IND",
+        "Los Angeles Clippers": "LAC",
+        "Los Angeles Lakers": "LAL",
+        "Memphis Grizzlies": "MEM",
+        "Miami Heat": "MIA",
+        "Milwaukee Bucks": "MIL",
+        "Minnesota Timberwolves": "MIN",
+        "New Orleans Pelicans": "NOP",
+        "New York Knicks": "NYK",
+        "Oklahoma City Thunder": "OKC",
+        "Orlando Magic": "ORL",
+        "Philadelphia 76ers": "PHI",
+        "Phoenix Suns": "PHX",
+        "Portland Trail Blazers": "POR",
+        "Sacramento Kings": "SAC",
+        "San Antonio Spurs": "SAS",
+        "Toronto Raptors": "TOR",
+        "Utah Jazz": "UTA",
+        "Washington Wizards": "WAS",
+        "LA Clippers": "LAC",
+        "LA Lakers": "LAL",
     }
 
     # Initialize Elo
-    EloClass = get_elo_class('nba')
+    EloClass = get_elo_class("nba")
     elo = EloClass(k_factor=20, home_advantage=100)
 
     # Process games
@@ -189,7 +233,7 @@ def test_mlb_elo_update():
         return False
 
     # Initialize Elo
-    EloClass = get_elo_class('mlb')
+    EloClass = get_elo_class("mlb")
     elo = EloClass(k_factor=20, home_advantage=50)
 
     # Process games
@@ -202,7 +246,13 @@ def test_mlb_elo_update():
 
         if home_team and away_team:
             home_won = 1.0 if home_score > away_score else 0.0
-            elo.update(home_team, away_team, home_won, home_score=home_score, away_score=away_score)
+            elo.update(
+                home_team,
+                away_team,
+                home_won,
+                home_score=home_score,
+                away_score=away_score,
+            )
             games_processed += 1
 
     print(f"  Processed {games_processed} games")
@@ -219,8 +269,8 @@ def test_mlb_elo_update():
 def main():
     """Main test function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     print("=" * 70)
     print("TESTING ELO UPDATE LOGIC")
@@ -253,6 +303,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
 

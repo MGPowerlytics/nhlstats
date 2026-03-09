@@ -13,6 +13,7 @@ import pandas as pd
 # Try to import nfl_data_py, but don't fail if unavailable
 try:
     import nfl_data_py as nfl
+
     NFL_DATA_AVAILABLE = True
 except ImportError:
     nfl = None
@@ -20,14 +21,82 @@ except ImportError:
     print("⚠️  nfl_data_py not available - NFL data fetching disabled")
 
 
-class NFLGames:
+from plugins.base_games import BaseGamesFetcher
+
+
+class NFLGames(BaseGamesFetcher):
     """Fetch NFL game data using nfl-data-py."""
 
-    def __init__(self, output_dir="data/nfl", date_folder=None):
-        self.output_dir = Path(output_dir)
-        if date_folder:
-            self.output_dir = self.output_dir / date_folder
-        self.output_dir.mkdir(parents=True, exist_ok=True)
+    SPORT = "nfl"
+
+    def _get_season_year(self, date_obj):
+        """Determine NFL season year (season starts in September)."""
+        if date_obj.month >= 9:
+            return date_obj.year
+        return date_obj.year - 1
+
+    def _download_and_save_schedule(self, season_year, date_obj, date_str):
+        """Download and save schedule for a specific date."""
+        # Get schedule for the season
+        schedule = nfl.import_schedules([season_year])
+
+        # Filter games for the specific date
+        schedule["gameday"] = pd.to_datetime(schedule["gameday"])
+        date_games = schedule[schedule["gameday"].dt.date == date_obj.date()]
+
+        if len(date_games) == 0:
+            print(f"  No NFL games found for {date_str}")
+            return None
+
+        print(f"  Found {len(date_games)} games for {date_str}")
+
+        # Save schedule for this date
+        schedule_file = self.output_dir / f"schedule_{date_str}.json"
+        date_games.to_json(schedule_file, orient="records", indent=2)
+        print(f"  Saved schedule to {schedule_file}")
+        return date_games
+
+    def _download_and_save_pbp(self, season_year, game_ids, date_str):
+        """Download and save play-by-play data for these games."""
+        print("  Downloading play-by-play data...")
+        try:
+            pbp = nfl.import_pbp_data([season_year], downcast=False)
+
+            # Filter to just these games
+            date_pbp = pbp[pbp["game_id"].isin(game_ids)]
+
+            if len(date_pbp) > 0:
+                pbp_file = self.output_dir / f"pbp_{date_str}.json"
+                date_pbp.to_json(pbp_file, orient="records", indent=2)
+                print(f"  Saved play-by-play to {pbp_file}")
+        except Exception as pbp_error:
+            # Play-by-play data may not be available yet for recent/future games
+            error_msg = str(pbp_error)
+            if (
+                "404" in error_msg
+                or "Not Found" in error_msg
+                or "name 'Error' is not defined" in error_msg
+            ):
+                print(f"  Play-by-play data not available for {season_year} season")
+            else:
+                raise
+
+    def _download_and_save_weekly_stats(self, season_year, week, date_str):
+        """Download and save weekly stats for the given week."""
+        try:
+            weekly = nfl.import_weekly_data([season_year])
+            date_weekly = weekly[
+                (weekly["season"] == season_year) & (weekly["week"] == week)
+            ]
+
+            if len(date_weekly) > 0:
+                weekly_file = self.output_dir / f"weekly_{date_str}.json"
+                date_weekly.to_json(weekly_file, orient="records", indent=2)
+                print(f"  Saved weekly stats to {weekly_file}")
+        except Exception as weekly_error:
+            print(
+                f"  Weekly stats not available for {season_year} season: {weekly_error}"
+            )
 
     def download_games_for_date(self, date_str):
         """
@@ -35,83 +104,29 @@ class NFLGames:
         Date format: YYYY-MM-DD
         """
         if not NFL_DATA_AVAILABLE:
-            print(f"⚠️  nfl_data_py not available - skipping NFL download for {date_str}")
-            return []
+            print(
+                f"⚠️  nfl_data_py not available - skipping NFL download for {date_str}"
+            )
+            return 0
 
         print(f"Downloading NFL games for {date_str}...")
 
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
-
-        # Determine NFL season year (season starts in September)
-        if date_obj.month >= 9:
-            season_year = date_obj.year
-        else:
-            season_year = date_obj.year - 1
+        season_year = self._get_season_year(date_obj)
 
         try:
-            # Get schedule for the season
-            schedule = nfl.import_schedules([season_year])
-
-            # Filter games for the specific date
-            schedule["gameday"] = pd.to_datetime(schedule["gameday"])
-            date_games = schedule[schedule["gameday"].dt.date == date_obj.date()]
-
-            if len(date_games) == 0:
-                print(f"  No NFL games found for {date_str}")
+            date_games = self._download_and_save_schedule(
+                season_year, date_obj, date_str
+            )
+            if date_games is None or len(date_games) == 0:
                 return 0
 
-            print(f"  Found {len(date_games)} games for {date_str}")
-
-            # Save schedule for this date
-            schedule_file = self.output_dir / f"schedule_{date_str}.json"
-            date_games.to_json(schedule_file, orient="records", indent=2)
-            print(f"  Saved schedule to {schedule_file}")
-
-            # Get game IDs
             game_ids = date_games["game_id"].tolist()
+            self._download_and_save_pbp(season_year, game_ids, date_str)
 
-            # Download play-by-play data for these games
-            print("  Downloading play-by-play data...")
-            try:
-                pbp = nfl.import_pbp_data([season_year], downcast=False)
-
-                # Filter to just these games
-                date_pbp = pbp[pbp["game_id"].isin(game_ids)]
-
-                if len(date_pbp) > 0:
-                    pbp_file = self.output_dir / f"pbp_{date_str}.json"
-                    date_pbp.to_json(pbp_file, orient="records", indent=2)
-                    print(f"  Saved play-by-play to {pbp_file}")
-            except Exception as pbp_error:
-                # Play-by-play data may not be available yet for recent/future games
-                error_msg = str(pbp_error)
-                if (
-                    "404" in error_msg
-                    or "Not Found" in error_msg
-                    or "name 'Error' is not defined" in error_msg
-                ):
-                    print(f"  Play-by-play data not available for {season_year} season")
-                else:
-                    raise
-
-            # Get weekly data for the week of these games
             # Weekly data is player-level, not game-level, so filter by season/week
-            if len(date_games) > 0:
-                try:
-                    week = date_games.iloc[0]["week"]
-                    weekly = nfl.import_weekly_data([season_year])
-                    date_weekly = weekly[
-                        (weekly["season"] == season_year) & (weekly["week"] == week)
-                    ]
-
-                    if len(date_weekly) > 0:
-                        weekly_file = self.output_dir / f"weekly_{date_str}.json"
-                        date_weekly.to_json(weekly_file, orient="records", indent=2)
-                        print(f"  Saved weekly stats to {weekly_file}")
-                except Exception as weekly_error:
-                    print(
-                        f"  Weekly stats not available for {season_year} season: {weekly_error}"
-                    )
+            week = date_games.iloc[0]["week"]
+            self._download_and_save_weekly_stats(season_year, week, date_str)
 
             return len(date_games)
 

@@ -8,8 +8,8 @@ class TestNBAEloRating:
         from plugins.elo import NBAEloRating
 
         elo = NBAEloRating()
-        assert elo.k_factor == 20
-        assert elo.home_advantage == 100
+        assert elo.config.k_factor == 20
+        assert elo.config.home_advantage == 100
 
     def test_predict(self):
         from plugins.elo import NBAEloRating
@@ -33,7 +33,9 @@ class TestNHLEloRating:
         from plugins.elo import NHLEloRating
 
         elo = NHLEloRating()
-        assert elo.home_advantage == 65.0  # Reduced from 100 based on empirical NHL home win rates
+        assert (
+            elo.config.home_advantage == 65.0
+        )  # Reduced from 100 based on empirical NHL home win rates
 
     def test_predict(self):
         from plugins.elo import NHLEloRating
@@ -50,7 +52,7 @@ class TestMLBEloRating:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        assert elo.k_factor == 20
+        assert elo.config.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import MLBEloRating
@@ -63,7 +65,7 @@ class TestMLBEloRating:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        elo.update("Red Sox", "Yankees", 5, 3)
+        elo.update("Red Sox", "Yankees", home_won=True)
         assert elo.get_rating("Red Sox") > 1500
 
 
@@ -74,7 +76,7 @@ class TestNFLEloRating:
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        assert elo.k_factor == 20
+        assert elo.config.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import NFLEloRating
@@ -87,7 +89,7 @@ class TestNFLEloRating:
         from plugins.elo import NFLEloRating
 
         elo = NFLEloRating()
-        elo.update("Chiefs", "49ers", 31, 24)
+        elo.update("Chiefs", "49ers", home_won=True)
         assert elo.get_rating("Chiefs") > 1500
 
 
@@ -98,7 +100,7 @@ class TestNCAABEloRating:
         from plugins.elo import NCAABEloRating
 
         elo = NCAABEloRating()
-        assert elo.k_factor == 20
+        assert elo.config.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import NCAABEloRating
@@ -115,7 +117,7 @@ class TestTennisEloRating:
         from plugins.elo import TennisEloRating
 
         elo = TennisEloRating()
-        assert elo.k_factor > 0
+        assert elo.config.k_factor > 0
 
     def test_predict(self):
         from plugins.elo import TennisEloRating
@@ -139,7 +141,7 @@ class TestEPLEloRating:
         from plugins.elo import EPLEloRating
 
         elo = EPLEloRating()
-        assert elo.k_factor == 20
+        assert elo.config.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import EPLEloRating
@@ -156,7 +158,7 @@ class TestLigue1EloRating:
         from plugins.elo import Ligue1EloRating
 
         elo = Ligue1EloRating()
-        assert elo.k_factor == 20
+        assert elo.config.k_factor == 20
 
     def test_predict(self):
         from plugins.elo import Ligue1EloRating

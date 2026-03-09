@@ -111,32 +111,28 @@ P(A) = \frac{1}{1 + 10^{\frac{R_B - R_A}{400}}}
 - ✅ **Completed**: All 9 sports (NHL, NBA, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, Tennis)
 - 🔄 **In Progress**: None (Phase 1.2 Completed)
 
-### Market Agreement Betting Strategy (2026-01-29)
+### Positive Expected Value (EV) Betting Strategy (2026-03-03)
 
-The system uses a **market agreement strategy** - betting when our Elo prediction agrees with Kalshi's market prediction. This approach bets WITH the market for consistent small gains rather than against it.
+The system uses a **positive EV strategy** — betting when our Elo model's probability exceeds the market's implied probability, indicating the market is mispricing an outcome.
 
 **Betting Logic:**
 ```python
-# Bet on HOME when both agree home wins:
-elo_prob > 50% AND market_prob > 55%
-
-# Bet on AWAY when both agree away wins:
-elo_prob < 50% AND market_prob < 45%  # (away_market_prob > 55%)
+# Bet when Elo probability exceeds market probability by minimum edge:
+edge = elo_prob - market_prob
+bet = edge >= MIN_EDGE_THRESHOLD and edge <= MAX_EDGE_THRESHOLD
 ```
 
-**Market Confidence Cutoff:** 55% (avoids betting on coin-flip games where market is near 50/50)
-
 **Key Parameters:**
-- `market_confidence_cutoff`: 0.55 (market must show >55% for a side to bet)
-- Edge/threshold parameters are deprecated and no longer used
+- `MIN_EDGE_THRESHOLD`: 0.03 (minimum 3% edge required to bet)
+- `MAX_EDGE_THRESHOLD`: 0.40 (reject edges above 40% as likely data errors)
 
 ### Confidence Levels
 
-Confidence is based on **agreement strength** (how close elo_prob and market_prob are):
+Confidence is based on **edge size** (larger edge = higher confidence):
 
-- **HIGH**: Agreement diff < 5% (Elo and market very close)
-- **MEDIUM**: Agreement diff 5-15% (reasonable agreement)
-- **LOW**: Agreement diff > 15% (same side but wide gap)
+- **HIGH**: Edge >= 15%
+- **MEDIUM**: Edge 8-15%
+- **LOW**: Edge 3-8%
 ### Lift/Gain Analysis
 
 The system includes a lift/gain analysis tool (`plugins/lift_gain_analysis.py`) that evaluates Elo prediction quality by probability decile.

@@ -2,11 +2,268 @@
 Compares Elo probabilities against unified market odds to find betting opportunities.
 """
 
+from __future__ import annotations
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Any, Optional
+from dataclasses import dataclass
 
-from db_manager import DBManager, default_db
-from naming_resolver import NamingResolver
+import pandas as pd
+
+from plugins.db_manager import DBManager, default_db
+from naming_resolver import NamingResolver, NamingContext
+from constants import (
+    DEFAULT_THRESHOLD,
+    DEFAULT_MIN_EDGE,
+    DEFAULT_MARKET_CONFIDENCE_CUTOFF,
+    DEFAULT_HIGH_EDGE_THRESHOLD,
+    HIGH_CONFIDENCE_MIN_EDGE,
+    MEDIUM_CONFIDENCE_MIN_EDGE,
+    MAX_MARKET_PROBABILITY,
+)
+
+
+@dataclass
+class BettingThresholds:
+    """Thresholds for identifying betting opportunities."""
+
+    threshold: float = DEFAULT_THRESHOLD
+    min_edge: float = DEFAULT_MIN_EDGE
+    max_edge: float = 1.0
+    market_confidence_cutoff: float = DEFAULT_MARKET_CONFIDENCE_CUTOFF
+    enable_high_edge_disagreement: bool = False
+    high_edge_threshold: float = DEFAULT_HIGH_EDGE_THRESHOLD
+
+
+@dataclass
+class BettingOpportunityConfig:
+    """Configuration for finding betting opportunities."""
+
+    sport: str
+    elo_system: Any
+    thresholds: BettingThresholds
+
+
+@dataclass
+class MatchIdentity:
+    """Identity of a match, including sport and canonical team names."""
+
+    sport: str
+    game_id: str
+    canon_home: str
+    canon_away: str
+
+
+@dataclass
+class BettingOutcome:
+    """Represents a specific betting outcome (e.g. 'home' win) with all its metrics."""
+
+    side: str
+    team_name: str
+    elo_prob: float
+    market_prob: float
+    market_odds: float
+    edge: float
+
+    @property
+    def expected_value(self) -> float:
+        """Calculates Expected Value (EV) for the outcome."""
+        return self.edge / self.market_prob if self.market_prob > 0 else 0.0
+
+    @property
+    def kelly_fraction(self) -> float:
+        """Calculates the Kelly Fraction for optimal bet sizing."""
+        if 0 < self.market_prob < 1:
+            p = self.elo_prob
+            q = 1 - self.elo_prob
+            b = self.market_odds - 1
+            return max(0, (p * b - q) / b) if b > 0 else 0.0
+        return 0.0
+
+    @property
+    def agreement_diff(self) -> float:
+        """Calculates the difference between Elo and market probabilities."""
+        return abs(self.elo_prob - self.market_prob)
+
+    def determine_confidence(self, config: "BettingThresholds") -> str:
+        """Determines the confidence level based on edge size.
+
+        Larger positive edge = higher confidence in the value bet.
+
+        Returns:
+            Confidence level string: HIGH, MEDIUM, or LOW.
+        """
+        if self.edge >= HIGH_CONFIDENCE_MIN_EDGE:
+            return "HIGH"
+        elif self.edge >= MEDIUM_CONFIDENCE_MIN_EDGE:
+            return "MEDIUM"
+        else:
+            return "LOW"
+
+    def is_value_bet(self, config: "BettingThresholds") -> bool:
+        """Determines if the outcome constitutes a positive expected value bet.
+
+        A value bet exists when our Elo model's probability exceeds the market's
+        implied probability by more than the minimum edge threshold, indicating
+        the market is mispricing the outcome.
+
+        Args:
+            config: Betting thresholds configuration.
+
+        Returns:
+            True if the bet has positive expected value within acceptable bounds.
+        """
+        # Edge must exceed the minimum threshold for positive EV
+        if self.edge < config.min_edge:
+            return False
+
+        # Reject suspiciously large edges (likely data errors or stale markets)
+        if self.edge > config.max_edge:
+            return False
+
+        return True
+
+    def to_opportunity(
+        self, context: "GameContext", config: "BettingThresholds"
+    ) -> Dict[str, Any]:
+        """Builds the final opportunity dictionary with all metrics."""
+        return {
+            "sport": context.sport,
+            "game_id": context.game_id,
+            "home_team": context.home_team_name,
+            "away_team": context.away_team_name,
+            "home_rating": context.get_rating(context.elo_home),
+            "away_rating": context.get_rating(context.elo_away),
+            "bet_on": self.team_name,
+            "side": self.side,
+            "elo_prob": self.elo_prob,
+            "market_prob": self.market_prob,
+            "market_odds": self.market_odds,
+            "bookmaker": "Kalshi",
+            "ticker": context.tickers_by_bm.get("Kalshi", {}).get(self.side),
+            "edge": self.edge,
+            "expected_value": self.expected_value,
+            "kelly_fraction": self.kelly_fraction,
+            "sharp_confirmed": False,
+            "confidence": self.determine_confidence(config),
+            "agreement_diff": self.agreement_diff,
+        }
+
+
+@dataclass
+class GameContext:
+    """Encapsulates the context and state for a single game during analysis."""
+
+    sport: str
+    game_id: str
+    home_team_name: str
+    away_team_name: str
+    source: str
+    canon_home: str
+    canon_away: str
+    elo_home: str
+    elo_away: str
+    odds_by_bm: Dict[str, Dict[str, float]]
+    tickers_by_bm: Dict[str, Dict[str, str]]
+    elo_system: Any
+    tour: Optional[str] = None
+    home_win_prob: float = 0.0
+    draw_prob: Optional[float] = None
+    away_win_prob: float = 0.0
+
+    def calculate_probabilities(self) -> bool:
+        """Calculates Elo probabilities for this game context."""
+        try:
+            sport_lower = self.sport.lower()
+            if sport_lower == "tennis":
+                # Determine tour from Kalshi ticker
+                kalshi_ticker = (
+                    self.tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
+                )
+                if "KXATP" in kalshi_ticker.upper() or "ATP" in self.game_id.upper():
+                    self.tour = "atp"
+                elif "KXWTA" in kalshi_ticker.upper() or "WTA" in self.game_id.upper():
+                    self.tour = "wta"
+                else:
+                    self.tour = "atp"
+                self.home_win_prob = self.elo_system.predict(
+                    self.elo_home, self.elo_away, tour=self.tour
+                )
+                self.away_win_prob = 1 - self.home_win_prob
+            elif hasattr(self.elo_system, "predict_3way") and sport_lower in [
+                "epl",
+                "ligue1",
+            ]:
+                probs = self.elo_system.predict_3way(self.elo_home, self.elo_away)
+                self.home_win_prob = probs["home"]
+                self.draw_prob = probs["draw"]
+                self.away_win_prob = probs["away"]
+            else:
+                self.home_win_prob = self.elo_system.predict(
+                    self.elo_home, self.elo_away
+                )
+                self.away_win_prob = 1 - self.home_win_prob
+            return True
+        except Exception as e:
+            print(f"Error calculating probabilities for {self.game_id}: {e}")
+            return False
+
+    def evaluate(self, config: BettingThresholds) -> List[Dict[str, Any]]:
+        """Evaluates this game for betting opportunities based on context and thresholds."""
+        opportunities = []
+        outcomes = self._prepare_outcomes()
+
+        for side, team_name, elo_prob in outcomes:
+            opp = self._evaluate_outcome(side, team_name, elo_prob, config)
+            if opp:
+                opportunities.append(opp)
+
+        return opportunities
+
+    def _prepare_outcomes(self) -> List[tuple[str, str, float]]:
+        """Prepares list of outcomes (side, team_name, elo_prob) to evaluate."""
+        outcomes = [("home", self.home_team_name, self.home_win_prob)]
+        if self.draw_prob is not None:
+            outcomes.append(("draw", "Draw", self.draw_prob))
+        outcomes.append(("away", self.away_team_name, self.away_win_prob))
+        return outcomes
+
+    def _evaluate_outcome(
+        self, side: str, team_name: str, elo_prob: float, config: BettingThresholds
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluates a single outcome for a betting opportunity."""
+        kalshi_odds = self.odds_by_bm.get("Kalshi", {})
+        if side not in kalshi_odds:
+            return None
+
+        market_odds = kalshi_odds[side]
+        if market_odds <= 1.0:
+            return None
+
+        market_prob = 1 / market_odds
+        if market_prob > MAX_MARKET_PROBABILITY:
+            return None
+
+        edge = elo_prob - market_prob
+
+        outcome = BettingOutcome(
+            side=side,
+            team_name=team_name,
+            elo_prob=elo_prob,
+            market_prob=market_prob,
+            market_odds=market_odds,
+            edge=edge,
+        )
+
+        if not outcome.is_value_bet(config):
+            return None
+
+        return outcome.to_opportunity(self, config)
+
+    def get_rating(self, elo_name: str) -> float:
+        """Helper to get Elo rating based on sport and tour."""
+        if self.sport.lower() != "tennis":
+            return self.elo_system.get_rating(elo_name)
+        return self.elo_system.get_rating(elo_name, tour=self.tour)
 
 
 class OddsComparator:
@@ -16,6 +273,19 @@ class OddsComparator:
 
     def __init__(self, db_manager: DBManager = default_db):
         self.db = db_manager
+
+    def _get_games(self, sport: str) -> pd.DataFrame:
+        """Fetches upcoming games for a sport from unified_games."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        query = """
+            SELECT game_id, game_date, home_team_name, away_team_name, status
+            FROM unified_games
+            WHERE sport = :sport
+              AND game_date >= :today
+              AND status NOT IN ('Final', 'Finalized', 'OFF', 'Closed')
+            ORDER BY game_date
+        """
+        return self.db.fetch_df(query, {"sport": sport.upper(), "today": today})
 
     def get_best_odds(self, game_id: str) -> Dict[str, Dict]:
         """
@@ -61,301 +331,144 @@ class OddsComparator:
             {"game_id": game_id},
         ).to_dict("records")
 
+    def _resolve_game_context(
+        self, sport: str, row: pd.Series, elo_system: Any
+    ) -> Optional[GameContext]:
+        """Resolves naming, odds, and creates a GameContext for a game."""
+        game_id = row["game_id"]
+        source = self._get_source(game_id)
+
+        # Resolve Canonical Names
+        canon_home = self._resolve_name(
+            NamingContext(sport=sport, source=source, name=row["home_team_name"])
+        )
+        canon_away = self._resolve_name(
+            NamingContext(sport=sport, source=source, name=row["away_team_name"])
+        )
+
+        # Resolve Elo Names
+        elo_home = self._resolve_name(
+            NamingContext(sport=sport, source="elo", name=canon_home)
+        )
+        elo_away = self._resolve_name(
+            NamingContext(sport=sport, source="elo", name=canon_away)
+        )
+
+        # Get and organize odds
+        match = MatchIdentity(sport, game_id, canon_home, canon_away)
+        odds_data = self._organize_odds(match)
+        if not odds_data:
+            return None
+
+        odds_by_bm, tickers_by_bm = odds_data
+
+        if "Kalshi" not in odds_by_bm:
+            return None
+
+        return GameContext(
+            sport=sport,
+            game_id=game_id,
+            home_team_name=row["home_team_name"],
+            away_team_name=row["away_team_name"],
+            source=source,
+            canon_home=canon_home,
+            canon_away=canon_away,
+            elo_home=elo_home,
+            elo_away=elo_away,
+            odds_by_bm=odds_by_bm,
+            tickers_by_bm=tickers_by_bm,
+            elo_system=elo_system,
+        )
+
+    def _get_source(self, game_id: str) -> str:
+        """Resolves the source of the game ID."""
+        if "odds_api" in game_id.lower():
+            return "the_odds_api"
+        return "kalshi"  # Unified games default
+
+    def _resolve_name(self, context: NamingContext) -> str:
+        """Resolves a team name using the NamingResolver."""
+        return NamingResolver.resolve(context) or context.name
+
+    def _organize_odds(
+        self, match: MatchIdentity
+    ) -> Optional[tuple[Dict[str, Dict[str, float]], Dict[str, Dict[str, str]]]]:
+        """Fetches and organizes odds for a game."""
+        all_odds = self.get_all_odds(match.game_id)
+        if not all_odds:
+            return None
+
+        odds_by_bm = {}
+        tickers_by_bm = {}
+        for o in all_odds:
+            bm = o["bookmaker"]
+            outcome = self._resolve_outcome(match, o["outcome_name"])
+
+            if bm not in odds_by_bm:
+                odds_by_bm[bm] = {}
+            odds_by_bm[bm][outcome] = float(o["price"])
+
+            if bm not in tickers_by_bm:
+                tickers_by_bm[bm] = {}
+            tickers_by_bm[bm][outcome] = o.get("external_id")
+
+        return odds_by_bm, tickers_by_bm
+
+    def _resolve_outcome(self, match: MatchIdentity, outcome: str) -> str:
+        """Resolves a named outcome to 'home', 'away', or 'draw'."""
+        if outcome in ["home", "away", "draw"]:
+            return outcome
+
+        canon_outcome = (
+            NamingResolver.resolve(
+                NamingContext(sport=match.sport, source="the_odds_api", name=outcome)
+            )
+            or outcome
+        )
+        if canon_outcome == match.canon_home:
+            return "home"
+        elif canon_outcome == match.canon_away:
+            return "away"
+        elif "draw" in outcome.lower():
+            return "draw"
+
+        return outcome
+
     def find_opportunities(
         self,
-        sport: str,
-        elo_ratings: Dict,
-        elo_system,
-        threshold: float = 0.65,
-        min_edge: float = 0.05,
-        use_sharp_confirmation: bool = False,
-        market_confidence_cutoff: float = 0.55,
-        enable_high_edge_disagreement: bool = False,
-        high_edge_threshold: float = 0.10,
-    ) -> List[Dict]:
+        config: BettingOpportunityConfig,
+    ) -> List[Dict[str, Any]]:
         """
-        Identifies betting opportunities using MARKET AGREEMENT strategy with optional
-        high-edge disagreement strategy.
-
-        PRIMARY STRATEGY (Market Agreement):
-        Bet when our Elo prediction agrees with Kalshi's market prediction.
-        - If Elo predicts home win (>threshold) AND market predicts home win (>cutoff), bet home.
-        - If Elo predicts away win (<1-threshold) AND market predicts away win (<1-cutoff), bet away.
-
-        SECONDARY STRATEGY (High-Edge Disagreement - optional):
-        When enabled, also bet when Elo strongly disagrees with the market (high edge)
-        even if they don't agree on the same side.
-        - Bet if edge > high_edge_threshold AND elo_prob > threshold
-        - Only for sports where Elo has shown strong predictive power
+        Identifies betting opportunities using positive Expected Value (EV) strategy.
+        Bets when our Elo model finds the market is mispricing a team.
 
         Args:
-            sport: Sport code (nba, nhl, etc.)
-            elo_ratings: Dictionary of team/player Elo ratings
-            elo_system: Elo system instance with predict() method
-            threshold: Minimum Elo probability for a side (default 0.65)
-                - For home bets: elo_prob > threshold
-                - For away bets: elo_prob < (1 - threshold)
-            min_edge: (DEPRECATED) No longer used in market agreement strategy
-            use_sharp_confirmation: (DEPRECATED) No longer used in market agreement strategy
-            market_confidence_cutoff: Minimum market probability for a side (default 0.55)
-                - For home bets: market_prob > cutoff
-                - For away bets: market_prob < (1 - cutoff)
-            enable_high_edge_disagreement: If True, enable high-edge disagreement strategy
-                for additional betting opportunities (default: False)
-            high_edge_threshold: Minimum edge required for disagreement strategy (default: 0.10)
+            config: Configuration for finding betting opportunities
+
+        Returns:
+            List of betting opportunity dictionaries
         """
         opportunities = []
 
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            query = """
-                SELECT game_id, game_date, home_team_name, away_team_name, status
-                FROM unified_games
-                WHERE sport = :sport
-                  AND game_date >= :today
-                  AND status NOT IN ('Final', 'Finalized', 'OFF', 'Closed')
-                ORDER BY game_date
-            """
-            games_df = self.db.fetch_df(query, {"sport": sport.upper(), "today": today})
-
+            games_df = self._get_games(config.sport)
             print(
-                f"🔍 Analyzing {len(games_df)} {sport.upper()} games for value bets..."
+                f"🔍 Analyzing {len(games_df)} {config.sport.upper()} games for value bets..."
             )
 
             for _, row in games_df.iterrows():
-                game_id = row["game_id"]
-
-                # 1. Resolve source
-                source = "kalshi"  # Unified games default
-                if "odds_api" in game_id.lower():
-                    source = "the_odds_api"
-
-                # 2. Resolve Canonical Names
-                canon_home = (
-                    NamingResolver.resolve(sport, source, row["home_team_name"])
-                    or row["home_team_name"]
-                )
-                canon_away = (
-                    NamingResolver.resolve(sport, source, row["away_team_name"])
-                    or row["away_team_name"]
-                )
-
-                # 3. Resolve Elo Names
-                elo_home = (
-                    NamingResolver.resolve(sport, "elo", canon_home) or canon_home
-                )
-                elo_away = (
-                    NamingResolver.resolve(sport, "elo", canon_away) or canon_away
-                )
-
-                # 4. Get Odds
-                all_odds = self.get_all_odds(game_id)
-                if not all_odds:
+                # 1. Resolve context
+                ctx = self._resolve_game_context(config.sport, row, config.elo_system)
+                if not ctx:
                     continue
 
-                odds_by_bm = {}
-                tickers_by_bm = {}
-                for o in all_odds:
-                    bm = o["bookmaker"]
-                    outcome = o["outcome_name"]
-
-                    # If outcome is a name, resolve it to 'home' or 'away'
-                    if outcome not in ["home", "away", "draw"]:
-                        canon_outcome = (
-                            NamingResolver.resolve(sport, "the_odds_api", outcome)
-                            or outcome
-                        )
-                        if canon_outcome == canon_home:
-                            outcome = "home"
-                        elif canon_outcome == canon_away:
-                            outcome = "away"
-                        elif "draw" in outcome.lower():
-                            outcome = "draw"
-
-                    if bm not in odds_by_bm:
-                        odds_by_bm[bm] = {}
-                    odds_by_bm[bm][outcome] = float(o["price"])
-
-                    if bm not in tickers_by_bm:
-                        tickers_by_bm[bm] = {}
-                    tickers_by_bm[bm][outcome] = o.get("external_id")
-
-                kalshi_odds = odds_by_bm.get("Kalshi")
-                if not kalshi_odds:
+                # 2. Calculate probabilities
+                if not ctx.calculate_probabilities():
                     continue
 
-                sharp_bms = [
-                    "pinnacle",
-                    "betmgm",
-                    "draftkings",
-                    "fanduel",
-                    "williamhill",
-                ]
-                sharp_odds = None
-                for sbm in sharp_bms:
-                    if sbm in odds_by_bm:
-                        sharp_odds = odds_by_bm[sbm]
-                        break
-
-                # 5. Predict
-                try:
-                    if sport.lower() == "tennis":
-                        # Determine tour from Kalshi ticker (external_id)
-                        # ATP tickers contain 'KXATP', WTA tickers contain 'KXWTA'
-                        kalshi_ticker = (
-                            tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
-                        )
-                        if "KXATP" in kalshi_ticker.upper() or "ATP" in game_id.upper():
-                            tour = "atp"
-                        elif (
-                            "KXWTA" in kalshi_ticker.upper() or "WTA" in game_id.upper()
-                        ):
-                            tour = "wta"
-                        else:
-                            # Default to ATP for unrecognized tournaments
-                            tour = "atp"
-                        home_win_prob = elo_system.predict(
-                            elo_home, elo_away, tour=tour
-                        )
-                    elif hasattr(elo_system, "predict_3way") and sport.lower() in [
-                        "epl",
-                        "ligue1",
-                    ]:
-                        probs = elo_system.predict_3way(elo_home, elo_away)
-                        home_win_prob, draw_prob, away_win_prob = (
-                            probs["home"],
-                            probs["draw"],
-                            probs["away"],
-                        )
-                    else:
-                        home_win_prob = elo_system.predict(elo_home, elo_away)
-                except Exception:
-                    continue
-
-                # 6. Evaluate Outcomes
-                if sport.lower() in ["epl", "ligue1"]:
-                    outcomes = [
-                        ("home", row["home_team_name"], home_win_prob),
-                        ("draw", "Draw", draw_prob),
-                        ("away", row["away_team_name"], away_win_prob),
-                    ]
-                else:
-                    outcomes = [
-                        ("home", row["home_team_name"], home_win_prob),
-                        ("away", row["away_team_name"], 1 - home_win_prob),
-                    ]
-
-                # 7. MARKET AGREEMENT STRATEGY
-                # Bet when Elo and market agree on the same side
-                for side, team_name, elo_prob in outcomes:
-                    if side in kalshi_odds:
-                        market_odds = kalshi_odds[side]
-                        if market_odds <= 1.0:
-                            continue  # Invalid odds
-
-                        market_prob = 1 / market_odds
-                        if market_prob > 0.99:
-                            continue  # Skip if effectively a 100% lock
-
-                        edge = elo_prob - market_prob
-
-                        # Market Agreement Logic:
-                        # - Elo predicts this side wins (elo_prob > threshold)
-                        # - Market also predicts this side wins (market_prob > cutoff)
-                        elo_predicts_win = elo_prob > threshold
-                        market_predicts_win = market_prob > market_confidence_cutoff
-
-                        # High-Edge Disagreement Logic (optional):
-                        # - Elo predicts this side wins (elo_prob > threshold)
-                        # - Edge is very high (edge > high_edge_threshold)
-                        # - Market may not agree (market_prob could be low)
-                        high_edge_disagreement = (
-                            enable_high_edge_disagreement
-                            and elo_predicts_win
-                            and edge > high_edge_threshold
-                        )
-
-                        # Bet if either market agreement OR high-edge disagreement
-                        if (
-                            elo_predicts_win and market_predicts_win
-                        ) or high_edge_disagreement:
-                            # Confidence based on agreement strength
-                            # (how close are elo_prob and market_prob)
-                            agreement_diff = abs(elo_prob - market_prob)
-
-                            if high_edge_disagreement:
-                                # For high-edge disagreement bets, confidence reflects going against market
-                                if edge > 0.15:
-                                    confidence = "HIGH_DISAGREEMENT"  # Very high edge against market
-                                elif edge > 0.10:
-                                    confidence = "MEDIUM_DISAGREEMENT"  # High edge against market
-                                else:
-                                    confidence = "LOW_DISAGREEMENT"  # Moderate edge against market
-                            else:
-                                # Market agreement bets
-                                if agreement_diff < 0.05:
-                                    confidence = "HIGH"  # Very close agreement
-                                elif agreement_diff < 0.15:
-                                    confidence = "MEDIUM"  # Reasonable agreement
-                                else:
-                                    confidence = (
-                                        "LOW"  # Wide disagreement but same side
-                                    )
-
-                            # Calculate Expected Value (EV)
-                            # EV = (elo_prob × payout) - 1
-                            # Where payout = 1 / market_prob (decimal odds)
-                            # This simplifies to: EV = edge / market_prob
-                            expected_value = (
-                                edge / market_prob if market_prob > 0 else 0.0
-                            )
-
-                            # Calculate Kelly fraction for optimal bet sizing
-                            # Kelly = (p*b - q) / b where:
-                            # p = win probability (elo_prob)
-                            # q = loss probability (1 - elo_prob)
-                            # b = net odds (1/market_prob - 1)
-                            if market_prob > 0 and market_prob < 1:
-                                p = elo_prob
-                                q = 1 - elo_prob
-                                b = (1 / market_prob) - 1
-                                kelly_fraction = (
-                                    max(0, (p * b - q) / b) if b > 0 else 0.0
-                                )
-                            else:
-                                kelly_fraction = 0.0
-
-                            opportunities.append(
-                                {
-                                    "sport": sport,
-                                    "game_id": game_id,
-                                    "home_team": row["home_team_name"],
-                                    "away_team": row["away_team_name"],
-                                    "home_rating": (
-                                        elo_system.get_rating(elo_home)
-                                        if sport != "tennis"
-                                        else elo_system.get_rating(elo_home, tour=tour)
-                                    ),
-                                    "away_rating": (
-                                        elo_system.get_rating(elo_away)
-                                        if sport != "tennis"
-                                        else elo_system.get_rating(elo_away, tour=tour)
-                                    ),
-                                    "bet_on": team_name,
-                                    "side": side,
-                                    "elo_prob": elo_prob,
-                                    "market_prob": market_prob,
-                                    "market_odds": market_odds,
-                                    "bookmaker": "Kalshi",
-                                    "ticker": tickers_by_bm.get("Kalshi", {}).get(side),
-                                    "edge": edge,
-                                    "expected_value": expected_value,
-                                    "kelly_fraction": kelly_fraction,
-                                    "sharp_confirmed": False,  # Not used in market agreement
-                                    "confidence": confidence,
-                                    "agreement_diff": agreement_diff,
-                                }
-                            )
+                # 3. Evaluate outcomes
+                game_opps = ctx.evaluate(config.thresholds)
+                opportunities.extend(game_opps)
 
             return opportunities
 

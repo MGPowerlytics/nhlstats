@@ -4,42 +4,43 @@ NHL Elo fix for DAG - updated section.
 
 # NHL team mapping (full names to abbreviations)
 NHL_TEAM_MAPPING = {
-    'Anaheim Ducks': 'ANA',
-    'Arizona Coyotes': 'ARI',
-    'Boston Bruins': 'BOS',
-    'Buffalo Sabres': 'BUF',
-    'Calgary Flames': 'CGY',
-    'Carolina Hurricanes': 'CAR',
-    'Chicago Blackhawks': 'CHI',
-    'Colorado Avalanche': 'COL',
-    'Columbus Blue Jackets': 'CBJ',
-    'Dallas Stars': 'DAL',
-    'Detroit Red Wings': 'DET',
-    'Edmonton Oilers': 'EDM',
-    'Florida Panthers': 'FLA',
-    'Los Angeles Kings': 'LAK',
-    'Minnesota Wild': 'MIN',
-    'Montreal Canadiens': 'MTL',
-    'Montréal Canadiens': 'MTL',
-    'Nashville Predators': 'NSH',
-    'New Jersey Devils': 'NJD',
-    'New York Islanders': 'NYI',
-    'New York Rangers': 'NYR',
-    'Ottawa Senators': 'OTT',
-    'Philadelphia Flyers': 'PHI',
-    'Pittsburgh Penguins': 'PIT',
-    'San Jose Sharks': 'SJS',
-    'Seattle Kraken': 'SEA',
-    'St. Louis Blues': 'STL',
-    'Tampa Bay Lightning': 'TBL',
-    'Toronto Maple Leafs': 'TOR',
-    'Utah Hockey Club': 'UTA',
-    'Utah Mammoth': 'UTA',
-    'Vancouver Canucks': 'VAN',
-    'Vegas Golden Knights': 'VGK',
-    'Washington Capitals': 'WSH',
-    'Winnipeg Jets': 'WPG',
+    "Anaheim Ducks": "ANA",
+    "Arizona Coyotes": "ARI",
+    "Boston Bruins": "BOS",
+    "Buffalo Sabres": "BUF",
+    "Calgary Flames": "CGY",
+    "Carolina Hurricanes": "CAR",
+    "Chicago Blackhawks": "CHI",
+    "Colorado Avalanche": "COL",
+    "Columbus Blue Jackets": "CBJ",
+    "Dallas Stars": "DAL",
+    "Detroit Red Wings": "DET",
+    "Edmonton Oilers": "EDM",
+    "Florida Panthers": "FLA",
+    "Los Angeles Kings": "LAK",
+    "Minnesota Wild": "MIN",
+    "Montreal Canadiens": "MTL",
+    "Montréal Canadiens": "MTL",
+    "Nashville Predators": "NSH",
+    "New Jersey Devils": "NJD",
+    "New York Islanders": "NYI",
+    "New York Rangers": "NYR",
+    "Ottawa Senators": "OTT",
+    "Philadelphia Flyers": "PHI",
+    "Pittsburgh Penguins": "PIT",
+    "San Jose Sharks": "SJS",
+    "Seattle Kraken": "SEA",
+    "St. Louis Blues": "STL",
+    "Tampa Bay Lightning": "TBL",
+    "Toronto Maple Leafs": "TOR",
+    "Utah Hockey Club": "UTA",
+    "Utah Mammoth": "UTA",
+    "Vancouver Canucks": "VAN",
+    "Vegas Golden Knights": "VGK",
+    "Washington Capitals": "WSH",
+    "Winnipeg Jets": "WPG",
 }
+
 
 def map_nhl_team(team_name):
     """Map NHL team name to abbreviation."""
@@ -48,6 +49,7 @@ def map_nhl_team(team_name):
         return team_name
     # Otherwise try to map
     return NHL_TEAM_MAPPING.get(team_name, team_name)
+
 
 # Updated NHL query for DAG
 NHL_ELO_QUERY = """

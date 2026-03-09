@@ -19,7 +19,9 @@ class TestNHLEloRatingBasic:
         """Test default initialization."""
         elo = NHLEloRating()
         assert elo.k_factor == 20
-        assert elo.home_advantage == 65  # Reduced from 100 based on empirical NHL home win rates
+        assert (
+            elo.home_advantage == 65
+        )  # Reduced from 100 based on empirical NHL home win rates
         assert elo.initial_rating == 1500
         assert elo.ratings == {}
         assert elo.game_history == []

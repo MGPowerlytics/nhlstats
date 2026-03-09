@@ -23,20 +23,22 @@ def load_current_elo_ratings(sport: str):
     csv_path = f"data/{sport}_current_elo_ratings.csv"
     if os.path.exists(csv_path):
         df = pd.read_csv(csv_path)
-        return dict(zip(df['team'], df['rating']))
+        return dict(zip(df["team"], df["rating"]))
     return {}
 
 
 def save_elo_ratings_with_log(sport: str, new_ratings: dict, old_ratings: dict = None):
     """Save Elo ratings with logging of changes."""
     csv_path = f"data/{sport}_current_elo_ratings.csv"
-    log_path = f"data/{sport}_elo_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    log_path = (
+        f"data/{sport}_elo_changes_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+    )
 
     # Save new ratings
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
 
-    df = pd.DataFrame(list(new_ratings.items()), columns=['team', 'rating'])
-    df = df.sort_values('rating', ascending=False)
+    df = pd.DataFrame(list(new_ratings.items()), columns=["team", "rating"])
+    df = df.sort_values("rating", ascending=False)
     df.to_csv(csv_path, index=False)
 
     print(f"💾 Saved {len(new_ratings)} {sport.upper()} ratings to {csv_path}")
@@ -51,27 +53,33 @@ def save_elo_ratings_with_log(sport: str, new_ratings: dict, old_ratings: dict =
             new = new_ratings.get(team, 1500)
             change = new - old
 
-            changes.append({
-                'team': team,
-                'old_rating': float(old),
-                'new_rating': float(new),
-                'change': float(change),
-                'in_old': team in old_ratings,
-                'in_new': team in new_ratings
-            })
+            changes.append(
+                {
+                    "team": team,
+                    "old_rating": float(old),
+                    "new_rating": float(new),
+                    "change": float(change),
+                    "in_old": team in old_ratings,
+                    "in_new": team in new_ratings,
+                }
+            )
 
         # Sort by absolute change
-        changes.sort(key=lambda x: abs(x['change']), reverse=True)
+        changes.sort(key=lambda x: abs(x["change"]), reverse=True)
 
         # Save log
-        with open(log_path, 'w') as f:
-            json.dump({
-                'sport': sport,
-                'timestamp': datetime.now().isoformat(),
-                'old_count': len(old_ratings),
-                'new_count': len(new_ratings),
-                'changes': changes[:50]
-            }, f, indent=2)
+        with open(log_path, "w") as f:
+            json.dump(
+                {
+                    "sport": sport,
+                    "timestamp": datetime.now().isoformat(),
+                    "old_count": len(old_ratings),
+                    "new_count": len(new_ratings),
+                    "changes": changes[:50],
+                },
+                f,
+                indent=2,
+            )
 
         print(f"📝 Saved change log to {log_path}")
 
@@ -80,11 +88,13 @@ def save_elo_ratings_with_log(sport: str, new_ratings: dict, old_ratings: dict =
         print("=" * 60)
 
         if changes:
-            avg_change = sum(c['change'] for c in changes) / len(changes)
-            max_increase = max(c['change'] for c in changes)
-            max_decrease = min(c['change'] for c in changes)
+            avg_change = sum(c["change"] for c in changes) / len(changes)
+            max_increase = max(c["change"] for c in changes)
+            max_decrease = min(c["change"] for c in changes)
 
-            print(f"  Teams: {len(all_teams)} total ({len(old_ratings)} old, {len(new_ratings)} new)")
+            print(
+                f"  Teams: {len(all_teams)} total ({len(old_ratings)} old, {len(new_ratings)} new)"
+            )
             print(f"  Average change: {avg_change:+.2f}")
             print(f"  Maximum increase: {max_increase:+.2f}")
             print(f"  Maximum decrease: {max_decrease:+.2f}")
@@ -92,15 +102,19 @@ def save_elo_ratings_with_log(sport: str, new_ratings: dict, old_ratings: dict =
             print(f"\n  Top 5 increases:")
             count = 0
             for c in changes:
-                if c['change'] > 0 and count < 5:
-                    print(f"    {c['team']:10s}: {c['old_rating']:7.1f} → {c['new_rating']:7.1f} ({c['change']:+.1f})")
+                if c["change"] > 0 and count < 5:
+                    print(
+                        f"    {c['team']:10s}: {c['old_rating']:7.1f} → {c['new_rating']:7.1f} ({c['change']:+.1f})"
+                    )
                     count += 1
 
             print(f"\n  Top 5 decreases:")
             count = 0
             for c in changes:
-                if c['change'] < 0 and count < 5:
-                    print(f"    {c['team']:10s}: {c['old_rating']:7.1f} → {c['new_rating']:7.1f} ({c['change']:+.1f})")
+                if c["change"] < 0 and count < 5:
+                    print(
+                        f"    {c['team']:10s}: {c['old_rating']:7.1f} → {c['new_rating']:7.1f} ({c['change']:+.1f})"
+                    )
                     count += 1
 
         return changes
@@ -112,7 +126,7 @@ def fix_nba_elo():
     print("🔄 Fixing NBA Elo ratings...")
 
     # Load current ratings
-    old_ratings = load_current_elo_ratings('nba')
+    old_ratings = load_current_elo_ratings("nba")
     print(f"  Loaded {len(old_ratings)} current NBA ratings")
 
     # Query ALL historical NBA games from unified_games
@@ -146,7 +160,9 @@ def fix_nba_elo():
         return False
 
     print(f"  Loaded {len(games_df)} historical NBA games from unified_games")
-    print(f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}")
+    print(
+        f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}"
+    )
 
     # Simple Elo implementation for NBA
     class SimpleNBABElo:
@@ -174,39 +190,39 @@ def fix_nba_elo():
     # Map team names to abbreviations
     def map_team(name):
         mapping = {
-            'Atlanta Hawks': 'ATL',
-            'Boston Celtics': 'BOS',
-            'Brooklyn Nets': 'BKN',
-            'Charlotte Hornets': 'CHA',
-            'Chicago Bulls': 'CHI',
-            'Cleveland Cavaliers': 'CLE',
-            'Dallas Mavericks': 'DAL',
-            'Denver Nuggets': 'DEN',
-            'Detroit Pistons': 'DET',
-            'Golden State Warriors': 'GSW',
-            'Houston Rockets': 'HOU',
-            'Indiana Pacers': 'IND',
-            'Los Angeles Clippers': 'LAC',
-            'Los Angeles Lakers': 'LAL',
-            'Memphis Grizzlies': 'MEM',
-            'Miami Heat': 'MIA',
-            'Milwaukee Bucks': 'MIL',
-            'Minnesota Timberwolves': 'MIN',
-            'New Orleans Pelicans': 'NOP',
-            'New York Knicks': 'NYK',
-            'Oklahoma City Thunder': 'OKC',
-            'Orlando Magic': 'ORL',
-            'Philadelphia 76ers': 'PHI',
-            'Phoenix Suns': 'PHX',
-            'Portland Trail Blazers': 'POR',
-            'Sacramento Kings': 'SAC',
-            'San Antonio Spurs': 'SAS',
-            'Toronto Raptors': 'TOR',
-            'Utah Jazz': 'UTA',
-            'Washington Wizards': 'WAS',
+            "Atlanta Hawks": "ATL",
+            "Boston Celtics": "BOS",
+            "Brooklyn Nets": "BKN",
+            "Charlotte Hornets": "CHA",
+            "Chicago Bulls": "CHI",
+            "Cleveland Cavaliers": "CLE",
+            "Dallas Mavericks": "DAL",
+            "Denver Nuggets": "DEN",
+            "Detroit Pistons": "DET",
+            "Golden State Warriors": "GSW",
+            "Houston Rockets": "HOU",
+            "Indiana Pacers": "IND",
+            "Los Angeles Clippers": "LAC",
+            "Los Angeles Lakers": "LAL",
+            "Memphis Grizzlies": "MEM",
+            "Miami Heat": "MIA",
+            "Milwaukee Bucks": "MIL",
+            "Minnesota Timberwolves": "MIN",
+            "New Orleans Pelicans": "NOP",
+            "New York Knicks": "NYK",
+            "Oklahoma City Thunder": "OKC",
+            "Orlando Magic": "ORL",
+            "Philadelphia 76ers": "PHI",
+            "Phoenix Suns": "PHX",
+            "Portland Trail Blazers": "POR",
+            "Sacramento Kings": "SAC",
+            "San Antonio Spurs": "SAS",
+            "Toronto Raptors": "TOR",
+            "Utah Jazz": "UTA",
+            "Washington Wizards": "WAS",
             # Handle variations
-            'LA Clippers': 'LAC',
-            'LA Lakers': 'LAL',
+            "LA Clippers": "LAC",
+            "LA Lakers": "LAL",
         }
         return mapping.get(name, name)
 
@@ -218,16 +234,16 @@ def fix_nba_elo():
     print("  Processing games chronologically...")
 
     for _, game in games_df.iterrows():
-        home_full = game['home_team_name']
-        away_full = game['away_team_name']
-        home_win = game['home_win']
+        home_full = game["home_team_name"]
+        away_full = game["away_team_name"]
+        home_win = game["home_win"]
 
         home = map_team(home_full)
         away = map_team(away_full)
 
         if home and away:
             # Season detection
-            game_date = game['game_date']
+            game_date = game["game_date"]
             if isinstance(game_date, str):
                 current_date = datetime.strptime(game_date, "%Y-%m-%d").date()
             else:
@@ -237,9 +253,15 @@ def fix_nba_elo():
                 days_diff = (current_date - last_date).days
                 if days_diff > 120:  # NBA offseason is longer
                     # Season regression
-                    mean = sum(elo.ratings.values()) / len(elo.ratings) if elo.ratings else 1500
+                    mean = (
+                        sum(elo.ratings.values()) / len(elo.ratings)
+                        if elo.ratings
+                        else 1500
+                    )
                     for team in elo.ratings:
-                        elo.ratings[team] = elo.ratings[team] + 0.4 * (mean - elo.ratings[team])
+                        elo.ratings[team] = elo.ratings[team] + 0.4 * (
+                            mean - elo.ratings[team]
+                        )
 
             last_date = current_date
             elo.update(home, away, home_win)
@@ -253,11 +275,42 @@ def fix_nba_elo():
     print(f"  Rated {len(elo.ratings)} teams")
 
     # Filter to only NBA teams
-    nba_teams = {'ATL', 'BOS', 'BKN', 'CHA', 'CHI', 'CLE', 'DAL', 'DEN', 'DET', 'GSW',
-                 'HOU', 'IND', 'LAC', 'LAL', 'MEM', 'MIA', 'MIL', 'MIN', 'NOP', 'NYK',
-                 'OKC', 'ORL', 'PHI', 'PHX', 'POR', 'SAC', 'SAS', 'TOR', 'UTA', 'WAS'}
+    nba_teams = {
+        "ATL",
+        "BOS",
+        "BKN",
+        "CHA",
+        "CHI",
+        "CLE",
+        "DAL",
+        "DEN",
+        "DET",
+        "GSW",
+        "HOU",
+        "IND",
+        "LAC",
+        "LAL",
+        "MEM",
+        "MIA",
+        "MIL",
+        "MIN",
+        "NOP",
+        "NYK",
+        "OKC",
+        "ORL",
+        "PHI",
+        "PHX",
+        "POR",
+        "SAC",
+        "SAS",
+        "TOR",
+        "UTA",
+        "WAS",
+    }
 
-    nba_ratings = {team: rating for team, rating in elo.ratings.items() if team in nba_teams}
+    nba_ratings = {
+        team: rating for team, rating in elo.ratings.items() if team in nba_teams
+    }
 
     print(f"  Filtered to {len(nba_ratings)} NBA teams")
 
@@ -270,7 +323,9 @@ def fix_nba_elo():
         avg_rating = sum(ratings_list) / len(ratings_list)
 
         print(f"\n📊 NBA Elo Statistics:")
-        print(f"  Rating range: {min_rating:.1f} - {max_rating:.1f} ({rating_range:.1f})")
+        print(
+            f"  Rating range: {min_rating:.1f} - {max_rating:.1f} ({rating_range:.1f})"
+        )
         print(f"  Average rating: {avg_rating:.1f}")
 
         # Expected range for NBA is ~300 points
@@ -284,13 +339,15 @@ def fix_nba_elo():
         if len(teams) >= 10:
             probabilities = []
             for i in range(min(10, len(teams))):
-                for j in range(i+1, min(10, len(teams))):
+                for j in range(i + 1, min(10, len(teams))):
                     prob = elo.predict(teams[i], teams[j])
                     probabilities.append(prob)
 
             if probabilities:
                 prob_range = max(probabilities) - min(probabilities)
-                print(f"  Probability range: {min(probabilities):.1%} - {max(probabilities):.1%} ({prob_range:.1%})")
+                print(
+                    f"  Probability range: {min(probabilities):.1%} - {max(probabilities):.1%} ({prob_range:.1%})"
+                )
 
                 if prob_range < 0.2:
                     print(f"  ⚠️  Probability range is narrow (expected ~40% for NBA)")
@@ -298,7 +355,7 @@ def fix_nba_elo():
                     print(f"  ✅ Good probability range for NBA")
 
     # Save with logging
-    changes = save_elo_ratings_with_log('nba', nba_ratings, old_ratings)
+    changes = save_elo_ratings_with_log("nba", nba_ratings, old_ratings)
 
     return True
 
@@ -306,8 +363,8 @@ def fix_nba_elo():
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     print("=" * 70)
     print("NBA ELO RATING FIX")
@@ -317,7 +374,7 @@ def main():
         # Test connection
         test_query = "SELECT COUNT(*) as count FROM unified_games WHERE sport = 'NBA'"
         test_result = default_db.fetch_df(test_query)
-        nba_games = test_result.iloc[0]['count']
+        nba_games = test_result.iloc[0]["count"]
         print(f"Connected to database. Found {nba_games} NBA games in unified_games.\n")
 
         # Fix NBA Elo ratings
@@ -341,6 +398,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
 

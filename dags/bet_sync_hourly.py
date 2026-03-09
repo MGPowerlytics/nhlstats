@@ -18,6 +18,9 @@ def sync_bets_from_kalshi():
 
     This function wraps the bet_tracker sync function for use in an Airflow task.
     It fetches all placed bets from Kalshi and upserts them into PostgreSQL.
+
+    Returns:
+        Tuple[int, int]: (added_count, updated_count) of bets synced
     """
     import sys
 
@@ -35,6 +38,7 @@ def sync_bets_from_kalshi():
         else:
             added, updated = result
         print(f"✅ Synced bets: {added} added, {updated} updated")
+        return added, updated
     except Exception as e:
         print(f"❌ Failed to sync bets: {e}")
         raise

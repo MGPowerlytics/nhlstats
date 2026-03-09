@@ -1,5 +1,6 @@
 import pandas as pd
 from pathlib import Path
+from typing import List, Dict, Any
 import requests
 
 
@@ -63,6 +64,50 @@ class TennisGames:
                     success = False
         return success
 
+    def _read_tennis_csv(self, csv_path: Path) -> pd.DataFrame:
+        """Read tennis CSV with encoding fallbacks."""
+        try:
+            return pd.read_csv(csv_path, encoding="latin1")
+        except Exception:
+            return pd.read_csv(csv_path)
+
+    def _standardize_tennis_data(
+        self, df: pd.DataFrame, tour: str
+    ) -> List[Dict[str, Any]]:
+        """Standardize tennis data columns and return list of game dictionaries."""
+        if "Date" not in df.columns:
+            return []
+
+        # Clean date usually DD/MM/YYYY or similar. Pandas is smart.
+        # Silence warning for format %Y-%m-%d
+        import warnings
+
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                "ignore", message="Parsing dates in %Y-%m-%d format"
+            )
+            df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, errors="coerce")
+
+        games = []
+        for _, row in df.iterrows():
+            if pd.isna(row["Date"]) or pd.isna(row["Winner"]) or pd.isna(row["Loser"]):
+                continue
+
+            games.append(
+                {
+                    "tour": tour.upper(),
+                    "date": row["Date"],
+                    "tournament": row.get("Tournament"),
+                    "surface": row.get("Surface"),
+                    "winner": row.get("Winner"),
+                    "loser": row.get("Loser"),
+                    "w_rank": row.get("WRank"),
+                    "l_rank": row.get("LRank"),
+                    "score": row.get("Score"),  # e.g. "6-4 6-2"
+                }
+            )
+        return games
+
     def load_games(self):
         """Load games into standard format."""
         self.download_games()
@@ -75,45 +120,9 @@ class TennisGames:
                     continue
 
                 try:
-                    # Tennis CSVs can have encoding issues
-                    try:
-                        df = pd.read_csv(csv_path, encoding="latin1")
-                    except Exception:
-                        df = pd.read_csv(csv_path)
-
-                    # Standardize columns
-                    # Common cols: Date, Tournament, Surface, Winner, Loser, WRank, LRank, WSets, LSets
-
-                    if "Date" not in df.columns:
-                        continue
-
-                    # Clean date
-                    # Usually DD/MM/YYYY or similar. Pandas is smart.
-                    df["Date"] = pd.to_datetime(
-                        df["Date"], dayfirst=True, errors="coerce"
-                    )
-
-                    for _, row in df.iterrows():
-                        if (
-                            pd.isna(row["Date"])
-                            or pd.isna(row["Winner"])
-                            or pd.isna(row["Loser"])
-                        ):
-                            continue
-
-                        all_games.append(
-                            {
-                                "tour": tour.upper(),
-                                "date": row["Date"],
-                                "tournament": row.get("Tournament"),
-                                "surface": row.get("Surface"),
-                                "winner": row.get("Winner"),
-                                "loser": row.get("Loser"),
-                                "w_rank": row.get("WRank"),
-                                "l_rank": row.get("LRank"),
-                                "score": row.get("Score"),  # e.g. "6-4 6-2"
-                            }
-                        )
+                    df = self._read_tennis_csv(csv_path)
+                    games = self._standardize_tennis_data(df, tour)
+                    all_games.extend(games)
                 except Exception as e:
                     print(f"Error loading {tour} games for {year}: {e}")
 

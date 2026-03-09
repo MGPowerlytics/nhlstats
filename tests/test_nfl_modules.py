@@ -182,7 +182,7 @@ class TestKalshiMarketsDirect:
         """Test Kalshi API URL format."""
         base_url = "https://api.elections.kalshi.com/trade-api/v2"
 
-        assert "elections" in base_url
+        assert "kalshi.com" in base_url
         assert "v2" in base_url
 
     def test_market_ticker_format(self):

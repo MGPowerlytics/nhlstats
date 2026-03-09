@@ -5,7 +5,7 @@ import sys
 
 # Add plugins directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
-from kalshi_betting import KalshiBetting
+from kalshi_betting import KalshiBetting, KalshiConfig
 
 
 class TestKalshiMatchLocking(unittest.TestCase):
@@ -26,7 +26,11 @@ class TestKalshiMatchLocking(unittest.TestCase):
                 "cryptography.hazmat.primitives.serialization.load_pem_private_key"
             ):
                 self.client = KalshiBetting(
-                    api_key_id="test_key", private_key_path="fake.pem", production=True
+                    config=KalshiConfig(
+                        api_key_id="test_key",
+                        private_key_path="fake.pem",
+                        production=True,
+                    )
                 )
 
     def test_get_match_prefix(self):

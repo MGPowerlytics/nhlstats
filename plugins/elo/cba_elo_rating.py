@@ -8,6 +8,34 @@ Inherits from BaseEloRating for unified interface.
 from plugins.elo.base_elo_rating import BaseEloRating
 from typing import Dict, Union
 import pandas as pd
+from dataclasses import dataclass
+
+
+@dataclass
+class EloUpdateParams:
+    """Parameters for Elo rating update calculation."""
+
+    home_team: str
+    away_team: str
+    home_won: Union[bool, float]
+    is_neutral: bool
+    home_rating_before: float
+    away_rating_before: float
+
+
+@dataclass
+class GameHistoryParams:
+    """Parameters for recording game history."""
+
+    home_team: str
+    away_team: str
+    home_won: Union[bool, float]
+    home_rating_before: float
+    away_rating_before: float
+    home_rating_after: float
+    away_rating_after: float
+    change: float
+    expected_home: float
 
 
 class CBAEloRating(BaseEloRating):
@@ -45,57 +73,6 @@ class CBAEloRating(BaseEloRating):
             home_advantage=home_advantage,
             initial_rating=initial_rating,
         )
-        self.game_history = []
-        self.team_history: Dict[str, list] = {}
-
-    def get_rating(self, team: str) -> float:
-        """
-        Get current Elo rating for a team.
-
-        Args:
-            team: Team name
-
-        Returns:
-            Current Elo rating
-        """
-        if team not in self.ratings:
-            self.ratings[team] = self.initial_rating
-        return self.ratings[team]
-
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        """
-        Calculate expected score (probability of team A winning).
-
-        Args:
-            rating_a: Elo rating of team A
-            rating_b: Elo rating of team B
-
-        Returns:
-            Probability (0.0 to 1.0) of team A winning
-        """
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
-
-    def predict(
-        self, home_team: str, away_team: str, is_neutral: bool = False
-    ) -> float:
-        """
-        Predict probability of home team winning.
-
-        Args:
-            home_team: Home team name
-            away_team: Away team name
-            is_neutral: Whether the game is at a neutral site
-
-        Returns:
-            Probability (0.0 to 1.0) of home team winning
-        """
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        if not is_neutral:
-            home_rating += self.home_advantage
-
-        return self.expected_score(home_rating, away_rating)
 
     def update(
         self,
@@ -115,6 +92,61 @@ class CBAEloRating(BaseEloRating):
             is_neutral: Whether the game was at a neutral site
             **kwargs: Additional arguments (e.g., home_win as alias)
         """
+        # Validate and normalize arguments
+        home_won = self._validate_and_normalize_args(
+            home_team, away_team, home_won, kwargs
+        )
+
+        # Get current ratings before update
+        home_rating_before = self.get_rating(home_team)
+        away_rating_before = self.get_rating(away_team)
+
+        # Create parameter object for Elo calculation
+        elo_params = EloUpdateParams(
+            home_team=home_team,
+            away_team=away_team,
+            home_won=home_won,
+            is_neutral=is_neutral,
+            home_rating_before=home_rating_before,
+            away_rating_before=away_rating_before,
+        )
+
+        # Calculate updated ratings
+        home_rating_after, away_rating_after, change, expected_home = (
+            self._calculate_elo_update(elo_params)
+        )
+
+        # Apply changes
+        self.store.set_rating(home_team, home_rating_after)
+        self.store.set_rating(away_team, away_rating_after)
+
+        # Create parameter object for game history
+        history_params = GameHistoryParams(
+            home_team=home_team,
+            away_team=away_team,
+            home_won=home_won,
+            home_rating_before=home_rating_before,
+            away_rating_before=away_rating_before,
+            home_rating_after=home_rating_after,
+            away_rating_after=away_rating_after,
+            change=change,
+            expected_home=expected_home,
+        )
+
+        # Record history
+        self._record_game_history(history_params)
+
+        self._track_team_history(home_team, home_rating_before, home_rating_after)
+        self._track_team_history(away_team, away_rating_before, away_rating_after)
+
+    def _validate_and_normalize_args(
+        self,
+        home_team: str,
+        away_team: str,
+        home_won: Union[bool, float, None],
+        kwargs: dict,
+    ) -> Union[bool, float]:
+        """Validate arguments and normalize home_won value."""
         # Alias home_win
         if home_won is None and "home_win" in kwargs:
             home_won = kwargs["home_win"]
@@ -124,53 +156,57 @@ class CBAEloRating(BaseEloRating):
         if home_team == away_team:
             raise ValueError("Home and away teams cannot be the same")
 
-        # Get current ratings
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
+        return home_won
 
+    def _calculate_elo_update(
+        self, params: EloUpdateParams
+    ) -> tuple[float, float, float, float]:
+        """Calculate Elo rating update."""
         # Apply home advantage for calculation
-        calc_home_rating = home_rating
-        if not is_neutral:
-            calc_home_rating += self.home_advantage
+        calc_home_rating = params.home_rating_before
+        if not params.is_neutral:
+            calc_home_rating += self.config.home_advantage
 
         # Calculate expected score
-        expected_home = self.expected_score(calc_home_rating, away_rating)
+        expected_home = self.expected_score(calc_home_rating, params.away_rating_before)
 
         # Convert home_won to actual score (1.0 for home win, 0.0 for away win)
-        actual_home = 1.0 if home_won else 0.0
+        actual_home = 1.0 if params.home_won else 0.0
 
         # Calculate rating change
         change = self._calculate_rating_change(expected_home, actual_home)
 
-        # Apply changes
-        self.ratings[home_team] = home_rating + change
-        self.ratings[away_team] = away_rating - change
+        # Calculate new ratings
+        home_rating_after = params.home_rating_before + change
+        away_rating_after = params.away_rating_before - change
 
-        # Record game history
+        return home_rating_after, away_rating_after, change, expected_home
+
+    def _record_game_history(self, params: GameHistoryParams) -> None:
+        """Record game history entry."""
         self.game_history.append(
             {
-                "home_team": home_team,
-                "away_team": away_team,
-                "home_won": bool(home_won),
-                "home_rating_before": home_rating,
-                "away_rating_before": away_rating,
-                "home_rating_after": self.ratings[home_team],
-                "away_rating_after": self.ratings[away_team],
-                "rating_change": change,
-                "expected_home": expected_home,
+                "home_team": params.home_team,
+                "away_team": params.away_team,
+                "home_won": bool(params.home_won),
+                "home_rating_before": params.home_rating_before,
+                "away_rating_before": params.away_rating_before,
+                "home_rating_after": params.home_rating_after,
+                "away_rating_after": params.away_rating_after,
+                "rating_change": params.change,
+                "expected_home": params.expected_home,
             }
         )
 
-        # Track team history
-        for team, before, after in [
-            (home_team, home_rating, self.ratings[home_team]),
-            (away_team, away_rating, self.ratings[away_team]),
-        ]:
-            if team not in self.team_history:
-                self.team_history[team] = []
-            self.team_history[team].append(
-                {"rating_before": before, "rating_after": after}
-            )
+    def _track_team_history(
+        self, team: str, rating_before: float, rating_after: float
+    ) -> None:
+        """Track team rating history."""
+        if team not in self.team_history:
+            self.team_history[team] = []
+        self.team_history[team].append(
+            {"rating_before": rating_before, "rating_after": rating_after}
+        )
 
     def _calculate_rating_change(
         self, expected_score: float, actual_score: float
@@ -185,16 +221,7 @@ class CBAEloRating(BaseEloRating):
         Returns:
             Rating change value
         """
-        return self.k_factor * (actual_score - expected_score)
-
-    def get_all_ratings(self) -> Dict[str, float]:
-        """
-        Get all current ratings.
-
-        Returns:
-            Dictionary mapping team names to ratings
-        """
-        return dict(self.ratings)
+        return self.config.k_factor * (actual_score - expected_score)
 
     def apply_season_reversion(self, reversion_factor: float = 0.33) -> None:
         """

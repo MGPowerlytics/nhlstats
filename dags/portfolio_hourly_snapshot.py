@@ -25,48 +25,12 @@ def snapshot_portfolio_value() -> None:
     # Ensure plugins can be imported when running in Airflow.
     sys.path.append(str(Path(__file__).resolve().parents[1] / "plugins"))
 
-    from kalshi_betting import KalshiBetting
+    from kalshi_betting import KalshiBetting, KalshiConfig
     from portfolio_snapshots import upsert_hourly_snapshot
 
-    # Load credentials from kalshkey (supports local and /opt/airflow paths).
-    kalshkey_file = Path("/opt/airflow/kalshkey")
-    if not kalshkey_file.exists():
-        kalshkey_file = Path("kalshkey")
-    if not kalshkey_file.exists():
-        raise FileNotFoundError("kalshkey file not found")
-
-    content = kalshkey_file.read_text(encoding="utf-8")
-
-    api_key_id = None
-    for line in content.splitlines():
-        if "API key id:" in line:
-            api_key_id = line.split(":", 1)[1].strip()
-            break
-    if not api_key_id:
-        raise ValueError("Could not find API key ID in kalshkey file")
-
-    private_key_lines = []
-    in_key = False
-    for line in content.splitlines():
-        if "-----BEGIN RSA PRIVATE KEY-----" in line:
-            in_key = True
-        if in_key:
-            private_key_lines.append(line)
-        if "-----END RSA PRIVATE KEY-----" in line:
-            break
-
-    if not private_key_lines:
-        raise ValueError("Could not extract RSA private key from kalshkey")
-
-    temp_key_file = Path("/tmp/kalshi_private_key.pem")
-    temp_key_file.write_text("\n".join(private_key_lines), encoding="utf-8")
-
-    client = KalshiBetting(
-        api_key_id=api_key_id,
-        private_key_path=str(temp_key_file),
-        max_bet_size=5.0,
-        production=True,
-    )
+    # Load credentials using the centralized helper
+    config = KalshiConfig.from_kalshkey(production=True)
+    client = KalshiBetting(config=config)
 
     balance, portfolio_value = client.get_balance()
 

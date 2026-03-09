@@ -18,7 +18,9 @@ def test_nhl_elo_can_be_instantiated():
     elo = NHLEloRating()
     assert elo is not None
     assert elo.k_factor == 20.0  # Default value
-    assert elo.home_advantage == 65.0  # Reduced from 100 based on empirical NHL home win rates
+    assert (
+        elo.home_advantage == 65.0
+    )  # Reduced from 100 based on empirical NHL home win rates
     assert elo.initial_rating == 1500  # Default value
 
 

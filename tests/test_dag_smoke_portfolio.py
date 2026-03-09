@@ -109,22 +109,13 @@ class TestSnapshotPortfolioValueTask:
         """snapshot_portfolio_value should create KalshiBetting client."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        # Setup path mocks for kalshkey file
-        kalshkey_content = """
-API key id: test-api-key-id
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
+        from kalshi_betting import KalshiConfig
 
-        with patch("portfolio_hourly_snapshot.Path") as mock_path:
-            mock_kalshkey = MagicMock()
-            mock_kalshkey.exists.return_value = True
-            mock_kalshkey.read_text.return_value = kalshkey_content
+        mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
-            # First call is /opt/airflow/kalshkey
-            mock_path.return_value = mock_kalshkey
-
+        with patch(
+            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+        ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
                     mock_client = MagicMock()
@@ -139,19 +130,13 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
         """snapshot_portfolio_value should call get_balance on client."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        kalshkey_content = """
-API key id: test-api-key
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
+        from kalshi_betting import KalshiConfig
 
-        with patch("portfolio_hourly_snapshot.Path") as mock_path:
-            mock_kalshkey = MagicMock()
-            mock_kalshkey.exists.return_value = True
-            mock_kalshkey.read_text.return_value = kalshkey_content
-            mock_path.return_value = mock_kalshkey
+        mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
+        with patch(
+            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+        ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
                     mock_client = MagicMock()
@@ -166,19 +151,13 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
         """snapshot_portfolio_value should call upsert_hourly_snapshot."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        kalshkey_content = """
-API key id: test-api-key
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
+        from kalshi_betting import KalshiConfig
 
-        with patch("portfolio_hourly_snapshot.Path") as mock_path:
-            mock_kalshkey = MagicMock()
-            mock_kalshkey.exists.return_value = True
-            mock_kalshkey.read_text.return_value = kalshkey_content
-            mock_path.return_value = mock_kalshkey
+        mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
+        with patch(
+            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+        ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
                     mock_client = MagicMock()
@@ -201,46 +180,32 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
 class TestPortfolioSnapshotErrorHandling:
     """Test error handling in portfolio snapshot task."""
 
-    @patch("portfolio_hourly_snapshot.Path")
-    def test_snapshot_raises_on_missing_kalshkey(self, mock_path):
+    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
+    def test_snapshot_raises_on_missing_kalshkey(self, mock_from_kalshkey):
         """snapshot_portfolio_value should raise when kalshkey not found."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_kalshkey = MagicMock()
-        mock_kalshkey.exists.return_value = False
-        mock_path.return_value = mock_kalshkey
+        mock_from_kalshkey.side_effect = FileNotFoundError("kalshkey file not found")
 
         with pytest.raises(FileNotFoundError, match="kalshkey"):
             snapshot_portfolio_value()
 
-    @patch("portfolio_hourly_snapshot.Path")
-    def test_snapshot_raises_on_missing_api_key(self, mock_path):
+    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
+    def test_snapshot_raises_on_missing_api_key(self, mock_from_kalshkey):
         """snapshot_portfolio_value should raise when API key not in file."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_kalshkey = MagicMock()
-        mock_kalshkey.exists.return_value = True
-        mock_kalshkey.read_text.return_value = """
-Some other content
-No API key here
-"""
-        mock_path.return_value = mock_kalshkey
+        mock_from_kalshkey.side_effect = ValueError("Could not find API key ID")
 
         with pytest.raises(ValueError, match="API key ID"):
             snapshot_portfolio_value()
 
-    @patch("portfolio_hourly_snapshot.Path")
-    def test_snapshot_raises_on_missing_private_key(self, mock_path):
+    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
+    def test_snapshot_raises_on_missing_private_key(self, mock_from_kalshkey):
         """snapshot_portfolio_value should raise when private key not in file."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_kalshkey = MagicMock()
-        mock_kalshkey.exists.return_value = True
-        mock_kalshkey.read_text.return_value = """
-API key id: test-api-key
-No private key here
-"""
-        mock_path.return_value = mock_kalshkey
+        mock_from_kalshkey.side_effect = ValueError("Could not extract RSA private key")
 
         with pytest.raises(ValueError, match="private key"):
             snapshot_portfolio_value()
@@ -249,19 +214,13 @@ No private key here
         """snapshot_portfolio_value should propagate Kalshi API errors."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        kalshkey_content = """
-API key id: test-api-key
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
+        from kalshi_betting import KalshiConfig
 
-        with patch("portfolio_hourly_snapshot.Path") as mock_path:
-            mock_kalshkey = MagicMock()
-            mock_kalshkey.exists.return_value = True
-            mock_kalshkey.read_text.return_value = kalshkey_content
-            mock_path.return_value = mock_kalshkey
+        mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
+        with patch(
+            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+        ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot"):
                     mock_client = MagicMock()

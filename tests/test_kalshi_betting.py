@@ -8,6 +8,89 @@ from unittest.mock import patch, MagicMock, mock_open
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
+# Import KalshiBetting classes for use in tests
+from kalshi_betting import KalshiBetting, KalshiConfig, BettingConfig
+
+
+class TestKalshiConfig:
+    """Test KalshiConfig and initialization with it."""
+
+    @patch("kalshi_betting.serialization.load_pem_private_key")
+    @patch("builtins.open", mock_open(read_data=b"test_private_key"))
+    def test_init_with_config_object(self, mock_load_key):
+        """Test initialization using a KalshiConfig object."""
+        mock_load_key.return_value = MagicMock()
+        config = KalshiConfig(
+            api_key_id="config_key",
+            private_key_path="config.pem",
+            max_bet_size=15.0,
+            production=False,
+            odds_api_key="config_odds",
+        )
+
+        client = KalshiBetting(config=config)
+
+        assert client.api_key_id == "config_key"
+        assert client.max_bet_size == 15.0
+        assert client.production is False
+        assert client.base_url == "https://demo-api.kalshi.co"
+        assert client.odds_api_key == "config_odds"
+
+
+class TestBettingConfig:
+    """Test BettingConfig and processing with it."""
+
+    @pytest.fixture
+    def mock_client(self):
+        """Create a mock Kalshi client."""
+        with patch(
+            "kalshi_betting.serialization.load_pem_private_key"
+        ) as mock_load_key:
+            with patch("builtins.open", mock_open(read_data=b"test_private_key")):
+                from kalshi_betting import KalshiBetting
+                from kalshi_betting import KalshiBetting, KalshiConfig
+
+                mock_load_key.return_value = MagicMock()
+                config = KalshiConfig(
+                    api_key_id="test_key",
+                    private_key_path="test.pem",
+                    odds_api_key="test_odds_key",
+                )
+                client = KalshiBetting(config=config)
+                client.get_market_details = MagicMock(
+                    return_value={"status": "active", "yes_ask": 50}
+                )
+                client.verify_game_not_started = MagicMock(return_value=True)
+                client.is_game_started = MagicMock(return_value=False)
+                client.place_bet = MagicMock(return_value={"order_id": "123"})
+                return client
+
+    def test_process_with_betting_config_object(self, mock_client):
+        """Test processing recommendations using a BettingConfig object."""
+        from kalshi_betting import BettingConfig
+
+        recs = [
+            {
+                "sport": "NBA",
+                "elo_prob": 0.85,
+                "edge": 0.12,
+                "ticker": "TEST-123",
+                "home_team": "Lakers",
+                "away_team": "Celtics",
+                "bet_on": "home",
+            }
+        ]
+
+        config = BettingConfig(
+            min_confidence=0.80, min_edge=0.10, dry_run=True, sport_filter=["NBA"]
+        )
+
+        result = mock_client.process_bet_recommendations(recs, config=config)
+
+        assert len(result["placed"]) == 1
+        assert result["placed"][0]["dry_run"] is True
+        assert result["placed"][0]["rec"]["sport"] == "NBA"
+
 
 class TestKalshiBettingInit:
     """Test KalshiBetting initialization."""
@@ -16,18 +99,16 @@ class TestKalshiBettingInit:
     @patch("builtins.open", mock_open(read_data=b"test_private_key"))
     def test_init_production(self, mock_load_key):
         """Test initialization in production mode."""
-        from kalshi_betting import KalshiBetting
+        from kalshi_betting import KalshiBetting, KalshiConfig
 
         mock_load_key.return_value = MagicMock()
-
-        client = KalshiBetting(
+        config = KalshiConfig(
             api_key_id="test_key",
             private_key_path="test.pem",
             max_bet_size=10.0,
             production=True,
         )
-
-        assert client.api_key_id == "test_key"
+        client = KalshiBetting(config=config)
         assert client.max_bet_size == 10.0
         assert client.base_url == "https://api.elections.kalshi.com"
 
@@ -35,12 +116,14 @@ class TestKalshiBettingInit:
     @patch("builtins.open", mock_open(read_data=b"test_private_key"))
     def test_init_demo(self, mock_load_key):
         """Test initialization in demo mode."""
-        from kalshi_betting import KalshiBetting
+        from kalshi_betting import KalshiBetting, KalshiConfig
 
         mock_load_key.return_value = MagicMock()
 
         client = KalshiBetting(
-            api_key_id="test_key", private_key_path="test.pem", production=False
+            config=KalshiConfig(
+                api_key_id="test_key", private_key_path="test.pem", production=False
+            )
         )
 
         assert client.base_url == "https://demo-api.kalshi.co"
@@ -54,9 +137,11 @@ class TestKalshiBettingInit:
         mock_load_key.return_value = MagicMock()
 
         client = KalshiBetting(
-            api_key_id="test_key",
-            private_key_path="test.pem",
-            odds_api_key="odds_test_key",
+            config=KalshiConfig(
+                api_key_id="test_key",
+                private_key_path="test.pem",
+                odds_api_key="odds_test_key",
+            )
         )
 
         assert client.odds_api_key == "odds_test_key"
@@ -72,27 +157,31 @@ class TestKalshiBettingMethods:
             "kalshi_betting.serialization.load_pem_private_key"
         ) as mock_load_key:
             with patch("builtins.open", mock_open(read_data=b"test_private_key")):
-                from kalshi_betting import KalshiBetting
-
                 mock_load_key.return_value = MagicMock()
-                client = KalshiBetting(
-                    "test_key", "test.pem", odds_api_key="test_odds_key"
+                config = KalshiConfig(
+                    api_key_id="test_key",
+                    private_key_path="test.pem",
+                    odds_api_key="test_odds_key",
                 )
+                client = KalshiBetting(config=config)
                 return client
 
     def test_calculate_bet_size_min(self, mock_client):
         """Test bet size calculation returns minimum."""
-        size = mock_client.calculate_bet_size(confidence=0.6, edge=0.01, balance=100)
+        rec = {"elo_prob": 0.6, "edge": 0.01}
+        size = mock_client.calculate_bet_size(rec=rec, balance=100)
         assert size >= mock_client.min_bet_size
 
     def test_calculate_bet_size_max(self, mock_client):
         """Test bet size calculation caps at maximum."""
-        size = mock_client.calculate_bet_size(confidence=0.99, edge=0.50, balance=1000)
+        rec = {"elo_prob": 0.99, "edge": 0.50}
+        size = mock_client.calculate_bet_size(rec=rec, balance=1000)
         assert size <= mock_client.max_bet_size
 
     def test_calculate_bet_size_position_limit(self, mock_client):
         """Test bet size respects position limit."""
-        size = mock_client.calculate_bet_size(confidence=0.99, edge=0.50, balance=100)
+        rec = {"elo_prob": 0.99, "edge": 0.50}
+        size = mock_client.calculate_bet_size(rec=rec, balance=100)
         assert size <= 100 * mock_client.max_position_pct
 
     def test_is_game_started_closed_market(self, mock_client):
@@ -125,23 +214,29 @@ class TestKalshiBettingMethods:
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_no_api_key(self, mock_get, mock_client):
         """Test verify_game_not_started without API key."""
-        mock_client.odds_api_key = None
-        result = mock_client.verify_game_not_started("Lakers", "Celtics", "NBA")
+        from kalshi_betting import GameIdentity
+
+        mock_client.config.odds_api_key = None
+        game = GameIdentity("Lakers", "Celtics", "NBA")
+        result = mock_client.verify_game_not_started(game)
         assert result  # Should return True when no API key
         mock_get.assert_not_called()
 
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_unknown_sport(self, mock_get, mock_client):
         """Test verify_game_not_started with unknown sport."""
-        result = mock_client.verify_game_not_started(
-            "Team A", "Team B", "UNKNOWN_SPORT"
-        )
+        from kalshi_betting import GameIdentity
+
+        game = GameIdentity("Team A", "Team B", "UNKNOWN_SPORT")
+        result = mock_client.verify_game_not_started(game)
         assert result
         mock_get.assert_not_called()
 
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_game_started(self, mock_get, mock_client):
         """Test verify_game_not_started when game has started."""
+        from kalshi_betting import GameIdentity
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = [
@@ -154,36 +249,46 @@ class TestKalshiBettingMethods:
         ]
         mock_get.return_value = mock_response
 
-        result = mock_client.verify_game_not_started("Lakers", "Celtics", "NBA")
+        game = GameIdentity("Lakers", "Celtics", "NBA")
+        result = mock_client.verify_game_not_started(game)
         assert not result
 
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_game_not_found(self, mock_get, mock_client):
         """Test verify_game_not_started when game not in started games."""
+        from kalshi_betting import GameIdentity
+
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = []
         mock_get.return_value = mock_response
 
-        result = mock_client.verify_game_not_started("Lakers", "Celtics", "NBA")
+        game = GameIdentity("Lakers", "Celtics", "NBA")
+        result = mock_client.verify_game_not_started(game)
         assert result
 
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_api_error(self, mock_get, mock_client):
         """Test verify_game_not_started handles API error."""
+        from kalshi_betting import GameIdentity
+
         mock_response = MagicMock()
         mock_response.status_code = 500
         mock_get.return_value = mock_response
 
-        result = mock_client.verify_game_not_started("Lakers", "Celtics", "NBA")
+        game = GameIdentity("Lakers", "Celtics", "NBA")
+        result = mock_client.verify_game_not_started(game)
         assert result  # Should fail open
 
     @patch("kalshi_betting.requests.get")
     def test_verify_game_not_started_timeout(self, mock_get, mock_client):
         """Test verify_game_not_started handles timeout."""
+        from kalshi_betting import GameIdentity
+
         mock_get.side_effect = Exception("Timeout")
 
-        result = mock_client.verify_game_not_started("Lakers", "Celtics", "NBA")
+        game = GameIdentity("Lakers", "Celtics", "NBA")
+        result = mock_client.verify_game_not_started(game)
         assert result  # Should fail open
 
 
@@ -196,21 +301,21 @@ class TestProcessBetRecommendations:
         with patch(
             "kalshi_betting.serialization.load_pem_private_key"
         ) as mock_load_key:
-            with patch("builtins.open", mock_open(read_data=b"test_private_key")):
-                from kalshi_betting import KalshiBetting
-
-                mock_load_key.return_value = MagicMock()
-                client = KalshiBetting(
-                    "test_key", "test.pem", odds_api_key="test_odds_key"
-                )
-                client.get_balance = MagicMock(return_value=(100.0, 100.0))
-                client.get_market_details = MagicMock(
-                    return_value={"status": "active", "yes_ask": 50}
-                )
-                client.verify_game_not_started = MagicMock(return_value=True)
-                client.is_game_started = MagicMock(return_value=False)
-                client.place_bet = MagicMock(return_value={"order_id": "123"})
-                return client
+            mock_load_key.return_value = MagicMock()
+            config = KalshiConfig(
+                api_key_id="test_key",
+                private_key_path="test.pem",
+                odds_api_key="test_odds_key",
+            )
+            client = KalshiBetting(config=config)
+            client.get_balance = MagicMock(return_value=(100.0, 100.0))
+            client.get_market_details = MagicMock(
+                return_value={"status": "active", "yes_ask": 50}
+            )
+            client.verify_game_not_started = MagicMock(return_value=True)
+            client.is_game_started = MagicMock(return_value=False)
+            client.place_bet = MagicMock(return_value={"order_id": "123"})
+            return client
 
     def test_empty_recommendations(self, mock_client):
         """Test with empty recommendations list."""
@@ -233,7 +338,8 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, min_confidence=0.75)
+        config = BettingConfig(min_confidence=0.75)
+        result = mock_client.process_bet_recommendations(recs, config=config)
         assert len(result["skipped"]) == 1
         assert result["skipped"][0]["reason"] == "Low confidence"
 
@@ -251,7 +357,9 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, min_edge=0.05)
+        result = mock_client.process_bet_recommendations(
+            recs, config=BettingConfig(min_edge=0.05)
+        )
         assert len(result["skipped"]) == 1
         assert result["skipped"][0]["reason"] == "Low edge"
 
@@ -286,7 +394,9 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, sport_filter=["NBA"])
+        result = mock_client.process_bet_recommendations(
+            recs, config=BettingConfig(sport_filter=["NBA"])
+        )
         assert len(result["skipped"]) == 1
         assert result["skipped"][0]["reason"] == "Sport filter"
 
@@ -305,7 +415,7 @@ class TestProcessBetRecommendations:
 
         # Should not raise KeyError for home_team/away_team
         result = mock_client.process_bet_recommendations(
-            recs, sport_filter=["TENNIS"], dry_run=True
+            recs, config=BettingConfig(sport_filter=["TENNIS"]), dry_run=True
         )
         # If it gets past the tennis check without error, the case-insensitive fix works
         assert "skipped" in result
@@ -324,7 +434,9 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, dry_run=True)
+        result = mock_client.process_bet_recommendations(
+            recs, config=BettingConfig(dry_run=True)
+        )
         mock_client.place_bet.assert_not_called()
         assert len(result["placed"]) == 1
         assert result["placed"][0]["dry_run"]
@@ -383,7 +495,9 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, dry_run=True)
+        result = mock_client.process_bet_recommendations(
+            recs, config=BettingConfig(dry_run=True)
+        )
         assert result["placed"][0]["side"] == "yes"
 
     def test_away_bet_uses_no_side(self, mock_client):
@@ -400,7 +514,9 @@ class TestProcessBetRecommendations:
             }
         ]
 
-        result = mock_client.process_bet_recommendations(recs, dry_run=True)
+        result = mock_client.process_bet_recommendations(
+            recs, config=BettingConfig(dry_run=True)
+        )
         assert result["placed"][0]["side"] == "no"
 
 
@@ -419,7 +535,11 @@ class TestSignatureCreation:
                 mock_key = MagicMock()
                 mock_key.sign.return_value = b"test_signature"
                 mock_load_key.return_value = mock_key
-                client = KalshiBetting("test_key", "test.pem")
+                client = KalshiBetting(
+                    config=KalshiConfig(
+                        api_key_id="test_key", private_key_path="test.pem"
+                    )
+                )
                 return client
 
     def test_signature_strips_query_params(self, mock_client):

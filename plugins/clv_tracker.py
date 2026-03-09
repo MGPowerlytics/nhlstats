@@ -17,9 +17,8 @@ import os
 
 sys.path.append(os.path.dirname(__file__))
 
-from datetime import datetime, timedelta
-from typing import Dict, Optional
-from db_manager import default_db
+from typing import Dict, List, Optional, Tuple
+from plugins.db_manager import default_db
 
 
 class CLVTracker:
@@ -83,46 +82,83 @@ class CLVTracker:
         - positive_clv_pct: Percentage of bets with positive CLV
         - clv_by_sport: CLV broken down by sport
         """
-        cutoff_date = (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+        cutoff_date = self._calculate_cutoff_date(days_back)
 
-        # Overall CLV
-        overall_query = """
-            SELECT
-                COUNT(*) as num_bets,
-                AVG(clv) as avg_clv,
-                SUM(CASE WHEN clv > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as positive_clv_pct
-            FROM placed_bets
-            WHERE placed_date >= :cutoff_date
-            AND clv IS NOT NULL
+        overall_stats = self._fetch_overall_clv_stats(cutoff_date)
+        if not overall_stats or overall_stats[0] == 0:
+            return {"num_bets": 0, "message": "No CLV data available"}
+
+        sport_stats = self._fetch_clv_stats_by_sport(cutoff_date)
+
+        return self._build_clv_analysis_result(overall_stats, sport_stats)
+
+    def _calculate_cutoff_date(self, days_back: int) -> str:
+        """Calculate cutoff date for CLV analysis."""
+        from datetime import datetime, timedelta
+
+        return (datetime.now() - timedelta(days=days_back)).strftime("%Y-%m-%d")
+
+    def _fetch_overall_clv_stats(self, cutoff_date: str) -> Optional[Tuple]:
+        """Fetch overall CLV statistics from database."""
+        query_result = self._execute_clv_query(cutoff_date, group_by_sport=False)
+        return query_result.fetchone() if query_result else None
+
+    def _fetch_clv_stats_by_sport(self, cutoff_date: str) -> List[Tuple]:
+        """Fetch CLV statistics grouped by sport from database."""
+        query_result = self._execute_clv_query(cutoff_date, group_by_sport=True)
+        return query_result.fetchall() if query_result else []
+
+    def _execute_clv_query(self, cutoff_date: str, group_by_sport: bool = False):
         """
-        overall = default_db.execute(
-            overall_query, {"cutoff_date": cutoff_date}
-        ).fetchone()
+        Execute CLV statistics query with optional grouping by sport.
 
-        # By sport
-        by_sport_query = """
-            SELECT
+        Args:
+            cutoff_date: Date cutoff for analysis
+            group_by_sport: Whether to group results by sport
+
+        Returns:
+            Database cursor with query results
+        """
+        # Build SELECT clause
+        if group_by_sport:
+            select_clause = """
                 sport,
                 COUNT(*) as num_bets,
                 AVG(clv) as avg_clv,
                 SUM(CASE WHEN clv > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as positive_clv_pct
+            """
+        else:
+            select_clause = """
+                COUNT(*) as num_bets,
+                AVG(clv) as avg_clv,
+                SUM(CASE WHEN clv > 0 THEN 1 ELSE 0 END) * 100.0 / COUNT(*) as positive_clv_pct
+            """
+
+        # Build GROUP BY and ORDER BY clauses
+        group_by_clause = "GROUP BY sport" if group_by_sport else ""
+        order_by_clause = "ORDER BY avg_clv DESC" if group_by_sport else ""
+
+        # Construct full query
+        query = f"""
+            SELECT
+                {select_clause}
             FROM placed_bets
             WHERE placed_date >= :cutoff_date
             AND clv IS NOT NULL
-            GROUP BY sport
-            ORDER BY avg_clv DESC
+            {group_by_clause}
+            {order_by_clause}
         """
-        by_sport = default_db.execute(
-            by_sport_query, {"cutoff_date": cutoff_date}
-        ).fetchall()
 
-        if not overall or overall[0] == 0:
-            return {"num_bets": 0, "message": "No CLV data available"}
+        return default_db.execute(query, {"cutoff_date": cutoff_date})
 
+    def _build_clv_analysis_result(
+        self, overall_stats: Tuple, sport_stats: List[Tuple]
+    ) -> Dict:
+        """Build CLV analysis result dictionary from database query results."""
         return {
-            "num_bets": overall[0],
-            "avg_clv": overall[1],
-            "positive_clv_pct": overall[2],
+            "num_bets": overall_stats[0],
+            "avg_clv": overall_stats[1],
+            "positive_clv_pct": overall_stats[2],
             "by_sport": [
                 {
                     "sport": row[0],
@@ -130,7 +166,7 @@ class CLVTracker:
                     "avg_clv": row[2],
                     "positive_clv_pct": row[3],
                 }
-                for row in by_sport
+                for row in sport_stats
             ],
         }
 

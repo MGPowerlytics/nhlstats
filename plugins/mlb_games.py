@@ -9,46 +9,14 @@ import time
 from pathlib import Path
 
 
-class MLBGames:
+from plugins.base_games import BaseGamesFetcher
+
+
+class MLBGames(BaseGamesFetcher):
     """Fetch MLB game data from statsapi.mlb.com."""
 
+    SPORT = "mlb"
     BASE_URL = "https://statsapi.mlb.com/api/v1"
-
-    def __init__(self, output_dir="data/mlb", date_folder=None):
-        self.output_dir = Path(output_dir)
-        if date_folder:
-            self.output_dir = self.output_dir / date_folder
-        self.output_dir.mkdir(parents=True, exist_ok=True)
-
-    def _make_request(self, url, params=None, max_retries=5):
-        """Make HTTP request with exponential backoff for rate limits."""
-        for attempt in range(max_retries):
-            try:
-                response = requests.get(url, params=params, timeout=30)
-
-                # Handle rate limiting
-                if response.status_code == 429:
-                    wait_time = (2**attempt) * 3  # 3, 6, 12, 24, 48 seconds
-                    print(
-                        f"Rate limited. Waiting {wait_time}s before retry {attempt + 1}/{max_retries}"
-                    )
-                    time.sleep(wait_time)
-                    continue
-
-                if response.status_code == 404:
-                    print(f"  Resource not found: {url}")
-                    return {}
-
-                response.raise_for_status()
-                return response.json()
-            except requests.exceptions.RequestException as e:
-                if attempt == max_retries - 1:
-                    raise
-                wait_time = (2**attempt) * 3
-                print(f"Request failed: {e}. Retrying in {wait_time}s...")
-                time.sleep(wait_time)
-
-        raise Exception(f"Failed to fetch {url} after {max_retries} attempts")
 
     def get_schedule_for_date(self, date_str):
         """
@@ -67,13 +35,13 @@ class MLBGames:
     def get_game_data(self, game_id):
         """Get detailed game data including play-by-play."""
         # Use v1.1 for live feed
-        url = f"https://statsapi.mlb.com/api/v1.1/game/{game_id}/feed/live"
-        return self._make_request(url)
+        return self._fetch_game_resource(
+            game_id, "game/{game_id}/feed/live", "https://statsapi.mlb.com/api/v1.1"
+        )
 
     def get_game_boxscore(self, game_id):
         """Get boxscore for a specific game."""
-        url = f"{self.BASE_URL}/game/{game_id}/boxscore"
-        return self._make_request(url)
+        return self._fetch_game_resource(game_id, "game/{game_id}/boxscore")
 
     def download_games_for_date(self, date_str):
         """Download all games for a specific date."""

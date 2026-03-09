@@ -22,7 +22,9 @@ from db_manager import default_db
 class SimpleNHLElo:
     """Simple NHL Elo implementation."""
 
-    def __init__(self, k_factor=10, home_advantage=50, recency_weight=0.2, initial_rating=1500):
+    def __init__(
+        self, k_factor=10, home_advantage=50, recency_weight=0.2, initial_rating=1500
+    ):
         self.k_factor = k_factor
         self.home_advantage = home_advantage
         self.recency_weight = recency_weight
@@ -101,42 +103,42 @@ class SimpleNHLElo:
 def map_team_name_to_abbreviation(full_name: str) -> str:
     """Map full team name to standard NHL abbreviation."""
     mapping = {
-        'Anaheim Ducks': 'ANA',
-        'Arizona Coyotes': 'ARI',
-        'Boston Bruins': 'BOS',
-        'Buffalo Sabres': 'BUF',
-        'Calgary Flames': 'CGY',
-        'Carolina Hurricanes': 'CAR',
-        'Chicago Blackhawks': 'CHI',
-        'Colorado Avalanche': 'COL',
-        'Columbus Blue Jackets': 'CBJ',
-        'Dallas Stars': 'DAL',
-        'Detroit Red Wings': 'DET',
-        'Edmonton Oilers': 'EDM',
-        'Florida Panthers': 'FLA',
-        'Los Angeles Kings': 'LAK',
-        'Minnesota Wild': 'MIN',
-        'Montreal Canadiens': 'MTL',
-        'Nashville Predators': 'NSH',
-        'New Jersey Devils': 'NJD',
-        'New York Islanders': 'NYI',
-        'New York Rangers': 'NYR',
-        'Ottawa Senators': 'OTT',
-        'Philadelphia Flyers': 'PHI',
-        'Pittsburgh Penguins': 'PIT',
-        'San Jose Sharks': 'SJS',
-        'Seattle Kraken': 'SEA',
-        'St. Louis Blues': 'STL',
-        'Tampa Bay Lightning': 'TBL',
-        'Toronto Maple Leafs': 'TOR',
-        'Utah Hockey Club': 'UTA',
-        'Vancouver Canucks': 'VAN',
-        'Vegas Golden Knights': 'VGK',
-        'Washington Capitals': 'WSH',
-        'Winnipeg Jets': 'WPG',
+        "Anaheim Ducks": "ANA",
+        "Arizona Coyotes": "ARI",
+        "Boston Bruins": "BOS",
+        "Buffalo Sabres": "BUF",
+        "Calgary Flames": "CGY",
+        "Carolina Hurricanes": "CAR",
+        "Chicago Blackhawks": "CHI",
+        "Colorado Avalanche": "COL",
+        "Columbus Blue Jackets": "CBJ",
+        "Dallas Stars": "DAL",
+        "Detroit Red Wings": "DET",
+        "Edmonton Oilers": "EDM",
+        "Florida Panthers": "FLA",
+        "Los Angeles Kings": "LAK",
+        "Minnesota Wild": "MIN",
+        "Montreal Canadiens": "MTL",
+        "Nashville Predators": "NSH",
+        "New Jersey Devils": "NJD",
+        "New York Islanders": "NYI",
+        "New York Rangers": "NYR",
+        "Ottawa Senators": "OTT",
+        "Philadelphia Flyers": "PHI",
+        "Pittsburgh Penguins": "PIT",
+        "San Jose Sharks": "SJS",
+        "Seattle Kraken": "SEA",
+        "St. Louis Blues": "STL",
+        "Tampa Bay Lightning": "TBL",
+        "Toronto Maple Leafs": "TOR",
+        "Utah Hockey Club": "UTA",
+        "Vancouver Canucks": "VAN",
+        "Vegas Golden Knights": "VGK",
+        "Washington Capitals": "WSH",
+        "Winnipeg Jets": "WPG",
         # Handle variations
-        'Montréal Canadiens': 'MTL',
-        'Utah Mammoth': 'UTA',  # Old name
+        "Montréal Canadiens": "MTL",
+        "Utah Mammoth": "UTA",  # Old name
     }
 
     return mapping.get(full_name, full_name)
@@ -177,7 +179,9 @@ def regenerate_nhl_elo():
         return False
 
     print(f"  Loaded {len(games_df)} historical NHL games from unified_games")
-    print(f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}")
+    print(
+        f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}"
+    )
 
     # Initialize Elo system with optimal parameters from tuning
     # Based on tuning results: K=10, home_advantage=50, recency_weight=0.2
@@ -190,10 +194,10 @@ def regenerate_nhl_elo():
     print("  Processing games chronologically...")
 
     for idx, game in games_df.iterrows():
-        game_date = game['game_date']
-        home_full = game['home_team_name']
-        away_full = game['away_team_name']
-        home_win = game['home_win']
+        game_date = game["game_date"]
+        home_full = game["home_team_name"]
+        away_full = game["away_team_name"]
+        home_win = game["home_win"]
 
         # Map to abbreviations
         home_team = map_team_name_to_abbreviation(home_full)
@@ -253,13 +257,13 @@ def regenerate_nhl_elo():
     print(f"\n📈 Rating statistics:")
     print(f"  Average: {avg_rating:.2f}")
     print(f"  Range: {min_rating:.2f} - {max_rating:.2f} ({rating_range:.2f})")
-    print(f"  Spread: ±{rating_range/2:.2f} from average")
+    print(f"  Spread: ±{rating_range / 2:.2f} from average")
 
     # Compare with current ratings
     current_csv = "data/nhl_current_elo_ratings.csv"
     if os.path.exists(current_csv):
         current_df = pd.read_csv(current_csv)
-        current_ratings = dict(zip(current_df['team'], current_df['rating']))
+        current_ratings = dict(zip(current_df["team"], current_df["rating"]))
 
         print(f"\n🔍 Comparison with current ratings ({len(current_ratings)} teams):")
 
@@ -283,8 +287,10 @@ def regenerate_nhl_elo():
             print(f"  Maximum decrease: {max_decrease:+.2f}")
 
             # Show top changes
-            changes = [(team, ratings.get(team, 1500) - current_ratings.get(team, 1500))
-                      for team in common_teams]
+            changes = [
+                (team, ratings.get(team, 1500) - current_ratings.get(team, 1500))
+                for team in common_teams
+            ]
             changes.sort(key=lambda x: abs(x[1]), reverse=True)
 
             print(f"\n  Top 5 rating changes:")
@@ -295,7 +301,7 @@ def regenerate_nhl_elo():
     csv_path = "data/nhl_current_elo_ratings.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
 
-    with open(csv_path, 'w') as f:
+    with open(csv_path, "w") as f:
         f.write("team,rating\n")
         for team, rating in sorted_ratings:
             f.write(f"{team},{rating:.2f}\n")
@@ -310,7 +316,7 @@ def regenerate_nhl_elo():
     probabilities = []
 
     for i in range(min(20, len(all_teams))):
-        for j in range(i+1, min(20, len(all_teams))):
+        for j in range(i + 1, min(20, len(all_teams))):
             home = all_teams[i]
             away = all_teams[j]
             prob = elo.predict(home, away)
@@ -337,23 +343,23 @@ def regenerate_nhl_elo():
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     try:
         # Test connection
         test_query = "SELECT COUNT(*) as count FROM unified_games WHERE sport = 'NHL'"
         test_result = default_db.fetch_df(test_query)
-        nhl_games = test_result.iloc[0]['count']
+        nhl_games = test_result.iloc[0]["count"]
         print(f"Connected to database. Found {nhl_games} NHL games in unified_games.\n")
 
         # Regenerate Elo ratings
         success = regenerate_nhl_elo()
 
         if success:
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("🎉 NHL ELO REGENERATION COMPLETE!")
-            print("="*60)
+            print("=" * 60)
             print("\nNext steps:")
             print("1. The DAG will use the new ratings automatically")
             print("2. Run the DAG or wait for next scheduled run")
@@ -368,6 +374,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
 

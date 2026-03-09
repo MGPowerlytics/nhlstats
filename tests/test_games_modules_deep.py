@@ -38,7 +38,7 @@ class TestNBAGamesDeep:
         assert "site.api.espn.com" in NBAGames.BASE_URL
         assert "User-Agent" in NBAGames.HEADERS
 
-    @patch("nba_games.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_make_request_success(self, mock_get, nba_games):
         mock_response = Mock()
         mock_response.status_code = 200
@@ -48,8 +48,8 @@ class TestNBAGamesDeep:
         result = nba_games._make_request("http://test.com")
         assert result == {"data": "test"}
 
-    @patch("nba_games.requests.get")
-    @patch("nba_games.time.sleep")
+    @patch("plugins.base_games.requests.get")
+    @patch("plugins.base_games.time.sleep")
     def test_make_request_rate_limit_retry(self, mock_sleep, mock_get, nba_games):
         import requests
 
@@ -71,8 +71,8 @@ class TestNBAGamesDeep:
         assert result == {"data": "success"}
         mock_sleep.assert_called()
 
-    @patch("nba_games.requests.get")
-    @patch("nba_games.time.sleep")
+    @patch("plugins.base_games.requests.get")
+    @patch("plugins.base_games.time.sleep")
     def test_make_request_exception_retry(self, mock_sleep, mock_get, nba_games):
         import requests as req
 
@@ -85,8 +85,8 @@ class TestNBAGamesDeep:
         result = nba_games._make_request("http://test.com")
         assert result == {"data": "success"}
 
-    @patch("nba_games.requests.get")
-    @patch("nba_games.time.sleep")
+    @patch("plugins.base_games.requests.get")
+    @patch("plugins.base_games.time.sleep")
     def test_make_request_all_retries_fail(self, mock_sleep, mock_get, nba_games):
         import requests as req
 
@@ -113,14 +113,14 @@ class TestNBAGamesDeep:
         # Skipping this test as it tests old functionality
         pytest.skip("get_game_boxscore method not implemented in ESPN API version")
 
-    @patch("nba_games.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_get_game_playbyplay_success(self, mock_get, nba_games):
         # This method doesn't exist in the new ESPN API version
         # Play-by-play data is not downloaded in the current implementation
         # Skipping this test as it tests old functionality
         pytest.skip("get_game_playbyplay method not implemented in ESPN API version")
 
-    @patch("nba_games.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_get_game_playbyplay_failure(self, mock_get, nba_games):
         # This method doesn't exist in the new ESPN API version
         # Play-by-play data is not downloaded in the current implementation

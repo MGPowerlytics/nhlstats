@@ -18,7 +18,7 @@ if os.path.exists(dag_path):
     print(f"   ✅ DAG file exists: {dag_path} ({file_size:,} bytes)")
 
     # Check for our fixes
-    with open(dag_path, 'r') as f:
+    with open(dag_path, "r") as f:
         content = f.read()
 
     checks = [
@@ -49,7 +49,7 @@ data_files = [
 for file_path in data_files:
     if os.path.exists(file_path):
         # Count lines (teams)
-        with open(file_path, 'r') as f:
+        with open(file_path, "r") as f:
             lines = f.readlines()
             team_count = len(lines) - 1  # Subtract header
 
@@ -58,20 +58,25 @@ for file_path in data_files:
         # Check rating range for NHL and NBA
         if "nhl" in file_path or "nba" in file_path:
             import pandas as pd
+
             try:
                 df = pd.read_csv(file_path)
                 if len(df) > 0:
-                    min_rating = df['rating'].min()
-                    max_rating = df['rating'].max()
+                    min_rating = df["rating"].min()
+                    max_rating = df["rating"].max()
                     rating_range = max_rating - min_rating
 
                     sport = "NHL" if "nhl" in file_path else "NBA"
                     expected_range = 250 if sport == "NHL" else 300
 
                     if rating_range > expected_range * 0.5:  # At least 50% of expected
-                        print(f"        Rating range: {rating_range:.1f} (good for {sport})")
+                        print(
+                            f"        Rating range: {rating_range:.1f} (good for {sport})"
+                        )
                     else:
-                        print(f"        ⚠️  Rating range: {rating_range:.1f} (narrow for {sport})")
+                        print(
+                            f"        ⚠️  Rating range: {rating_range:.1f} (narrow for {sport})"
+                        )
             except:
                 pass
     else:
@@ -81,13 +86,13 @@ for file_path in data_files:
 print("\n3. Testing database connection...")
 try:
     # Try to import db_manager
-    sys.path.insert(0, 'plugins')
+    sys.path.insert(0, "plugins")
     from db_manager import default_db
 
     # Simple test query
     test_query = "SELECT COUNT(*) as count FROM unified_games WHERE sport = 'NHL'"
     result = default_db.fetch_df(test_query)
-    nhl_games = result.iloc[0]['count']
+    nhl_games = result.iloc[0]["count"]
 
     print(f"   ✅ Database connection successful")
     print(f"   ✅ Found {nhl_games:,} NHL games in unified_games")
@@ -102,9 +107,18 @@ print("=" * 60)
 
 checklist = [
     ("DAG file syntax valid", True),  # We checked earlier
-    ("NHL uses unified_games", "unified_games" in content and "sport = 'NHL'" in content),
-    ("NBA uses unified_games", "unified_games" in content and "sport = 'NBA'" in content),
-    ("Has team mapping", "nhl_team_mapping" in content and "nba_team_mapping" in content),
+    (
+        "NHL uses unified_games",
+        "unified_games" in content and "sport = 'NHL'" in content,
+    ),
+    (
+        "NBA uses unified_games",
+        "unified_games" in content and "sport = 'NBA'" in content,
+    ),
+    (
+        "Has team mapping",
+        "nhl_team_mapping" in content and "nba_team_mapping" in content,
+    ),
     ("Has logging", "previous_ratings" in content and "Rating Changes" in content),
     ("NHL data file exists", os.path.exists("data/nhl_current_elo_ratings.csv")),
     ("NBA data file exists", os.path.exists("data/nba_current_elo_ratings.csv")),

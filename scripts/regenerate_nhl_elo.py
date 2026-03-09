@@ -20,42 +20,42 @@ from elo.factory import get_elo_class
 def map_team_name_to_abbreviation(full_name: str) -> str:
     """Map full team name to standard NHL abbreviation."""
     mapping = {
-        'Anaheim Ducks': 'ANA',
-        'Arizona Coyotes': 'ARI',
-        'Boston Bruins': 'BOS',
-        'Buffalo Sabres': 'BUF',
-        'Calgary Flames': 'CGY',
-        'Carolina Hurricanes': 'CAR',
-        'Chicago Blackhawks': 'CHI',
-        'Colorado Avalanche': 'COL',
-        'Columbus Blue Jackets': 'CBJ',
-        'Dallas Stars': 'DAL',
-        'Detroit Red Wings': 'DET',
-        'Edmonton Oilers': 'EDM',
-        'Florida Panthers': 'FLA',
-        'Los Angeles Kings': 'LAK',
-        'Minnesota Wild': 'MIN',
-        'Montreal Canadiens': 'MTL',
-        'Nashville Predators': 'NSH',
-        'New Jersey Devils': 'NJD',
-        'New York Islanders': 'NYI',
-        'New York Rangers': 'NYR',
-        'Ottawa Senators': 'OTT',
-        'Philadelphia Flyers': 'PHI',
-        'Pittsburgh Penguins': 'PIT',
-        'San Jose Sharks': 'SJS',
-        'Seattle Kraken': 'SEA',
-        'St. Louis Blues': 'STL',
-        'Tampa Bay Lightning': 'TBL',
-        'Toronto Maple Leafs': 'TOR',
-        'Utah Hockey Club': 'UTA',
-        'Vancouver Canucks': 'VAN',
-        'Vegas Golden Knights': 'VGK',
-        'Washington Capitals': 'WSH',
-        'Winnipeg Jets': 'WPG',
+        "Anaheim Ducks": "ANA",
+        "Arizona Coyotes": "ARI",
+        "Boston Bruins": "BOS",
+        "Buffalo Sabres": "BUF",
+        "Calgary Flames": "CGY",
+        "Carolina Hurricanes": "CAR",
+        "Chicago Blackhawks": "CHI",
+        "Colorado Avalanche": "COL",
+        "Columbus Blue Jackets": "CBJ",
+        "Dallas Stars": "DAL",
+        "Detroit Red Wings": "DET",
+        "Edmonton Oilers": "EDM",
+        "Florida Panthers": "FLA",
+        "Los Angeles Kings": "LAK",
+        "Minnesota Wild": "MIN",
+        "Montreal Canadiens": "MTL",
+        "Nashville Predators": "NSH",
+        "New Jersey Devils": "NJD",
+        "New York Islanders": "NYI",
+        "New York Rangers": "NYR",
+        "Ottawa Senators": "OTT",
+        "Philadelphia Flyers": "PHI",
+        "Pittsburgh Penguins": "PIT",
+        "San Jose Sharks": "SJS",
+        "Seattle Kraken": "SEA",
+        "St. Louis Blues": "STL",
+        "Tampa Bay Lightning": "TBL",
+        "Toronto Maple Leafs": "TOR",
+        "Utah Hockey Club": "UTA",
+        "Vancouver Canucks": "VAN",
+        "Vegas Golden Knights": "VGK",
+        "Washington Capitals": "WSH",
+        "Winnipeg Jets": "WPG",
         # Handle variations
-        'Montréal Canadiens': 'MTL',
-        'Utah Mammoth': 'UTA',  # Old name
+        "Montréal Canadiens": "MTL",
+        "Utah Mammoth": "UTA",  # Old name
     }
 
     return mapping.get(full_name, full_name)
@@ -96,11 +96,13 @@ def regenerate_nhl_elo():
         return False
 
     print(f"  Loaded {len(games_df)} historical NHL games from unified_games")
-    print(f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}")
+    print(
+        f"  Date range: {games_df['game_date'].min()} to {games_df['game_date'].max()}"
+    )
 
     # Initialize Elo system with optimal parameters from tuning
     # Based on tuning results: K=10, home_advantage=50, recency_weight=0.2
-    EloClass = get_elo_class('nhl')
+    EloClass = get_elo_class("nhl")
     elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
     # Track season changes
@@ -110,10 +112,10 @@ def regenerate_nhl_elo():
     print("  Processing games chronologically...")
 
     for idx, game in games_df.iterrows():
-        game_date = game['game_date']
-        home_full = game['home_team_name']
-        away_full = game['away_team_name']
-        home_win = game['home_win']
+        game_date = game["game_date"]
+        home_full = game["home_team_name"]
+        away_full = game["away_team_name"]
+        home_win = game["home_win"]
 
         # Map to abbreviations
         home_team = map_team_name_to_abbreviation(home_full)
@@ -178,13 +180,13 @@ def regenerate_nhl_elo():
     print(f"\n📈 Rating statistics:")
     print(f"  Average: {avg_rating:.2f}")
     print(f"  Range: {min_rating:.2f} - {max_rating:.2f} ({rating_range:.2f})")
-    print(f"  Spread: ±{rating_range/2:.2f} from average")
+    print(f"  Spread: ±{rating_range / 2:.2f} from average")
 
     # Save to CSV (same format as DAG task)
     csv_path = "data/nhl_current_elo_ratings.csv"
     os.makedirs(os.path.dirname(csv_path), exist_ok=True)
 
-    with open(csv_path, 'w') as f:
+    with open(csv_path, "w") as f:
         f.write("team,rating\n")
         for team, rating in sorted_ratings:
             f.write(f"{team},{rating:.2f}\n")
@@ -193,45 +195,45 @@ def regenerate_nhl_elo():
 
     # Also save a backup with full names
     csv_full_path = "data/nhl_current_elo_ratings_full_names.csv"
-    with open(csv_full_path, 'w') as f:
+    with open(csv_full_path, "w") as f:
         f.write("abbreviation,full_name,rating\n")
         for team, rating in sorted_ratings:
             # Find full name for this abbreviation
             full_name = None
             for full, abbr in {
-                'Anaheim Ducks': 'ANA',
-                'Arizona Coyotes': 'ARI',
-                'Boston Bruins': 'BOS',
-                'Buffalo Sabres': 'BUF',
-                'Calgary Flames': 'CGY',
-                'Carolina Hurricanes': 'CAR',
-                'Chicago Blackhawks': 'CHI',
-                'Colorado Avalanche': 'COL',
-                'Columbus Blue Jackets': 'CBJ',
-                'Dallas Stars': 'DAL',
-                'Detroit Red Wings': 'DET',
-                'Edmonton Oilers': 'EDM',
-                'Florida Panthers': 'FLA',
-                'Los Angeles Kings': 'LAK',
-                'Minnesota Wild': 'MIN',
-                'Montreal Canadiens': 'MTL',
-                'Nashville Predators': 'NSH',
-                'New Jersey Devils': 'NJD',
-                'New York Islanders': 'NYI',
-                'New York Rangers': 'NYR',
-                'Ottawa Senators': 'OTT',
-                'Philadelphia Flyers': 'PHI',
-                'Pittsburgh Penguins': 'PIT',
-                'San Jose Sharks': 'SJS',
-                'Seattle Kraken': 'SEA',
-                'St. Louis Blues': 'STL',
-                'Tampa Bay Lightning': 'TBL',
-                'Toronto Maple Leafs': 'TOR',
-                'Utah Hockey Club': 'UTA',
-                'Vancouver Canucks': 'VAN',
-                'Vegas Golden Knights': 'VGK',
-                'Washington Capitals': 'WSH',
-                'Winnipeg Jets': 'WPG',
+                "Anaheim Ducks": "ANA",
+                "Arizona Coyotes": "ARI",
+                "Boston Bruins": "BOS",
+                "Buffalo Sabres": "BUF",
+                "Calgary Flames": "CGY",
+                "Carolina Hurricanes": "CAR",
+                "Chicago Blackhawks": "CHI",
+                "Colorado Avalanche": "COL",
+                "Columbus Blue Jackets": "CBJ",
+                "Dallas Stars": "DAL",
+                "Detroit Red Wings": "DET",
+                "Edmonton Oilers": "EDM",
+                "Florida Panthers": "FLA",
+                "Los Angeles Kings": "LAK",
+                "Minnesota Wild": "MIN",
+                "Montreal Canadiens": "MTL",
+                "Nashville Predators": "NSH",
+                "New Jersey Devils": "NJD",
+                "New York Islanders": "NYI",
+                "New York Rangers": "NYR",
+                "Ottawa Senators": "OTT",
+                "Philadelphia Flyers": "PHI",
+                "Pittsburgh Penguins": "PIT",
+                "San Jose Sharks": "SJS",
+                "Seattle Kraken": "SEA",
+                "St. Louis Blues": "STL",
+                "Tampa Bay Lightning": "TBL",
+                "Toronto Maple Leafs": "TOR",
+                "Utah Hockey Club": "UTA",
+                "Vancouver Canucks": "VAN",
+                "Vegas Golden Knights": "VGK",
+                "Washington Capitals": "WSH",
+                "Winnipeg Jets": "WPG",
             }.items():
                 if abbr == team:
                     full_name = full
@@ -256,24 +258,25 @@ def test_elo_probabilities():
         return
 
     # Initialize Elo with same parameters
-    EloClass = get_elo_class('nhl')
+    EloClass = get_elo_class("nhl")
     elo = EloClass(k_factor=10, home_advantage=50, recency_weight=0.2)
 
     # Load ratings from CSV
     import pandas as pd
+
     ratings_df = pd.read_csv(csv_path)
 
     for _, row in ratings_df.iterrows():
-        elo.ratings[row['team']] = row['rating']
+        elo.ratings[row["team"]] = row["rating"]
 
     print(f"  Loaded ratings for {len(elo.ratings)} teams")
 
     # Test some matchups
     test_matchups = [
-        ('BOS', 'PHI'),  # Boston vs Philadelphia
-        ('COL', 'DET'),  # Colorado vs Detroit
-        ('FLA', 'WPG'),  # Florida vs Winnipeg
-        ('VGK', 'SEA'),  # Vegas vs Seattle (expansion teams)
+        ("BOS", "PHI"),  # Boston vs Philadelphia
+        ("COL", "DET"),  # Colorado vs Detroit
+        ("FLA", "WPG"),  # Florida vs Winnipeg
+        ("VGK", "SEA"),  # Vegas vs Seattle (expansion teams)
     ]
 
     print("\n  Sample matchup probabilities:")
@@ -289,7 +292,7 @@ def test_elo_probabilities():
             print(f"  {home} ({home_rating:.0f}) vs {away} ({away_rating:.0f}):")
             print(f"    Rating difference: {rating_diff:+.0f}")
             print(f"    Home win probability: {prob:.1%}")
-            print(f"    Away win probability: {1-prob:.1%}")
+            print(f"    Away win probability: {1 - prob:.1%}")
             print()
         else:
             print(f"  ⚠️  Missing ratings for {home} vs {away}")
@@ -300,7 +303,7 @@ def test_elo_probabilities():
     max_prob = 0.0
 
     for i in range(min(10, len(all_teams))):
-        for j in range(i+1, min(10, len(all_teams))):
+        for j in range(i + 1, min(10, len(all_teams))):
             home = all_teams[i]
             away = all_teams[j]
             prob = elo.predict(home, away)
@@ -308,20 +311,22 @@ def test_elo_probabilities():
             max_prob = max(max_prob, prob)
 
     print(f"  Probability range in sample: {min_prob:.1%} - {max_prob:.1%}")
-    print(f"  Expected accuracy improvement: Should see >30% uniqueness in probabilities")
+    print(
+        f"  Expected accuracy improvement: Should see >30% uniqueness in probabilities"
+    )
 
 
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     try:
         # Test connection
         test_query = "SELECT COUNT(*) as count FROM unified_games WHERE sport = 'NHL'"
         test_result = default_db.fetch_df(test_query)
-        nhl_games = test_result.iloc[0]['count']
+        nhl_games = test_result.iloc[0]["count"]
         print(f"Connected to database. Found {nhl_games} NHL games in unified_games.\n")
 
         # Regenerate Elo ratings
@@ -331,9 +336,9 @@ def main():
             # Test the new ratings
             test_elo_probabilities()
 
-            print("\n" + "="*60)
+            print("\n" + "=" * 60)
             print("🎉 NHL ELO REGENERATION COMPLETE!")
-            print("="*60)
+            print("=" * 60)
             print("\nNext steps:")
             print("1. The DAG will use the new ratings automatically")
             print("2. Run the DAG or wait for next scheduled run")
@@ -348,6 +353,7 @@ def main():
     except Exception as e:
         print(f"\n❌ ERROR: {e}")
         import traceback
+
         traceback.print_exc()
         return 2
 

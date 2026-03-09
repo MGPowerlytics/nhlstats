@@ -17,6 +17,53 @@ from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
 
+# Constants for portfolio optimization
+YEAR_START_INDEX = 0
+YEAR_END_INDEX = 4
+MONTH_START_INDEX = 4
+MONTH_END_INDEX = 6
+DAY_START_INDEX = 6
+DAY_END_INDEX = 8
+CENTS_TO_PROBABILITY_FACTOR = 100.0
+DEFAULT_ASK_PRICE = 50.0
+DEFAULT_MAX_DAILY_RISK_PCT = 0.25
+DEFAULT_KELLY_FRACTION = 0.25
+DEFAULT_MAX_BET_SIZE = 100.0
+DEFAULT_MAX_SINGLE_BET_PCT = 0.10
+DEFAULT_MARKET_PROBABILITY = 0.5
+
+MIN_PRACTICAL_BET_SIZE = 1.00
+
+# Game ID parsing constants
+MIN_GAME_ID_PARTS = 4  # SPORT_DATE_HOME_AWAY format
+SPORT_INDEX = 0
+DATE_INDEX = 1
+HOME_TEAM_INDEX = 2
+AWAY_TEAM_INDEX = 3
+
+# Kelly fraction defaults
+DEFAULT_MIN_KELLY_FRACTION = 0.01
+
+# Minimum edge for profitable bets (3% positive edge)
+DEFAULT_MIN_EDGE = 0.03
+
+# Report formatting constants
+REPORT_HEADER_WIDTH = 80
+
+# Default configuration values for main() example
+EXAMPLE_BANKROLL = 1000.0
+EXAMPLE_MAX_DAILY_RISK_PCT = 0.10
+EXAMPLE_KELLY_FRACTION = 0.25
+EXAMPLE_MIN_BET_SIZE = 2.0
+EXAMPLE_MAX_BET_SIZE = 50.0
+EXAMPLE_MAX_SINGLE_BET_PCT = 0.05
+EXAMPLE_MIN_EDGE = 0.05
+EXAMPLE_MIN_CONFIDENCE = 0.68
+
+# Probability blending weights (Elo vs BetMGM)
+ELO_BLEND_WEIGHT = 0.7
+BETMGM_BLEND_WEIGHT = 0.3
+
 
 def extract_game_date(game_id: str) -> Optional[str]:
     """Extract game date from game_id like TENNIS_20260129_ALCARAZ_ZVEREV.
@@ -26,7 +73,11 @@ def extract_game_date(game_id: str) -> Optional[str]:
     match = re.search(r"_(\d{8})_", game_id)
     if match:
         date_str = match.group(1)
-        return f"{date_str[:4]}-{date_str[4:6]}-{date_str[6:8]}"
+        return (
+            f"{date_str[YEAR_START_INDEX:YEAR_END_INDEX]}-"
+            f"{date_str[MONTH_START_INDEX:MONTH_END_INDEX]}-"
+            f"{date_str[DAY_START_INDEX:DAY_END_INDEX]}"
+        )
     return None
 
 
@@ -60,14 +111,19 @@ def extract_ticker_date(ticker: str) -> Optional[str]:
     return None
 
 
+# Constants
+CENTS_TO_PROBABILITY_FACTOR = 100.0
+DEFAULT_MARKET_PROBABILITY = 0.5
+
+
 def estimate_asks_from_market_prob(market_prob: float) -> Tuple[int, int]:
     """Estimate yes_ask and no_ask prices from market probability.
 
     Returns:
         Tuple of (yes_ask, no_ask) in cents.
     """
-    yes_ask = int(market_prob * 100)
-    no_ask = int((1 - market_prob) * 100)
+    yes_ask = int(market_prob * CENTS_TO_PROBABILITY_FACTOR)
+    no_ask = int((1 - market_prob) * CENTS_TO_PROBABILITY_FACTOR)
     return yes_ask, no_ask
 
 
@@ -82,12 +138,12 @@ class BetOpportunity:
     opponent: str
     home_team: str = ""
     away_team: str = ""
-    elo_prob: float = 0.5  # Elo-predicted win probability
-    market_prob: float = 0.5  # Market-implied probability
+    elo_prob: float = DEFAULT_MARKET_PROBABILITY  # Elo-predicted win probability
+    market_prob: float = DEFAULT_MARKET_PROBABILITY  # Market-implied probability
     edge: float = 0.0  # elo_prob - market_prob
     confidence: str = "MEDIUM"  # "HIGH" or "MEDIUM"
-    yes_ask: float = 50.0  # Market ask price (for buying)
-    no_ask: float = 50.0  # Market ask price (for buying)
+    yes_ask: float = DEFAULT_ASK_PRICE  # Market ask price (for buying)
+    no_ask: float = DEFAULT_ASK_PRICE  # Market ask price (for buying)
     home_rating: float = 0.0
     away_rating: float = 0.0
     game_time: Optional[str] = None
@@ -111,6 +167,42 @@ class BetOpportunity:
         """Calculate expected value as percentage of stake."""
         return self.edge / self.market_prob
 
+    @property
+    def blended_prob(self) -> float:
+        """Calculate blended probability (70% Elo, 30% BetMGM)."""
+        if self.betmgm_prob is not None:
+            return (self.elo_prob * ELO_BLEND_WEIGHT) + (
+                self.betmgm_prob * BETMGM_BLEND_WEIGHT
+            )
+        return self.elo_prob
+
+    def format_matchup(self) -> str:
+        """Format the matchup as 'Home Team vs Away Team'."""
+        if self.home_team and self.away_team:
+            return f"{self.home_team} vs {self.away_team}"
+        elif self.team and self.opponent:
+            # For sports like tennis where home/away might not be meaningful
+            return f"{self.team} vs {self.opponent}"
+        else:
+            return "Unknown Matchup"
+
+    def format_rankings(self, rankings_dict: Dict[str, str]) -> str:
+        """Format rankings for both teams.
+
+        Args:
+            rankings_dict: Dictionary mapping team names to ranking strings like "#1 (1560)"
+
+        Returns:
+            String like "#1 (1560) vs #5 (1480)" or "Unranked vs #3 (1520)"
+        """
+        home_rank = rankings_dict.get(
+            self.home_team if self.home_team else self.team, "Unranked"
+        )
+        away_rank = rankings_dict.get(
+            self.away_team if self.away_team else self.opponent, "Unranked"
+        )
+        return f"{home_rank} vs {away_rank}"
+
 
 @dataclass
 class PortfolioAllocation:
@@ -120,6 +212,23 @@ class PortfolioAllocation:
     bet_size: float
     kelly_fraction: float
     allocation_pct: float
+
+
+@dataclass
+class PortfolioConfig:
+    """Configuration for portfolio optimization."""
+
+    bankroll: float
+    max_daily_risk_pct: float = DEFAULT_MAX_DAILY_RISK_PCT  # 25% max daily risk
+    kelly_fraction: float = DEFAULT_KELLY_FRACTION  # Conservative Kelly for more volume
+    min_bet_size: float = 2.0
+    max_bet_size: float = DEFAULT_MAX_BET_SIZE
+    max_single_bet_pct: float = DEFAULT_MAX_SINGLE_BET_PCT  # 10% max single bet
+    min_edge: float = (
+        DEFAULT_MIN_EDGE  # Minimum 3% positive edge required (positive EV)
+    )
+    min_confidence: float = 0.0
+    excluded_segments: Optional[List[Tuple[str, str]]] = None
 
 
 class OpportunityParser(ABC):
@@ -223,6 +332,11 @@ class JsonFileParser(OpportunityParser):
             if market_prob <= 0:
                 return None
 
+            # Generate game_id if missing
+            game_id = data.get("game_id")
+            if not game_id:
+                game_id = self._generate_game_id(data, sport)
+
             return BetOpportunity(
                 sport=sport,
                 ticker=ticker,
@@ -240,9 +354,30 @@ class JsonFileParser(OpportunityParser):
                 home_rating=self._get_numeric(data, "home_rating"),
                 away_rating=self._get_numeric(data, "away_rating"),
                 game_time=data.get("game_time", data.get("close_time")),
-                game_id=data.get("game_id"),
+                game_id=game_id,
             )
         except (KeyError, ValueError, TypeError):
+            return None
+
+    def _generate_game_id(self, data: Dict, sport: str) -> Optional[str]:
+        """Generate game_id from available data."""
+        home_team = data.get("home_team", "")
+        away_team = data.get("away_team", "")
+        game_time = data.get("game_time", data.get("close_time", ""))
+
+        if not home_team or not away_team or not game_time:
+            return None
+
+        try:
+            # Parse date from game_time
+            from datetime import datetime
+
+            dt = datetime.fromisoformat(game_time.replace("Z", "+00:00"))
+            date_str = dt.strftime("%Y%m%d")
+
+            # Generate game_id in format: SPORT_YYYYMMDD_HOME_AWAY
+            return f"{sport.upper()}_{date_str}_{home_team}_{away_team}"
+        except (ValueError, AttributeError):
             return None
 
     def _parse_teams(self, data: Dict, sport: str) -> Tuple[str, str, str]:
@@ -269,27 +404,62 @@ class JsonFileParser(OpportunityParser):
         no_ask = float(data.get("no_ask", 0))
         market_prob = self._get_numeric(data, "market_prob", 0.5)
 
-        # For tennis, determine which ask to use based on bet_on
+        # Handle tennis-specific logic
         if sport == "tennis" and "market_prob" not in data:
-            team = data.get("bet_on", "")
-            player1 = data.get("player1", "")
-            if team and player1 and (team in player1 or player1 in team):
-                market_prob = yes_ask / 100 if yes_ask > 0 else 0.5
-            else:
-                market_prob = no_ask / 100 if no_ask > 0 else 0.5
+            market_prob = self._parse_tennis_market_prob(data, yes_ask, no_ask)
 
         # Estimate asks if missing
         if yes_ask == 0 and market_prob > 0:
             yes_ask, no_ask = estimate_asks_from_market_prob(market_prob)
 
-        # Use appropriate ask for market_prob
-        if "market_prob" not in data:
-            if bet_direction == "home":
-                market_prob = yes_ask / 100 if yes_ask > 0 else market_prob
-            else:
-                market_prob = no_ask / 100 if no_ask > 0 else market_prob
+        # Derive market probability from ask prices if not provided
+        if "market_prob" not in data and sport != "tennis":
+            market_prob = self._derive_market_prob_from_asks(
+                yes_ask, no_ask, bet_direction, market_prob
+            )
 
         return yes_ask, no_ask, market_prob
+
+    def _parse_tennis_market_prob(
+        self, data: Dict, yes_ask: float, no_ask: float
+    ) -> float:
+        """Parse market probability for tennis matches.
+
+        Tennis has special logic because we need to determine which player
+        corresponds to the 'yes' side based on the bet_on field.
+        """
+        team = data.get("bet_on", "")
+        player1 = data.get("player1", "")
+
+        if team and player1 and (team in player1 or player1 in team):
+            # Betting on player1 (yes side)
+            return (
+                yes_ask / CENTS_TO_PROBABILITY_FACTOR
+                if yes_ask > 0
+                else DEFAULT_MARKET_PROBABILITY
+            )
+        else:
+            # Betting on player2 (no side)
+            return (
+                no_ask / CENTS_TO_PROBABILITY_FACTOR
+                if no_ask > 0
+                else DEFAULT_MARKET_PROBABILITY
+            )
+
+    def _derive_market_prob_from_asks(
+        self, yes_ask: float, no_ask: float, bet_direction: str, fallback_prob: float
+    ) -> float:
+        """Derive market probability from ask prices.
+
+        Uses the appropriate ask price (yes_ask for home bets, no_ask for away bets)
+        to calculate the market-implied probability.
+        """
+        if bet_direction == "home":
+            return (
+                yes_ask / CENTS_TO_PROBABILITY_FACTOR if yes_ask > 0 else fallback_prob
+            )
+        else:
+            return no_ask / CENTS_TO_PROBABILITY_FACTOR if no_ask > 0 else fallback_prob
 
 
 class PortfolioOptimizer:
@@ -297,38 +467,32 @@ class PortfolioOptimizer:
 
     def __init__(
         self,
-        bankroll: float,
-        max_daily_risk_pct: float = 0.10,
-        kelly_fraction: float = 0.25,
-        min_bet_size: float = 2.0,
-        max_bet_size: float = 50.0,
-        max_single_bet_pct: float = 0.05,
-        min_edge: float = 0.05,
-        min_confidence: float = 0.68,
-        excluded_segments: Optional[List[Tuple[str, str]]] = None,
+        config: PortfolioConfig,
     ):
         """Initialize portfolio optimizer.
 
         Args:
-            bankroll: Total available capital
-            max_daily_risk_pct: Maximum percentage of bankroll to risk per day
-            kelly_fraction: Fraction of Kelly to use (0.25 = quarter Kelly)
-            min_bet_size: Minimum bet size in dollars
-            max_bet_size: Maximum bet size in dollars
-            max_single_bet_pct: Maximum percentage of bankroll for single bet
-            min_edge: Minimum edge required to consider bet
-            min_confidence: Minimum Elo probability required
-            excluded_segments: List of (sport, confidence) tuples to exclude.
+            config: PortfolioConfig object with all configuration parameters.
+
+        Raises:
+            ValueError: If config is None or config.bankroll is not provided.
         """
-        self.bankroll = bankroll
-        self.max_daily_risk_pct = max_daily_risk_pct
-        self.kelly_fraction = kelly_fraction
-        self.min_bet_size = min_bet_size
-        self.max_bet_size = max_bet_size
-        self.max_single_bet_pct = max_single_bet_pct
-        self.min_edge = min_edge
-        self.min_confidence = min_confidence
-        self.excluded_segments = excluded_segments or []
+        if config is None:
+            raise ValueError("PortfolioConfig must be provided")
+
+        if config.bankroll is None:
+            raise ValueError("bankroll must be provided in PortfolioConfig")
+
+        # Use config object
+        self.bankroll = config.bankroll
+        self.max_daily_risk_pct = config.max_daily_risk_pct
+        self.kelly_fraction = config.kelly_fraction
+        self.min_bet_size = config.min_bet_size
+        self.max_bet_size = config.max_bet_size
+        self.max_single_bet_pct = config.max_single_bet_pct
+        self.min_edge = config.min_edge
+        self.min_confidence = config.min_confidence
+        self.excluded_segments = config.excluded_segments or []
 
         # Initialize parsers
         self._db_parser = DatabaseRowParser()
@@ -342,7 +506,7 @@ class PortfolioOptimizer:
             return None
 
         try:
-            from db_manager import default_db
+            from plugins.db_manager import default_db
 
             query = """
                 SELECT outcome_name, price
@@ -360,29 +524,41 @@ class PortfolioOptimizer:
             if result.empty:
                 return None
 
-            for _, row in result.iterrows():
-                outcome = str(row.get("outcome_name", "")).lower()
-                price = row.get("price", 0)
-                if price and price > 0:
-                    prob = 1.0 / price
-                    if bet_direction == "home" and outcome in ["home", "h"]:
-                        return prob
-                    elif bet_direction == "away" and outcome in ["away", "a"]:
-                        return prob
-            return None
+            return self._extract_prob_from_rows(result, bet_direction)
         except Exception:
             return None
+
+    def _extract_prob_from_rows(
+        self, result: pd.DataFrame, bet_direction: str
+    ) -> Optional[float]:
+        """Extract probability for the given bet direction from database result rows."""
+        for _, row in result.iterrows():
+            outcome = str(row.get("outcome_name", "")).lower()
+            price = float(row.get("price", 0))
+
+            if price <= 0:
+                continue
+
+            # Convert decimal odds to implied probability
+            prob = 1.0 / price
+
+            if bet_direction == "home" and outcome in ["home", "h"]:
+                return prob
+            elif bet_direction == "away" and outcome in ["away", "a"]:
+                return prob
+
+        return None
 
     def _fuzzy_match_betmgm(self, game_id: str, db) -> pd.DataFrame:
         """Try fuzzy matching for BetMGM odds by sport, date, and team patterns."""
         parts = game_id.split("_")
-        if len(parts) < 4:
+        if len(parts) < MIN_GAME_ID_PARTS:
             return pd.DataFrame()
 
-        sport = parts[0]
-        date_part = parts[1]
-        home_abbr = parts[2].upper()
-        away_abbr = parts[3].upper()
+        sport = parts[SPORT_INDEX]
+        date_part = parts[DATE_INDEX]
+        home_abbr = parts[HOME_TEAM_INDEX].upper()
+        away_abbr = parts[AWAY_TEAM_INDEX].upper()
 
         try:
             base_date = datetime.strptime(date_part, "%Y%m%d")
@@ -425,7 +601,7 @@ class PortfolioOptimizer:
         if sports is None:
             sports = ["nhl", "nba", "mlb", "nfl", "ncaab", "tennis"]
 
-        from db_manager import default_db
+        from plugins.db_manager import default_db
 
         opportunities = []
         skipped_stale = 0
@@ -487,46 +663,80 @@ class PortfolioOptimizer:
         skipped_stale = 0
 
         for sport in sports:
-            bet_file = Path(f"data/{sport}/bets_{date_str}.json")
-            if not bet_file.exists():
-                continue
-
-            try:
-                with open(bet_file, "r") as f:
-                    bets_data = json.load(f)
-
-                if not isinstance(bets_data, list):
-                    continue
-
-                for bet in bets_data:
-                    ticker = bet.get("ticker")
-                    if not ticker:
-                        continue
-
-                    # Filter stale games/tickers
-                    game_date = extract_game_date(bet.get("game_id", ""))
-                    ticker_date = extract_ticker_date(ticker)
-                    if (game_date and game_date < date_str) or (
-                        ticker_date and ticker_date < date_str
-                    ):
-                        skipped_stale += 1
-                        continue
-
-                    opp = self._json_parser.parse(bet, sport)
-                    if opp:
-                        # Fetch BetMGM probability for file-based loading
-                        opp.betmgm_prob = self._fetch_betmgm_prob(
-                            opp.game_id, opp.bet_on
-                        )
-                        opportunities.append(opp)
-
-            except Exception as e:
-                print(f"⚠️  Error loading {bet_file}: {e}")
+            sport_opportunities, sport_skipped = (
+                self._load_sport_opportunities_from_file(sport, date_str)
+            )
+            opportunities.extend(sport_opportunities)
+            skipped_stale += sport_skipped
 
         if skipped_stale > 0:
             print(f"📅 Skipped {skipped_stale} stale opportunities")
 
         return opportunities
+
+    def _load_sport_opportunities_from_file(
+        self, sport: str, date_str: str
+    ) -> Tuple[List[BetOpportunity], int]:
+        """Load opportunities from a single sport's JSON file."""
+        bet_file = Path(f"data/{sport}/bets_{date_str}.json")
+        if not bet_file.exists():
+            return [], 0
+
+        try:
+            with open(bet_file, "r") as f:
+                bets_data = json.load(f)
+        except Exception as e:
+            print(f"⚠️  Error loading {bet_file}: {e}")
+            return [], 0
+
+        if not isinstance(bets_data, list):
+            return [], 0
+
+        return self._process_bets_data(bets_data, sport, date_str)
+
+    def _process_bets_data(
+        self, bets_data: List[Dict], sport: str, date_str: str
+    ) -> Tuple[List[BetOpportunity], int]:
+        """Process a list of bet data entries."""
+        opportunities = []
+        skipped_stale = 0
+
+        for bet in bets_data:
+            opportunity, is_stale = self._process_single_bet(bet, sport, date_str)
+            if is_stale:
+                skipped_stale += 1
+            elif opportunity:
+                opportunities.append(opportunity)
+
+        return opportunities, skipped_stale
+
+    def _process_single_bet(
+        self, bet: Dict, sport: str, date_str: str
+    ) -> Tuple[Optional[BetOpportunity], bool]:
+        """Process a single bet entry, returning opportunity and stale flag."""
+        ticker = bet.get("ticker")
+        if not ticker:
+            return None, False
+
+        if self._is_stale_bet(bet, ticker, date_str):
+            return None, True
+
+        opp = self._json_parser.parse(bet, sport)
+        if not opp:
+            return None, False
+
+        # Fetch BetMGM probability for file-based loading
+        opp.betmgm_prob = self._fetch_betmgm_prob(opp.game_id, opp.bet_on)
+        return opp, False
+
+    def _is_stale_bet(self, bet: Dict, ticker: str, date_str: str) -> bool:
+        """Check if a bet is stale based on game date or ticker date."""
+        game_date = extract_game_date(bet.get("game_id", ""))
+        ticker_date = extract_ticker_date(ticker)
+
+        return (game_date and game_date < date_str) or (
+            ticker_date and ticker_date < date_str
+        )
 
     def filter_opportunities(
         self, opportunities: List[BetOpportunity]
@@ -552,8 +762,8 @@ class PortfolioOptimizer:
                 stats["confidence"] += 1
                 continue
 
-            # Check Kelly (skip for market agreement strategy)
-            if self.min_edge >= 0 and opp.kelly_fraction <= 0:
+            # Check Kelly fraction - must be positive for valid value bets
+            if opp.kelly_fraction <= 0:
                 stats["kelly"] += 1
                 continue
 
@@ -588,27 +798,22 @@ class PortfolioOptimizer:
 
         max_daily_allocation = self.bankroll * self.max_daily_risk_pct
 
-        # Market agreement strategy (min_edge < 0)
-        if self.min_edge < 0:
-            return self._allocate_equal_sizing(opportunities, max_daily_allocation)
-
-        # Kelly-based allocation
+        # Kelly-based allocation for positive EV strategy
         return self._allocate_kelly_sizing(opportunities, max_daily_allocation)
 
     def _allocate_equal_sizing(
         self, opportunities: List[BetOpportunity], max_daily_allocation: float
     ) -> List[PortfolioAllocation]:
         """Equal sizing for market agreement strategy."""
-        min_practical_bet = 1.00
-        max_bets = int(max_daily_allocation / min_practical_bet)
+        max_bets = int(max_daily_allocation / MIN_PRACTICAL_BET_SIZE)
         num_bets = min(max_bets, len(opportunities))
 
-        bet_size = min_practical_bet
+        bet_size = MIN_PRACTICAL_BET_SIZE
         if num_bets > 0:
             bet_size = max_daily_allocation / num_bets
             bet_size = min(bet_size, self.max_bet_size)
             bet_size = min(bet_size, self.bankroll * self.max_single_bet_pct)
-            bet_size = max(bet_size, min_practical_bet)
+            bet_size = max(bet_size, MIN_PRACTICAL_BET_SIZE)
 
         sorted_opps = sorted(
             opportunities, key=lambda x: x.expected_value, reverse=True
@@ -623,7 +828,7 @@ class PortfolioOptimizer:
                 PortfolioAllocation(
                     opportunity=opp,
                     bet_size=round(bet_size, 2),
-                    kelly_fraction=0.01,
+                    kelly_fraction=DEFAULT_MIN_KELLY_FRACTION,
                     allocation_pct=bet_size / self.bankroll,
                 )
             )
@@ -662,7 +867,9 @@ class PortfolioOptimizer:
                     opportunity=opp,
                     bet_size=round(bet_size, 2),
                     kelly_fraction=(
-                        opp.kelly_fraction if opp.kelly_fraction > 0 else 0.01
+                        opp.kelly_fraction
+                        if opp.kelly_fraction > 0
+                        else DEFAULT_MIN_KELLY_FRACTION
                     ),
                     allocation_pct=bet_size / self.bankroll,
                 )
@@ -750,16 +957,16 @@ class PortfolioOptimizer:
     ) -> str:
         """Generate human-readable betting report."""
         lines = [
-            "=" * 80,
+            "=" * REPORT_HEADER_WIDTH,
             "PORTFOLIO-OPTIMIZED BETTING REPORT",
-            "=" * 80,
+            "=" * REPORT_HEADER_WIDTH,
             f"Date: {summary['date']}",
             f"Bankroll: ${summary['bankroll']:,.2f}",
             f"Max Daily Risk: {self.max_daily_risk_pct:.1%} (${self.bankroll * self.max_daily_risk_pct:,.2f})",
             f"Kelly Fraction: {self.kelly_fraction:.2%}",
             "",
             "SUMMARY",
-            "-" * 80,
+            "-" * REPORT_HEADER_WIDTH,
             f"Opportunities Found:     {summary['opportunities_found']}",
             f"After Filtering:         {summary['opportunities_filtered']}",
             f"Bets to Place:           {summary['bets_placed']}",
@@ -773,7 +980,7 @@ class PortfolioOptimizer:
 
         if allocations:
             lines.append("BET ALLOCATIONS")
-            lines.append("-" * 80)
+            lines.append("-" * REPORT_HEADER_WIDTH)
             by_sport = {}
             for alloc in allocations:
                 sport = alloc.opportunity.sport.upper()
@@ -800,7 +1007,7 @@ class PortfolioOptimizer:
         else:
             lines.append("No bets meet criteria.")
 
-        lines.append("=" * 80)
+        lines.append("=" * REPORT_HEADER_WIDTH)
         report = "\n".join(lines)
 
         if output_file:
@@ -815,16 +1022,19 @@ def main():
 
     date_str = sys.argv[1] if len(sys.argv) > 1 else datetime.now().strftime("%Y-%m-%d")
 
-    optimizer = PortfolioOptimizer(
-        bankroll=1000.0,
-        max_daily_risk_pct=0.10,
-        kelly_fraction=0.25,
-        min_bet_size=2.0,
-        max_bet_size=50.0,
-        max_single_bet_pct=0.05,
-        min_edge=0.05,
-        min_confidence=0.68,
+    # Create PortfolioConfig object instead of using individual parameters
+    config = PortfolioConfig(
+        bankroll=EXAMPLE_BANKROLL,
+        max_daily_risk_pct=EXAMPLE_MAX_DAILY_RISK_PCT,
+        kelly_fraction=EXAMPLE_KELLY_FRACTION,
+        min_bet_size=EXAMPLE_MIN_BET_SIZE,
+        max_bet_size=EXAMPLE_MAX_BET_SIZE,
+        max_single_bet_pct=EXAMPLE_MAX_SINGLE_BET_PCT,
+        min_edge=EXAMPLE_MIN_EDGE,
+        min_confidence=EXAMPLE_MIN_CONFIDENCE,
     )
+
+    optimizer = PortfolioOptimizer(config=config)
 
     allocations, summary = optimizer.optimize_daily_bets(date_str)
     print(optimizer.generate_bet_report(allocations, summary))

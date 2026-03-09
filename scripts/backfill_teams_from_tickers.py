@@ -5,7 +5,8 @@ Backfill team data by parsing from tickers when recommendations unavailable.
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'plugins'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "plugins"))
 from db_manager import default_db
 
 
@@ -25,31 +26,72 @@ def parse_teams_from_ticker_simple(ticker: str, market_title: str = None):
 
     # NBA team mapping
     nba_teams = {
-        'ATL': 'Atlanta Hawks', 'BOS': 'Boston Celtics', 'BKN': 'Brooklyn Nets',
-        'CHA': 'Charlotte Hornets', 'CHI': 'Chicago Bulls', 'CLE': 'Cleveland Cavaliers',
-        'DAL': 'Dallas Mavericks', 'DEN': 'Denver Nuggets', 'DET': 'Detroit Pistons',
-        'GSW': 'Golden State Warriors', 'HOU': 'Houston Rockets', 'IND': 'Indiana Pacers',
-        'LAC': 'LA Clippers', 'LAL': 'Los Angeles Lakers', 'MEM': 'Memphis Grizzlies',
-        'MIA': 'Miami Heat', 'MIL': 'Milwaukee Bucks', 'MIN': 'Minnesota Timberwolves',
-        'NOP': 'New Orleans Pelicans', 'NYK': 'New York Knicks', 'OKC': 'Oklahoma City Thunder',
-        'ORL': 'Orlando Magic', 'PHI': 'Philadelphia 76ers', 'PHX': 'Phoenix Suns',
-        'POR': 'Portland Trail Blazers', 'SAC': 'Sacramento Kings', 'SAS': 'San Antonio Spurs',
-        'TOR': 'Toronto Raptors', 'UTA': 'Utah Jazz', 'WAS': 'Washington Wizards'
+        "ATL": "Atlanta Hawks",
+        "BOS": "Boston Celtics",
+        "BKN": "Brooklyn Nets",
+        "CHA": "Charlotte Hornets",
+        "CHI": "Chicago Bulls",
+        "CLE": "Cleveland Cavaliers",
+        "DAL": "Dallas Mavericks",
+        "DEN": "Denver Nuggets",
+        "DET": "Detroit Pistons",
+        "GSW": "Golden State Warriors",
+        "HOU": "Houston Rockets",
+        "IND": "Indiana Pacers",
+        "LAC": "LA Clippers",
+        "LAL": "Los Angeles Lakers",
+        "MEM": "Memphis Grizzlies",
+        "MIA": "Miami Heat",
+        "MIL": "Milwaukee Bucks",
+        "MIN": "Minnesota Timberwolves",
+        "NOP": "New Orleans Pelicans",
+        "NYK": "New York Knicks",
+        "OKC": "Oklahoma City Thunder",
+        "ORL": "Orlando Magic",
+        "PHI": "Philadelphia 76ers",
+        "PHX": "Phoenix Suns",
+        "POR": "Portland Trail Blazers",
+        "SAC": "Sacramento Kings",
+        "SAS": "San Antonio Spurs",
+        "TOR": "Toronto Raptors",
+        "UTA": "Utah Jazz",
+        "WAS": "Washington Wizards",
     }
 
     # NHL team mapping
     nhl_teams = {
-        'ANA': 'Anaheim Ducks', 'ARI': 'Arizona Coyotes', 'BOS': 'Boston Bruins',
-        'BUF': 'Buffalo Sabres', 'CGY': 'Calgary Flames', 'CAR': 'Carolina Hurricanes',
-        'CHI': 'Chicago Blackhawks', 'COL': 'Colorado Avalanche', 'CBJ': 'Columbus Blue Jackets',
-        'DAL': 'Dallas Stars', 'DET': 'Detroit Red Wings', 'EDM': 'Edmonton Oilers',
-        'FLA': 'Florida Panthers', 'LAK': 'Los Angeles Kings', 'MIN': 'Minnesota Wild',
-        'MTL': 'Montreal Canadiens', 'NSH': 'Nashville Predators', 'NJD': 'New Jersey Devils',
-        'NYI': 'New York Islanders', 'NYR': 'New York Rangers', 'OTT': 'Ottawa Senators',
-        'PHI': 'Philadelphia Flyers', 'PIT': 'Pittsburgh Penguins', 'SJS': 'San Jose Sharks',
-        'SEA': 'Seattle Kraken', 'STL': 'St. Louis Blues', 'TBL': 'Tampa Bay Lightning',
-        'TOR': 'Toronto Maple Leafs', 'VAN': 'Vancouver Canucks', 'VGK': 'Vegas Golden Knights',
-        'WSH': 'Washington Capitals', 'WPG': 'Winnipeg Jets'
+        "ANA": "Anaheim Ducks",
+        "ARI": "Arizona Coyotes",
+        "BOS": "Boston Bruins",
+        "BUF": "Buffalo Sabres",
+        "CGY": "Calgary Flames",
+        "CAR": "Carolina Hurricanes",
+        "CHI": "Chicago Blackhawks",
+        "COL": "Colorado Avalanche",
+        "CBJ": "Columbus Blue Jackets",
+        "DAL": "Dallas Stars",
+        "DET": "Detroit Red Wings",
+        "EDM": "Edmonton Oilers",
+        "FLA": "Florida Panthers",
+        "LAK": "Los Angeles Kings",
+        "MIN": "Minnesota Wild",
+        "MTL": "Montreal Canadiens",
+        "NSH": "Nashville Predators",
+        "NJD": "New Jersey Devils",
+        "NYI": "New York Islanders",
+        "NYR": "New York Rangers",
+        "OTT": "Ottawa Senators",
+        "PHI": "Philadelphia Flyers",
+        "PIT": "Pittsburgh Penguins",
+        "SJS": "San Jose Sharks",
+        "SEA": "Seattle Kraken",
+        "STL": "St. Louis Blues",
+        "TBL": "Tampa Bay Lightning",
+        "TOR": "Toronto Maple Leafs",
+        "VAN": "Vancouver Canucks",
+        "VGK": "Vegas Golden Knights",
+        "WSH": "Washington Capitals",
+        "WPG": "Winnipeg Jets",
     }
 
     # Try to extract team codes
@@ -57,32 +99,38 @@ def parse_teams_from_ticker_simple(ticker: str, market_title: str = None):
     import re
 
     # For 3-letter team codes (NBA, NHL)
-    match = re.search(r'GAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})-([A-Z]{3})$', ticker)
+    match = re.search(
+        r"GAME-\d{2}[A-Z]{3}\d{2}([A-Z]{3})([A-Z]{3})-([A-Z]{3})$", ticker
+    )
     if match:
         home_code = match.group(1)
         away_code = match.group(2)
         bet_code = match.group(3)
 
         # Map to team names based on sport
-        if 'NBAGAME' in ticker:
+        if "NBAGAME" in ticker:
             home_team = nba_teams.get(home_code, home_code)
             away_team = nba_teams.get(away_code, away_code)
             return home_team, away_team
-        elif 'NHLGAME' in ticker:
+        elif "NHLGAME" in ticker:
             home_team = nhl_teams.get(home_code, home_code)
             away_team = nhl_teams.get(away_code, away_code)
             return home_team, away_team
-        elif 'NCAAMBGAME' in ticker or 'NCAAWBGAME' in ticker:
+        elif "NCAAMBGAME" in ticker or "NCAAWBGAME" in ticker:
             # College basketball - use codes as-is
             return home_code, away_code
 
     # Fallback: parse from market title
     if market_title:
         # Clean up title
-        title = market_title.replace(' Winner?', '').replace(' Winner', '').replace(' winner?', '')
+        title = (
+            market_title.replace(" Winner?", "")
+            .replace(" Winner", "")
+            .replace(" winner?", "")
+        )
 
         # Try different separators
-        for sep in [' at ', ' vs ', ' versus ', ' - ']:
+        for sep in [" at ", " vs ", " versus ", " - "]:
             if sep in title:
                 parts = title.split(sep)
                 if len(parts) == 2:
@@ -91,14 +139,16 @@ def parse_teams_from_ticker_simple(ticker: str, market_title: str = None):
     return None, None
 
 
-def determine_bet_on_simple(side: str, home_team: str, away_team: str, ticker: str = None):
+def determine_bet_on_simple(
+    side: str, home_team: str, away_team: str, ticker: str = None
+):
     """Simple logic to determine which team bet is on."""
     if not side or not home_team or not away_team:
         return None
 
     # For Kalshi: if side is 'yes', betting on team after last dash
-    if ticker and side == 'yes':
-        parts = ticker.split('-')
+    if ticker and side == "yes":
+        parts = ticker.split("-")
         if len(parts) >= 2:
             bet_code = parts[-1].upper()
 
@@ -109,7 +159,7 @@ def determine_bet_on_simple(side: str, home_team: str, away_team: str, ticker: s
                 return away_team
 
     # Fallback: 'yes' typically means home team wins
-    if side == 'yes':
+    if side == "yes":
         return home_team
     else:
         return away_team
@@ -143,11 +193,11 @@ def backfill_teams_from_tickers():
     failed = 0
 
     for idx, bet in bets.iterrows():
-        bet_id = bet['bet_id']
-        ticker = bet['ticker']
-        sport = bet['sport']
-        side = bet['side']
-        market_title = bet['market_title']
+        bet_id = bet["bet_id"]
+        ticker = bet["ticker"]
+        sport = bet["sport"]
+        side = bet["side"]
+        market_title = bet["market_title"]
 
         # Parse teams from ticker
         home_team, away_team = parse_teams_from_ticker_simple(ticker, market_title)
@@ -166,12 +216,15 @@ def backfill_teams_from_tickers():
                     WHERE bet_id = :bet_id
                 """
 
-                default_db.execute(update_query, params={
-                    'home_team': home_team,
-                    'away_team': away_team,
-                    'bet_on': bet_on,
-                    'bet_id': bet_id
-                })
+                default_db.execute(
+                    update_query,
+                    params={
+                        "home_team": home_team,
+                        "away_team": away_team,
+                        "bet_on": bet_on,
+                        "bet_id": bet_id,
+                    },
+                )
 
                 updated += 1
 
@@ -212,18 +265,18 @@ def verify_backfill():
 
     print("Team data completeness after backfill:")
     for _, row in results.iterrows():
-        sport = row['sport']
-        total = row['total_bets']
-        missing = row['missing']
-        pct = row['missing_pct']
+        sport = row["sport"]
+        total = row["total_bets"]
+        missing = row["missing"]
+        pct = row["missing_pct"]
 
         if missing > 0:
             print(f"  ❌ {sport}: {missing}/{total} missing ({pct}%)")
         else:
             print(f"  ✅ {sport}: {total}/{total} complete")
 
-    total_missing = results['missing'].sum()
-    total_bets = results['total_bets'].sum()
+    total_missing = results["missing"].sum()
+    total_bets = results["total_bets"].sum()
     overall_pct = (total_missing / total_bets * 100) if total_bets > 0 else 100
 
     print(f"\nOverall: {total_missing}/{total_bets} missing ({overall_pct:.1f}%)")
@@ -239,14 +292,16 @@ def verify_backfill():
 def main():
     """Main function."""
     # Set POSTGRES_HOST if not set
-    if 'POSTGRES_HOST' not in os.environ:
-        os.environ['POSTGRES_HOST'] = 'localhost'
+    if "POSTGRES_HOST" not in os.environ:
+        os.environ["POSTGRES_HOST"] = "localhost"
 
     try:
         # Test connection
-        test_query = "SELECT COUNT(*) as count FROM placed_bets WHERE status IN ('won', 'lost')"
+        test_query = (
+            "SELECT COUNT(*) as count FROM placed_bets WHERE status IN ('won', 'lost')"
+        )
         test_result = default_db.fetch_df(test_query)
-        settled_bets = test_result.iloc[0]['count']
+        settled_bets = test_result.iloc[0]["count"]
         print(f"Connected to database. Found {settled_bets} settled bets.\n")
 
         # Run backfill

@@ -179,9 +179,9 @@ class TestBetTracker:
         mock_client = MagicMock()
         mock_client._get.side_effect = Exception("API Error")
 
-        fills = load_fills_from_kalshi(mock_client)
-
-        assert fills == []
+        # Should raise exception instead of returning empty list
+        with pytest.raises(Exception, match="API Error"):
+            load_fills_from_kalshi(mock_client)
 
     @patch("bet_tracker.KalshiBetting")
     def test_get_market_status_success(self, mock_kalshi):

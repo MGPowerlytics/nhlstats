@@ -1,5 +1,5 @@
-from typing import Union
-from plugins.elo.base_elo_rating import BaseEloRating
+from typing import Union, Optional
+from plugins.elo.base_elo_rating import BaseEloRating, Matchup, GameResult, EloConfig
 
 
 class TennisEloRating(BaseEloRating):
@@ -11,7 +11,13 @@ class TennisEloRating(BaseEloRating):
     For predict/update methods, we treat player_a as "home" and player_b as "away".
     """
 
-    def __init__(self, k_factor=32, home_advantage=0, initial_rating=1500):
+    def __init__(
+        self,
+        k_factor: float = 32.0,
+        home_advantage: float = 0.0,
+        initial_rating: float = 1500.0,
+        config: Optional[EloConfig] = None,
+    ) -> None:
         """
         Initialize Tennis Elo rating system.
 
@@ -19,11 +25,13 @@ class TennisEloRating(BaseEloRating):
             k_factor: K-factor for rating updates (default 32)
             home_advantage: Not used in tennis (default 0)
             initial_rating: Initial rating for new players (default 1500)
+            config: Optional EloConfig object
         """
         super().__init__(
             k_factor=k_factor,
             home_advantage=home_advantage,
             initial_rating=initial_rating,
+            config=config,
         )
         # Separate ratings for ATP and WTA
         self.atp_ratings = {}
@@ -75,7 +83,7 @@ class TennisEloRating(BaseEloRating):
         player = self._normalize_name(player, tour)
 
         if player not in ratings:
-            ratings[player] = self.initial_rating
+            ratings[player] = self.config.initial_rating
         if player not in matches:
             matches[player] = 0
         return ratings[player]
@@ -99,21 +107,67 @@ class TennisEloRating(BaseEloRating):
 
         return self.expected_score(ra, rb)
 
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        """
-        Calculate expected score (probability of team A winning).
-        """
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
+    def _determine_winner_loser(
+        self,
+        p1: str,
+        p2: str,
+        home_won: Optional[Union[bool, float]],
+    ) -> tuple[str, str]:
+        """Determine actual winner and loser names based on calling convention."""
+        if home_won is None:
+            # Legacy mode: first arg is winner, second is loser
+            return p1, p2
+
+        # Standard mode
+        if home_won:
+            return p1, p2
+        return p2, p1
+
+    def _init_player_if_new(
+        self,
+        player: str,
+        ratings: dict[str, float],
+        matches: dict[str, int],
+    ) -> None:
+        """Initialize player ratings and match counts if they are not present."""
+        if player not in ratings:
+            ratings[player] = self.config.initial_rating
+        if player not in matches:
+            matches[player] = 0
+
+    def _calculate_update_change(
+        self,
+        rw: float,
+        rl: float,
+        mw: int,
+        ml: int,
+    ) -> float:
+        """Calculate Elo rating change based on current ratings and match counts."""
+        expected_win = 1.0 / (1.0 + 10.0 ** ((rl - rw) / 400.0))
+
+        # Calculate K-Factor
+        # Higher K for newer players to converge faster
+        k = self.config.k_factor
+
+        # Simple dynamic K:
+        if mw < 20:
+            k *= 1.5
+        if ml < 20:
+            k *= 1.5
+
+        return k * (1.0 - expected_win)
 
     def update(
         self,
-        home_team: str,
-        away_team: str,
+        home_team: str = None,
+        away_team: str = None,
         home_won: Union[bool, float] = None,
         is_neutral: bool = True,
+        matchup: Optional[Matchup] = None,
+        result: Optional[GameResult] = None,
         tour: str = "ATP",
         **kwargs,
-    ):
+    ) -> float:
         """
         Update ratings after a match.
 
@@ -126,56 +180,36 @@ class TennisEloRating(BaseEloRating):
             away_team: Player B (or Loser in legacy mode)
             home_won: True if home_team won, False if away_team won. None for legacy mode.
             is_neutral: Always True for tennis.
+            matchup: Optional Matchup object
+            result: Optional GameResult object
             tour: 'ATP' or 'WTA'
         """
+        # Extract from Matchup if provided
+        if matchup:
+            home_team = matchup.home_team
+            away_team = matchup.away_team
+            is_neutral = matchup.is_neutral
+
+        # Extract from GameResult if provided
+        if result:
+            home_won = result.home_won
+
         ratings, matches = self._get_tour_dicts(tour)
 
         p1 = self._normalize_name(home_team, tour)
         p2 = self._normalize_name(away_team, tour)
 
-        # Determine actual winner/loser
-        if home_won is None:
-            # Legacy mode: first arg is winner, second is loser
-            winner = p1
-            loser = p2
-        else:
-            # Standard mode
-            if home_won:
-                winner = p1
-                loser = p2
-            else:
-                winner = p2
-                loser = p1
+        winner, loser = self._determine_winner_loser(p1, p2, home_won)
 
-        # Initialize if new
-        if winner not in ratings:
-            ratings[winner] = self.initial_rating
-        if winner not in matches:
-            matches[winner] = 0
-        if loser not in ratings:
-            ratings[loser] = self.initial_rating
-        if loser not in matches:
-            matches[loser] = 0
+        self._init_player_if_new(winner, ratings, matches)
+        self._init_player_if_new(loser, ratings, matches)
 
-        rw = ratings[winner]
-        rl = ratings[loser]
+        change = self._calculate_update_change(
+            ratings[winner], ratings[loser], matches[winner], matches[loser]
+        )
 
-        expected_win = 1.0 / (1.0 + 10.0 ** ((rl - rw) / 400.0))
-
-        # Calculate K-Factor
-        # Higher K for newer players to converge faster
-        k = self.k_factor
-
-        # Simple dynamic K:
-        if matches[winner] < 20:
-            k *= 1.5
-        if matches[loser] < 20:
-            k *= 1.5
-
-        change = k * (1.0 - expected_win)
-
-        ratings[winner] = rw + change
-        ratings[loser] = rl - change
+        ratings[winner] += change
+        ratings[loser] -= change
 
         matches[winner] += 1
         matches[loser] += 1

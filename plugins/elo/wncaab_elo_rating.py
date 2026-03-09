@@ -1,95 +1,10 @@
-from typing import Union
-from plugins.elo.base_elo_rating import BaseEloRating
+from plugins.elo.base_elo_rating import StandardEloRating
 
 
-class WNCAABEloRating(BaseEloRating):
+class WNCAABEloRating(StandardEloRating):
     """Women's NCAA Basketball Elo Rating System."""
 
-    def __init__(self, k_factor=20, home_advantage=100, initial_rating=1500):
-        super().__init__(
-            k_factor=k_factor,
-            home_advantage=home_advantage,
-            initial_rating=initial_rating,
-        )
-        self.ratings = {}
-
-    def get_rating(self, team):
-        if team not in self.ratings:
-            self.ratings[team] = self.initial_rating
-        return self.ratings[team]
-
-    def predict(
-        self, home_team: str, away_team: str, is_neutral: bool = False
-    ) -> float:
-        """Predict home team win probability."""
-        rh = self.get_rating(home_team)
-        ra = self.get_rating(away_team)
-
-        if not is_neutral:
-            rh += self.home_advantage
-
-        return self.expected_score(rh, ra)
-
-    def expected_score(self, rating_a: float, rating_b: float) -> float:
-        """
-        Calculate expected score (probability of team A winning).
-        """
-        return 1.0 / (1.0 + 10.0 ** ((rating_b - rating_a) / 400.0))
-
-    def update(
-        self,
-        home_team: str,
-        away_team: str,
-        home_won: Union[bool, float] = None,
-        is_neutral: bool = False,
-        home_win: Union[bool, float] = None,
-        **kwargs,
-    ) -> None:
-        # Handle aliasing
-        if home_won is None and home_win is not None:
-            home_won = home_win
-        elif home_won is None and "home_win" in kwargs:
-            home_won = kwargs["home_win"]
-        elif home_won is None:
-            raise ValueError("Must provide home_won")
-
-        home_rating = self.get_rating(home_team)
-        away_rating = self.get_rating(away_team)
-
-        if not is_neutral:
-            home_rating += self.home_advantage
-
-        expected_home = self.expected_score(home_rating, away_rating)
-        actual_home = 1.0 if home_won else 0.0
-        change = self._calculate_rating_change(expected_home, actual_home)
-
-        if not is_neutral:
-            home_rating -= self.home_advantage
-
-        self.ratings[home_team] = home_rating + change
-        self.ratings[away_team] = away_rating - change
-
-        return change
-
-    def get_all_ratings(self):
-        """Return dictionary of all team ratings."""
-        return self.ratings.copy()
-
-    def legacy_update(
-        self,
-        home_team: str,
-        away_team: str,
-        home_won: bool = None,
-        is_neutral: bool = False,
-        **kwargs,
-    ):
-        """
-        Legacy update method for backward compatibility.
-        Same as update() for WNCAAB.
-        """
-        return self.update(
-            home_team, away_team, home_won, is_neutral=is_neutral, **kwargs
-        )
+    # Inherits default __init__ and update from StandardEloRating
 
 
 def calculate_current_elo_ratings():

@@ -27,14 +27,38 @@ import argparse
 import math
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
+# Numerical stability constants
+LOGIT_EPSILON = 1e-6  # Minimum probability to avoid log(0) in logit function
+LOGLOSS_EPSILON = 1e-9  # Minimum probability to avoid log(0) in log loss
+MIN_HALF_LIFE_DAYS = 1e-6  # Minimum half-life to avoid division by zero
+
+# Probability and rating constants
+PROBABILITY_THRESHOLD = 0.5  # Threshold for binary classification
+ELO_SCALE_FACTOR = (
+    400.0  # Elo rating scale factor (standard 400 points per log-odds unit)
+)
+
+# Default grid values for parameter search (comma-separated string)
+DEFAULT_GRID_VALUES = "0.0,0.05,0.1,0.2,0.35,0.5"
+
+# Mathematical constants
+LN2 = math.log(2.0)  # Natural log of 2, used in half-life calculations
+
+# Tennis Elo model defaults
+DEFAULT_INITIAL_ELO_RATING = 1500.0
+DEFAULT_HALF_LIFE_DAYS = 90.0
+DEFAULT_K_FACTOR = 32.0
+BLOWOUT_MULTIPLIER = 1.5  # Multiplier for K-factor in blowout games
+MIN_MATCHES_FOR_STABLE_RATING = 20  # Minimum matches before removing blowout multiplier
+
 
 def _logit(p: float) -> float:
-    p = float(np.clip(p, 1e-6, 1 - 1e-6))
+    p = float(np.clip(p, LOGIT_EPSILON, 1 - LOGIT_EPSILON))
     return float(math.log(p / (1.0 - p)))
 
 
@@ -47,16 +71,25 @@ def _brier(y: np.ndarray, p: np.ndarray) -> float:
 
 
 def _logloss(y: np.ndarray, p: np.ndarray) -> float:
-    p = np.clip(p, 1e-9, 1 - 1e-9)
+    p = np.clip(p, LOGLOSS_EPSILON, 1 - LOGLOSS_EPSILON)
     return float(-np.mean(y * np.log(p) + (1 - y) * np.log(1 - p)))
 
 
 def _accuracy(y: np.ndarray, p: np.ndarray) -> float:
-    return float(np.mean((p >= 0.5) == (y == 1)))
+    return float(np.mean((p >= PROBABILITY_THRESHOLD) == (y == 1)))
 
 
 def _expected_elo(r_a: float, r_b: float) -> float:
-    return 1.0 / (1.0 + 10 ** ((r_b - r_a) / 400.0))
+    return 1.0 / (1.0 + 10 ** ((r_b - r_a) / ELO_SCALE_FACTOR))
+
+
+@dataclass
+class MatchFilter:
+    """Filter criteria for loading tennis matches."""
+
+    tour: str = "ALL"
+    since: Optional[str] = None
+    until: Optional[str] = None
 
 
 @dataclass
@@ -70,7 +103,11 @@ class TennisMatch:
 class BaselineTennisElo:
     """Baseline Elo mirroring current `TennisEloRating` logic."""
 
-    def __init__(self, k_factor: float = 32.0, initial_rating: float = 1500.0) -> None:
+    def __init__(
+        self,
+        k_factor: float = DEFAULT_K_FACTOR,
+        initial_rating: float = DEFAULT_INITIAL_ELO_RATING,
+    ) -> None:
         self.k_factor = float(k_factor)
         self.initial_rating = float(initial_rating)
         self.ratings: Dict[str, float] = {}
@@ -93,10 +130,10 @@ class BaselineTennisElo:
         expected_win = float(_expected_elo(rw, rl))
 
         k = self.k_factor
-        if self.matches_played.get(winner, 0) < 20:
-            k *= 1.5
-        if self.matches_played.get(loser, 0) < 20:
-            k *= 1.5
+        if self.matches_played.get(winner, 0) < MIN_MATCHES_FOR_STABLE_RATING:
+            k *= BLOWOUT_MULTIPLIER
+        if self.matches_played.get(loser, 0) < MIN_MATCHES_FOR_STABLE_RATING:
+            k *= BLOWOUT_MULTIPLIER
 
         change = k * (1.0 - expected_win)
         self.ratings[winner] = rw + change
@@ -118,8 +155,8 @@ class RecencyDecayedElo(BaselineTennisElo):
     def __init__(
         self,
         k_factor: float = 32.0,
-        initial_rating: float = 1500.0,
-        half_life_days: float = 90.0,
+        initial_rating: float = DEFAULT_INITIAL_ELO_RATING,
+        half_life_days: float = DEFAULT_HALF_LIFE_DAYS,
     ) -> None:
         super().__init__(k_factor=k_factor, initial_rating=initial_rating)
         self.half_life_days = float(half_life_days)
@@ -141,7 +178,7 @@ class RecencyDecayedElo(BaselineTennisElo):
             return
 
         # rating = mean + (rating-mean)*exp(-lambda*dt)
-        lam = math.log(2.0) / max(self.half_life_days, 1e-6)
+        lam = LN2 / max(self.half_life_days, MIN_HALF_LIFE_DAYS)
         factor = math.exp(-lam * delta_days)
         self.ratings[player] = (
             self.initial_rating + (self.ratings[player] - self.initial_rating) * factor
@@ -203,68 +240,66 @@ except Exception:  # pragma: no cover
     TeamTrueSkill = None
 
 
-def load_tennis_matches(
-    *,
-    db_path: Path = Path("data/nhlstats.duckdb"),
-    csv_dir: Path = Path("data/tennis"),
-    tour: str = "ALL",
-    since: Optional[str] = None,
-    until: Optional[str] = None,
-) -> List[TennisMatch]:
-    tour = tour.upper()
+def _load_matches_from_db(
+    db_path: Path,
+    filters: MatchFilter,
+) -> pd.DataFrame:
+    import duckdb
 
-    df: pd.DataFrame
+    conn = duckdb.connect(str(db_path), read_only=True)
+    where = []
+    params: List[object] = []
+    if filters.tour in {"ATP", "WTA"}:
+        where.append("tour = ?")
+        params.append(filters.tour)
+    if filters.since:
+        where.append("game_date >= ?")
+        params.append(filters.since)
+    if filters.until:
+        where.append("game_date <= ?")
+        params.append(filters.until)
 
-    if db_path.exists():
-        import duckdb
+    where_sql = ("WHERE " + " AND ".join(where)) if where else ""
+    query = f"""
+        SELECT game_date, tour, winner, loser
+        FROM tennis_games
+        {where_sql}
+        ORDER BY game_date ASC
+    """
+    df = conn.execute(query, params).fetchdf()
+    conn.close()
+    return df
 
-        conn = duckdb.connect(str(db_path), read_only=True)
-        where = []
-        params: List[object] = []
-        if tour in {"ATP", "WTA"}:
-            where.append("tour = ?")
-            params.append(tour)
-        if since:
-            where.append("game_date >= ?")
-            params.append(since)
-        if until:
-            where.append("game_date <= ?")
-            params.append(until)
 
-        where_sql = ("WHERE " + " AND ".join(where)) if where else ""
-        query = f"""
-            SELECT game_date, tour, winner, loser
-            FROM tennis_games
-            {where_sql}
-            ORDER BY game_date ASC
-        """
-        df = conn.execute(query, params).fetchdf()
-        conn.close()
-    else:
-        # CSV fallback
-        from tennis_games import TennisGames
+def _load_matches_from_csv(
+    csv_dir: Path,
+    filters: MatchFilter,
+) -> pd.DataFrame:
+    from tennis_games import TennisGames
 
-        tg = TennisGames(data_dir=str(csv_dir))
-        raw = tg.load_games()
-        if raw.empty:
-            return []
+    tg = TennisGames(data_dir=str(csv_dir))
+    raw = tg.load_games()
+    if raw.empty:
+        return pd.DataFrame()
 
-        raw["game_date"] = pd.to_datetime(raw["date"]).dt.date
-        raw["tour"] = raw["tour"].astype(str).str.upper()
-        df = raw.rename(columns={"winner": "winner", "loser": "loser"})[
-            ["game_date", "tour", "winner", "loser"]
-        ]
-        df["game_date"] = pd.to_datetime(df["game_date"])
+    raw["game_date"] = pd.to_datetime(raw["date"]).dt.date
+    raw["tour"] = raw["tour"].astype(str).str.upper()
+    df = raw.rename(columns={"winner": "winner", "loser": "loser"})[
+        ["game_date", "tour", "winner", "loser"]
+    ]
+    df["game_date"] = pd.to_datetime(df["game_date"])
 
-        if tour in {"ATP", "WTA"}:
-            df = df[df["tour"] == tour]
-        if since:
-            df = df[df["game_date"] >= pd.to_datetime(since)]
-        if until:
-            df = df[df["game_date"] <= pd.to_datetime(until)]
+    if filters.tour in {"ATP", "WTA"}:
+        df = df[df["tour"] == filters.tour]
+    if filters.since:
+        df = df[df["game_date"] >= pd.to_datetime(filters.since)]
+    if filters.until:
+        df = df[df["game_date"] <= pd.to_datetime(filters.until)]
 
-        df = df.sort_values("game_date")
+    return df.sort_values("game_date")
 
+
+def _dataframe_to_matches(df: pd.DataFrame) -> List[TennisMatch]:
     matches: List[TennisMatch] = []
     for _, row in df.iterrows():
         d = pd.to_datetime(row["game_date"])
@@ -279,70 +314,212 @@ def load_tennis_matches(
     return matches
 
 
+def load_tennis_matches(
+    *,
+    db_path: Path = Path("data/nhlstats.duckdb"),
+    csv_dir: Path = Path("data/tennis"),
+    filters: Optional[MatchFilter] = None,
+) -> List[TennisMatch]:
+    if filters is None:
+        filters = MatchFilter()
+
+    filters.tour = filters.tour.upper()
+
+    if db_path.exists():
+        df = _load_matches_from_db(db_path, filters)
+    else:
+        df = _load_matches_from_csv(csv_dir, filters)
+
+    if df.empty:
+        return []
+
+    return _dataframe_to_matches(df)
+
+
 def evaluate(
     matches: Sequence[TennisMatch],
     *,
     half_life_days: float,
     momentum_gamma: float,
 ) -> pd.DataFrame:
+    """
+    Evaluate different tennis prediction models on a sequence of matches.
+
+    Args:
+        matches: Sequence of tennis matches to evaluate
+        half_life_days: Half-life parameter for recency-decayed Elo
+        momentum_gamma: Gamma parameter for momentum overlay
+
+    Returns:
+        DataFrame with evaluation metrics for each model
+    """
     if not matches:
         raise ValueError("No tennis matches found to evaluate")
 
+    # Initialize all prediction models
+    elo, rec, mom, ts = _initialize_models(half_life_days)
+
+    # Process all matches and collect predictions
+    rows = _process_all_matches(matches, elo, rec, mom, ts, momentum_gamma)
+
+    # Calculate evaluation metrics
+    df = pd.DataFrame(rows)
+    metrics = _calculate_model_metrics(df)
+
+    return pd.DataFrame(metrics).sort_values("logloss")
+
+
+def _initialize_models(half_life_days: float) -> tuple:
+    """
+    Initialize all tennis prediction models.
+
+    Args:
+        half_life_days: Half-life parameter for recency-decayed Elo
+
+    Returns:
+        Tuple of (elo, rec, mom, ts) model instances
+    """
     elo = BaselineTennisElo()
     rec = RecencyDecayedElo(half_life_days=half_life_days)
     mom = MarkovMomentum()
-
     ts = TeamTrueSkill() if TeamTrueSkill is not None else None
 
+    return elo, rec, mom, ts
+
+
+def _process_all_matches(
+    matches: Sequence[TennisMatch],
+    elo: BaselineTennisElo,
+    rec: RecencyDecayedElo,
+    mom: MarkovMomentum,
+    ts: Optional[Any],
+    momentum_gamma: float,
+) -> List[Dict[str, float]]:
+    """
+    Process all matches and collect predictions from all models.
+
+    Args:
+        matches: Sequence of tennis matches
+        elo: Baseline Elo model
+        rec: Recency-decayed Elo model
+        mom: Markov momentum model
+        ts: TrueSkill model (optional)
+        momentum_gamma: Gamma parameter for momentum overlay
+
+    Returns:
+        List of prediction rows for each match
+    """
     rows: List[Dict[str, float]] = []
 
-    for m in matches:
-        # Use an ordering independent of outcome (lexicographic) to avoid y always being 1.
-        a, b = sorted([m.winner, m.loser])
-        y = 1.0 if a == m.winner else 0.0
+    for match in matches:
+        # Process single match and get predictions
+        row = _process_single_match(match, elo, rec, mom, ts, momentum_gamma)
+        rows.append(row)
 
-        p_elo = elo.predict(a, b)
-        p_rec = rec.predict(a, b, m.date)
+        # Update all models with actual outcome
+        _update_models_with_result(match, elo, rec, mom, ts)
 
-        # Momentum overlay on top of recency Elo
-        pa_m = mom.predict_win_prob(a)
-        pb_m = mom.predict_win_prob(b)
-        p_mom = _sigmoid(
-            _logit(p_rec) + float(momentum_gamma) * (_logit(pa_m) - _logit(pb_m))
-        )
+    return rows
 
-        if ts is not None:
-            p_ts = float(ts.predict(a, b, home_advantage=0.0))
-        else:
-            p_ts = float("nan")
 
-        rows.append(
-            {
-                "y": y,
-                "p_elo": float(p_elo),
-                "p_rec": float(p_rec),
-                "p_mom": float(p_mom),
-                "p_ts": float(p_ts),
-            }
-        )
+def _process_single_match(
+    match: TennisMatch,
+    elo: BaselineTennisElo,
+    rec: RecencyDecayedElo,
+    mom: MarkovMomentum,
+    ts: Optional[Any],
+    momentum_gamma: float,
+) -> Dict[str, float]:
+    """
+    Process a single tennis match and get predictions from all models.
 
-        # Update all models with the actual outcome (winner/loser)
-        elo.update(m.winner, m.loser)
-        rec.update(m.winner, m.loser, m.date)
-        mom.update(m.winner, m.loser)
-        if ts is not None:
-            # Treat lexicographic 'a' as home for predict; update with same mapping.
-            home_won = bool(a == m.winner)
-            ts.update(a, b, home_won=home_won, home_advantage=0.0)
+    Args:
+        match: Tennis match to process
+        elo: Baseline Elo model
+        rec: Recency-decayed Elo model
+        mom: Markov momentum model
+        ts: TrueSkill model (optional)
+        momentum_gamma: Gamma parameter for momentum overlay
 
-    df = pd.DataFrame(rows)
+    Returns:
+        Dictionary with predictions from all models
+    """
+    # Use lexicographic ordering independent of outcome
+    a, b = sorted([match.winner, match.loser])
+    y = 1.0 if a == match.winner else 0.0
 
+    # Get predictions from each model
+    p_elo = float(elo.predict(a, b))
+    p_rec = float(rec.predict(a, b, match.date))
+
+    # Momentum overlay on top of recency Elo
+    pa_m = mom.predict_win_prob(a)
+    pb_m = mom.predict_win_prob(b)
+    p_mom = _sigmoid(
+        _logit(p_rec) + float(momentum_gamma) * (_logit(pa_m) - _logit(pb_m))
+    )
+
+    # TrueSkill prediction (if available)
+    p_ts = (
+        float(ts.predict(a, b, home_advantage=0.0)) if ts is not None else float("nan")
+    )
+
+    return {
+        "y": y,
+        "p_elo": p_elo,
+        "p_rec": p_rec,
+        "p_mom": p_mom,
+        "p_ts": p_ts,
+    }
+
+
+def _update_models_with_result(
+    match: TennisMatch,
+    elo: BaselineTennisElo,
+    rec: RecencyDecayedElo,
+    mom: MarkovMomentum,
+    ts: Optional[Any],
+) -> None:
+    """
+    Update all models with the actual match outcome.
+
+    Args:
+        match: Tennis match with actual outcome
+        elo: Baseline Elo model to update
+        rec: Recency-decayed Elo model to update
+        mom: Markov momentum model to update
+        ts: TrueSkill model to update (optional)
+    """
+    # Update baseline models
+    elo.update(match.winner, match.loser)
+    rec.update(match.winner, match.loser, match.date)
+    mom.update(match.winner, match.loser)
+
+    # Update TrueSkill if available
+    if ts is not None:
+        a, b = sorted([match.winner, match.loser])
+        home_won = bool(a == match.winner)
+        ts.update(a, b, home_won=home_won, home_advantage=0.0)
+
+
+def _calculate_model_metrics(df: pd.DataFrame) -> List[Dict[str, Any]]:
+    """
+    Calculate evaluation metrics for each model.
+
+    Args:
+        df: DataFrame with predictions from all models
+
+    Returns:
+        List of dictionaries with metrics for each model
+    """
     metrics = []
     y_arr = df["y"].to_numpy(dtype=float)
+
     for col in ["p_elo", "p_rec", "p_mom", "p_ts"]:
         p = df[col].to_numpy(dtype=float)
         if np.isnan(p).all():
             continue
+
         metrics.append(
             {
                 "model": col,
@@ -353,7 +530,7 @@ def evaluate(
             }
         )
 
-    return pd.DataFrame(metrics).sort_values("logloss")
+    return metrics
 
 
 def _parse_float_list(value: str) -> List[float]:
@@ -370,14 +547,38 @@ def grid_search(
     gamma_grid: Sequence[float],
     top_k: int = 10,
 ) -> None:
-    """Run a simple parameter sweep for recency and momentum.
-
-    Prints:
-    - Baseline metrics (Elo and TrueSkill if available)
-    - Top-k parameter settings for recency decay (p_rec)
-    - Top-k parameter settings for momentum overlay (p_mom)
     """
+    Run a simple parameter sweep for recency and momentum models.
 
+    Args:
+        matches: Sequence of tennis matches to evaluate
+        half_life_grid: Grid of half-life values to search
+        gamma_grid: Grid of gamma values to search
+        top_k: Number of top results to display for each model
+    """
+    # Print baseline metrics
+    _print_baseline_metrics(matches, half_life_grid, gamma_grid)
+
+    # Perform grid search
+    rec_rows, mom_rows = _perform_grid_search(matches, half_life_grid, gamma_grid)
+
+    # Print top-k results
+    _print_top_results(rec_rows, mom_rows, top_k)
+
+
+def _print_baseline_metrics(
+    matches: Sequence[TennisMatch],
+    half_life_grid: Sequence[float],
+    gamma_grid: Sequence[float],
+) -> None:
+    """
+    Print baseline metrics for Elo and TrueSkill models.
+
+    Args:
+        matches: Sequence of tennis matches
+        half_life_grid: Grid of half-life values
+        gamma_grid: Grid of gamma values
+    """
     baseline = evaluate(
         matches,
         half_life_days=float(half_life_grid[0]),
@@ -388,6 +589,23 @@ def grid_search(
         print("\n=== Baselines (fixed params) ===")
         print(base_rows.to_string(index=False))
 
+
+def _perform_grid_search(
+    matches: Sequence[TennisMatch],
+    half_life_grid: Sequence[float],
+    gamma_grid: Sequence[float],
+) -> tuple[List[Dict[str, float]], List[Dict[str, float]]]:
+    """
+    Perform grid search over half-life and gamma parameters.
+
+    Args:
+        matches: Sequence of tennis matches
+        half_life_grid: Grid of half-life values
+        gamma_grid: Grid of gamma values
+
+    Returns:
+        Tuple of (rec_rows, mom_rows) - results for recency and momentum models
+    """
     rec_rows: List[Dict[str, float]] = []
     mom_rows: List[Dict[str, float]] = []
 
@@ -397,32 +615,62 @@ def grid_search(
                 matches, half_life_days=float(hl), momentum_gamma=float(g)
             )
 
-            rec = metrics[metrics["model"] == "p_rec"]
-            if not rec.empty:
-                r = rec.iloc[0]
-                rec_rows.append(
-                    {
-                        "half_life_days": float(hl),
-                        "gamma": float(g),
-                        "accuracy": float(r["accuracy"]),
-                        "logloss": float(r["logloss"]),
-                        "brier": float(r["brier"]),
-                    }
-                )
+            # Extract recency model results
+            rec_rows.extend(_extract_model_results(metrics, "p_rec", hl, g))
 
-            mom = metrics[metrics["model"] == "p_mom"]
-            if not mom.empty:
-                r = mom.iloc[0]
-                mom_rows.append(
-                    {
-                        "half_life_days": float(hl),
-                        "gamma": float(g),
-                        "accuracy": float(r["accuracy"]),
-                        "logloss": float(r["logloss"]),
-                        "brier": float(r["brier"]),
-                    }
-                )
+            # Extract momentum model results
+            mom_rows.extend(_extract_model_results(metrics, "p_mom", hl, g))
 
+    return rec_rows, mom_rows
+
+
+def _extract_model_results(
+    metrics: pd.DataFrame,
+    model_name: str,
+    half_life: float,
+    gamma: float,
+) -> List[Dict[str, float]]:
+    """
+    Extract results for a specific model from evaluation metrics.
+
+    Args:
+        metrics: DataFrame with evaluation metrics
+        model_name: Name of model to extract (e.g., "p_rec", "p_mom")
+        half_life: Half-life parameter value
+        gamma: Gamma parameter value
+
+    Returns:
+        List of result dictionaries (empty list if model not found)
+    """
+    model_metrics = metrics[metrics["model"] == model_name]
+    if model_metrics.empty:
+        return []
+
+    r = model_metrics.iloc[0]
+    return [
+        {
+            "half_life_days": float(half_life),
+            "gamma": float(gamma),
+            "accuracy": float(r["accuracy"]),
+            "logloss": float(r["logloss"]),
+            "brier": float(r["brier"]),
+        }
+    ]
+
+
+def _print_top_results(
+    rec_rows: List[Dict[str, float]],
+    mom_rows: List[Dict[str, float]],
+    top_k: int,
+) -> None:
+    """
+    Print top-k results for recency and momentum models.
+
+    Args:
+        rec_rows: Results for recency model
+        mom_rows: Results for momentum model
+        top_k: Number of top results to display
+    """
     if rec_rows:
         df_rec = pd.DataFrame(rec_rows).sort_values("logloss").head(int(top_k))
         print(f"\n=== Top {top_k} recency settings (p_rec) by logloss ===")
@@ -460,7 +708,7 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     )
     p.add_argument(
         "--gamma-grid",
-        default="0.0,0.05,0.1,0.2,0.35,0.5",
+        default=DEFAULT_GRID_VALUES,
         help="Comma-separated momentum gammas to try (grid-search)",
     )
     p.add_argument(
@@ -474,9 +722,11 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
 
     matches = load_tennis_matches(
         db_path=Path(str(args.db_path)),
-        tour=str(args.tour),
-        since=args.since,
-        until=args.until,
+        filters=MatchFilter(
+            tour=str(args.tour),
+            since=args.since,
+            until=args.until,
+        ),
     )
     print(f"✅ Loaded tennis matches: {len(matches)} (tour={args.tour})")
 

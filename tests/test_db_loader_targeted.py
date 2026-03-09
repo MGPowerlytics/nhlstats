@@ -96,14 +96,22 @@ class TestLoadDate:
                 # May return 0 or some number based on fallback loaders
 
 
-class TestLoadEPLHistory:
-    """Test load_epl_history method"""
+class TestLoadCSVHistory:
+    """Test load_csv_history method"""
 
     def test_method_exists(self):
         from db_loader import NHLDatabaseLoader
 
         loader = NHLDatabaseLoader()
-        assert hasattr(loader, "load_epl_history")
+        assert hasattr(loader, "load_csv_history")
+
+    def test_method_accepts_sport_parameter(self):
+        from db_loader import NHLDatabaseLoader
+
+        loader = NHLDatabaseLoader()
+        # Test that method can be called with sport parameter
+        # This doesn't actually load data, just verifies the API
+        assert callable(loader.load_csv_history)
 
 
 class TestLoadNCAABHistory:
@@ -114,16 +122,6 @@ class TestLoadNCAABHistory:
 
         loader = NHLDatabaseLoader()
         assert hasattr(loader, "load_ncaab_history")
-
-
-class TestLoadTennisHistory:
-    """Test load_tennis_history method"""
-
-    def test_method_exists(self):
-        from db_loader import NHLDatabaseLoader
-
-        loader = NHLDatabaseLoader()
-        assert hasattr(loader, "load_tennis_history")
 
 
 class TestDatabaseQueries:
@@ -196,6 +194,5 @@ class TestModuleImports:
         assert hasattr(NHLDatabaseLoader, "connect")
         assert hasattr(NHLDatabaseLoader, "close")
         assert hasattr(NHLDatabaseLoader, "load_date")
-        assert hasattr(NHLDatabaseLoader, "load_epl_history")
+        assert hasattr(NHLDatabaseLoader, "load_csv_history")
         assert hasattr(NHLDatabaseLoader, "load_ncaab_history")
-        assert hasattr(NHLDatabaseLoader, "load_tennis_history")

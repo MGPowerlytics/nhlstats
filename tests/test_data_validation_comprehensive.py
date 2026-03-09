@@ -1,9 +1,13 @@
 """Comprehensive tests for data_validation.py focusing on uncovered code paths"""
 
+import sys
+from pathlib import Path
 from unittest.mock import patch, MagicMock
 import tempfile
-from pathlib import Path
 import duckdb
+
+# Add plugins directory to path for imports
+sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 
 class TestDataValidationReport:
@@ -31,7 +35,7 @@ class TestDataValidationReport:
         report.add_check("Games Found", True, "100 games found")
 
         assert len(report.checks) == 1
-        assert report.checks[0]["passed"]
+        assert report.checks[0].passed
 
     def test_add_check_failed(self):
         from data_validation import DataValidationReport
@@ -39,8 +43,8 @@ class TestDataValidationReport:
         report = DataValidationReport("Test")
         report.add_check("Games Found", False, "No games found", "error")
 
-        assert not report.checks[0]["passed"]
-        assert report.checks[0]["severity"] == "error"
+        assert not report.checks[0].passed
+        assert report.checks[0].severity == "error"
 
     def test_print_report(self):
         from data_validation import DataValidationReport
@@ -60,7 +64,7 @@ class TestDataValidationReport:
         report.add_check("Check 2", True, "OK")
 
         # Check if all checks passed
-        all_passed = all(c["passed"] for c in report.checks)
+        all_passed = all(c.passed for c in report.checks)
         assert all_passed
 
     def test_is_valid_with_failure(self):
@@ -71,7 +75,7 @@ class TestDataValidationReport:
         report.add_check("Check 2", False, "Failed")
 
         # Check if any check failed
-        all_passed = all(c["passed"] for c in report.checks)
+        all_passed = all(c.passed for c in report.checks)
         assert not all_passed
 
 
@@ -221,7 +225,7 @@ class TestValidationChecks:
             f"{len(teams_found)} teams found, {len(missing)} missing",
         )
 
-        assert not report.checks[0]["passed"]
+        assert not report.checks[0].passed
 
     def test_date_range_check(self):
         from data_validation import DataValidationReport
