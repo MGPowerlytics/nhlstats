@@ -555,7 +555,7 @@ def _load_sport_data(
     try:
         from db_loader import NHLDatabaseLoader
 
-        loader = NHLDatabaseLoader(db=db_manager, sport=sport)
+        loader = NHLDatabaseLoader(db_manager=db_manager, sport=sport)
         return _load_sport_data_with_loader(sport, dates_to_process, date_str, loader)
     except Exception as e:
         print(f"⚠️ Failed to load data for {sport}: {e}")
@@ -582,27 +582,79 @@ def _load_sport_data_with_loader(
         Number of games loaded (int) or "all" for tennis
     """
     with loader:
-        if sport == "tennis":
-            # Tennis needs full history reload to capture new matches
-            loader.load_csv_history("Tennis", target_date=date_str)
-            return "all"
-        elif sport == "epl":
-            # EPL uses CSV files
-            loader.load_csv_history("EPL", target_date=date_str)
-            return "all"
-        elif sport == "ligue1":
-            # Ligue 1 uses CSV files
-            loader.load_csv_history("Ligue1", target_date=date_str)
-            return "all"
-        elif sport in ["ncaab", "wncaab", "unrivaled", "cba"]:
-            # Sports that use dedicated fetchers and standardized DataFrame loading
-            loader.load_sport_history_from_fetcher(sport)
-            return "all"
-        else:
-            count = 0
-            for d in dates_to_process:
-                count += loader.load_date(d)
-            return count
+        # Handle sports that need full history reload
+        if sport in _get_full_history_sports():
+            return _load_full_history_sport(sport, date_str, loader)
+
+        # Handle sports that use dedicated fetchers
+        if sport in _get_fetcher_based_sports():
+            return _load_fetcher_based_sport(sport, loader)
+
+        # Handle date-based sports (NBA, NHL, MLB, NFL)
+        return _load_date_based_sport(dates_to_process, loader)
+
+
+def _get_full_history_sports() -> List[str]:
+    """Get list of sports that require full history reload."""
+    return ["tennis", "epl", "ligue1"]
+
+
+def _get_fetcher_based_sports() -> List[str]:
+    """Get list of sports that use dedicated fetchers."""
+    return ["ncaab", "wncaab", "unrivaled", "cba"]
+
+
+def _load_full_history_sport(sport: str, date_str: str, loader: Any) -> str:
+    """Load sport data for sports requiring full history reload.
+
+    Args:
+        sport: Sport identifier
+        date_str: Current date string
+        loader: NHLDatabaseLoader instance
+
+    Returns:
+        Always returns "all" to indicate full history was loaded
+    """
+    # Map sport names to CSV history identifiers
+    csv_sport_map = {
+        "tennis": "Tennis",
+        "epl": "EPL",
+        "ligue1": "Ligue1"
+    }
+
+    csv_sport = csv_sport_map.get(sport, sport)
+    loader.load_csv_history(csv_sport, target_date=date_str)
+    return "all"
+
+
+def _load_fetcher_based_sport(sport: str, loader: Any) -> str:
+    """Load sport data for sports using dedicated fetchers.
+
+    Args:
+        sport: Sport identifier
+        loader: NHLDatabaseLoader instance
+
+    Returns:
+        Always returns "all" to indicate full history was loaded
+    """
+    loader.load_sport_history_from_fetcher(sport)
+    return "all"
+
+
+def _load_date_based_sport(dates_to_process: List[str], loader: Any) -> int:
+    """Load sport data for date-based sports (NBA, NHL, MLB, NFL).
+
+    Args:
+        dates_to_process: List of dates to process
+        loader: NHLDatabaseLoader instance
+
+    Returns:
+        Total number of games loaded
+    """
+    count = 0
+    for date in dates_to_process:
+        count += loader.load_date(date)
+    return count
 
 
 def _initialize_elo_system(sport: str, config) -> Any:

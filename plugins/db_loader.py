@@ -73,13 +73,14 @@ class DatabaseLoaderBase:
     """Base class for database loading operations with connection management."""
 
     def __init__(
-        self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None
+        self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None, sport: Optional[str] = None
     ) -> None:
         # Store db_path for tests that check loader.db_path
         self.db_path = Path(db_path) if db_path else Path("data/nhlstats.duckdb")
         self._conn = None
         self._schema_initialized = False
         self.db = db_manager or default_db
+        self.sport = sport.lower() if sport else None
 
     @property
     def conn(self):
