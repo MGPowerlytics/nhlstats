@@ -1,9 +1,14 @@
+import sys
+import os
+
+# Add both parent directory (for 'plugins.' prefix) and plugins directory to path
+sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
+sys.path.append(os.path.join(os.path.dirname(__file__), "../plugins"))
+
 import streamlit as st
 import pandas as pd
 import numpy as np
 import plotly.express as px
-import sys
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, List
 from zoneinfo import ZoneInfo
@@ -45,10 +50,6 @@ class ChartConfig:
     vline_color: str = "red"
     add_diagonal: bool = False
 
-
-# Add both parent directory (for 'plugins.' prefix) and plugins directory to path
-sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
-sys.path.append(os.path.join(os.path.dirname(__file__), "../plugins"))
 
 # Dashboard configuration constants
 RANDOM_SEED = 42  # For reproducible random operations

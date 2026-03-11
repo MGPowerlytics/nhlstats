@@ -229,34 +229,55 @@ class BetLoader:
     """Loads bet recommendations into PostgreSQL."""
 
     def __init__(
-        self, db_path: Optional[str] = None, db_manager: DBManager = default_db
+        self, db_manager: DBManager = default_db
     ) -> None:
         """Initialize the BetLoader with a database connection."""
-        # Store db_path for tests
-        self.db_path = Path(db_path) if db_path else Path("data/nhlstats.duckdb")
         self.db = db_manager
-        self._ensure_table()
+        self._table_initialized = False
+        self._upsert_bet = None
 
-        # Create reusable upsert function for bet recommendations
-        self._upsert_bet = create_entity_upserter(
-            table_name="bet_recommendations",
-            conflict_column="bet_id",
-            update_columns=[
-                "elo_prob",
-                "market_prob",
-                "edge",
-                "expected_value",
-                "kelly_fraction",
-                "confidence",
-                "home_rating",
-                "away_rating",
-            ],
-        )
+    def _lazy_initialize_table(self) -> None:
+        """Lazily initialize the table and upsert function when first needed."""
+        if not self._table_initialized:
+            self._ensure_table()
+            self._table_initialized = True
+
+            # Create reusable upsert function for bet recommendations
+            self._upsert_bet = create_entity_upserter(
+                table_name="bet_recommendations",
+                conflict_column="bet_id",
+                update_columns=[
+                    "elo_prob",
+                    "market_prob",
+                    "edge",
+                    "expected_value",
+                    "kelly_fraction",
+                    "confidence",
+                    "home_rating",
+                    "away_rating",
+                ],
+            )
 
     def _ensure_table(self) -> None:
-        """Create bet_recommendations table and associated indexes."""
-        self._create_bet_recommendations_table()
-        self._create_bet_recommendations_indexes()
+        """Create bet_recommendations table and associated indexes with retry logic."""
+        import time
+
+        max_retries = 3
+        retry_delay = 2  # seconds
+
+        for attempt in range(max_retries):
+            try:
+                self._create_bet_recommendations_table()
+                self._create_bet_recommendations_indexes()
+                print(f"✓ Successfully created bet_recommendations table (attempt {attempt + 1})")
+                return
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    print(f"⚠️  Failed to create table (attempt {attempt + 1}): {e}. Retrying in {retry_delay}s...")
+                    time.sleep(retry_delay)
+                else:
+                    print(f"❌ Failed to create table after {max_retries} attempts: {e}")
+                    raise
 
     def _create_bet_recommendations_table(self) -> None:
         """Create the bet_recommendations table schema."""
@@ -298,61 +319,99 @@ class BetLoader:
         """
         Load bets from JSON file into PostgreSQL for a given sport and date.
         """
-        bets_file = Path(f"data/{sport}/bets_{date_str}.json")
+        # Lazily initialize table and upsert function
+        self._lazy_initialize_table()
 
-        if not bets_file.exists():
-            print(f"⚠️  No bets file found for {sport} on {date_str}")
-            return 0
-
-        with open(bets_file, "r") as f:
-            bets = json.load(f)
-
-        if not bets:
-            print(f"ℹ️  No bets to load for {sport} on {date_str}")
+        bets = self._load_bets_from_file(sport, date_str)
+        if bets is None:
             return 0
 
         loaded = 0
         for i, bet in enumerate(bets):
             context = BetContext(sport=sport, date_str=date_str, index=i)
             recommendation = BetRecommendation.from_dict(bet, context)
-            params = recommendation.to_sql_params()
+            params = self._process_bet_params(recommendation, context)
 
-            # DEBUG: Log params before checks
-            # print(f"DEBUG: Params keys before checks: {list(params.keys())}")
-
-            # Double-check: ensure recommendation_date is present
-            if "recommendation_date" not in params:
-                print(
-                    f"⚠️  Adding missing 'recommendation_date' from context: {context.date_str}"
-                )
-                params["recommendation_date"] = context.date_str
-            else:
-                # DEBUG: Log that recommendation_date is present
-                # print(f"DEBUG: recommendation_date is present: {params['recommendation_date']}")
-                pass
-
-            # Safety check: ensure date_str is never in params (database column is recommendation_date)
-            if "date_str" in params:
-                print(
-                    f"⚠️  CRITICAL: Removing 'date_str' from params (should be 'recommendation_date'). Params keys: {list(params.keys())}"
-                )
-                del params["date_str"]
-            else:
-                # DEBUG: Log that date_str is not present (good!)
-                # print(f"DEBUG: date_str is not in params (good!)")
-                pass
-
-            # Final check before upsert
-            if "date_str" in params:
-                print(f"🚨 ERROR: date_str still in params right before upsert! Keys: {list(params.keys())}")
-                # Remove it one more time
-                del params["date_str"]
-
-            self._upsert_bet(self.db, params)
-            loaded += 1
+            if params:
+                self._upsert_bet(self.db, params)
+                loaded += 1
 
         print(f"✓ Loaded {loaded} {sport.upper()} bets for {date_str}")
         return loaded
+
+    def _load_bets_from_file(
+        self, sport: str, date_str: str
+    ) -> Optional[List[Dict[str, Any]]]:
+        """Load bets from JSON file for a given sport and date."""
+        bets_file = Path(f"data/{sport}/bets_{date_str}.json")
+
+        if not bets_file.exists():
+            print(f"⚠️  No bets file found for {sport} on {date_str}")
+            return None
+
+        with open(bets_file, "r") as f:
+            bets = json.load(f)
+
+        if not bets:
+            print(f"ℹ️  No bets to load for {sport} on {date_str}")
+            return None
+
+        return bets
+
+    def _process_bet_params(
+        self, recommendation: BetRecommendation, context: BetContext
+    ) -> Dict[str, Any]:
+        """Process bet recommendation and return cleaned SQL parameters."""
+        params = recommendation.to_sql_params()
+
+        # NUCLEAR OPTION: Log what we got from to_sql_params()
+        print(f"🔍 NUCLEAR DEBUG _process_bet_params: params from to_sql_params(): {list(params.keys())}")
+        if "date_str" in params:
+            print(f"🚨 NUCLEAR DEBUG _process_bet_params: date_str is in params! Value: {params['date_str']}")
+        if "recommendation_date" in params:
+            print(f"🔍 NUCLEAR DEBUG _process_bet_params: recommendation_date is in params! Value: {params['recommendation_date']}")
+
+        # Ensure recommendation_date is present
+        params = self._ensure_recommendation_date(params, context)
+
+        # Remove date_str if present (database column is recommendation_date)
+        params = self._remove_date_str_from_params(params)
+
+        # FINAL NUCLEAR OPTION: Remove date_str no matter what
+        if "date_str" in params:
+            print(f"🚨 FINAL NUCLEAR OPTION: date_str STILL in params after all cleaning! Removing...")
+            del params["date_str"]
+        params.pop("date_str", None)  # Use pop with default for safety
+
+        # FINAL CHECK: Log final params
+        print(f"🔍 NUCLEAR DEBUG _process_bet_params: FINAL params: {list(params.keys())}")
+
+        return params
+
+    def _ensure_recommendation_date(
+        self, params: Dict[str, Any], context: BetContext
+    ) -> Dict[str, Any]:
+        """Ensure recommendation_date is present in params."""
+        if "recommendation_date" not in params:
+            print(
+                f"⚠️  Adding missing 'recommendation_date' from context: {context.date_str}"
+            )
+            params["recommendation_date"] = context.date_str
+
+        return params
+
+    def _remove_date_str_from_params(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Remove date_str from params (database column is recommendation_date)."""
+        if "date_str" in params:
+            print(
+                f"⚠️  CRITICAL: Removing 'date_str' from params (should be 'recommendation_date'). Params keys: {list(params.keys())}"
+            )
+            del params["date_str"]
+
+        # Final safety check
+        params.pop("date_str", None)
+
+        return params
 
     # _upsert_bet is created dynamically in __init__ using create_entity_upserter
 
@@ -360,6 +419,9 @@ class BetLoader:
         self, start_date: Optional[str] = None, end_date: Optional[str] = None
     ) -> List[List[Any]]:
         """Get summary of bet recommendations by sport and date."""
+        # Lazily initialize table if needed
+        self._lazy_initialize_table()
+
         query = """
             SELECT
                 sport,

@@ -184,7 +184,8 @@ class TestNewEloInterface:
         matchup = Matchup(home_team="Federer R.", away_team="Nadal R.", is_neutral=True)
         result = GameResult(home_won=True)
 
-        change = elo.update(matchup=matchup, result=result, tour="ATP")
+        # Pass matchup as home_team and result as away_team (BaseEloRating interface)
+        change = elo.update(home_team=matchup, away_team=result, tour="ATP")
         assert change > 0
         assert elo.get_rating("Federer R.", tour="ATP") > 1500
         assert elo.get_rating("Nadal R.", tour="ATP") < 1500

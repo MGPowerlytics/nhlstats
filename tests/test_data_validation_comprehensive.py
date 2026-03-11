@@ -4,7 +4,8 @@ import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import tempfile
-import duckdb
+from plugins.db_manager import default_db
+from sqlalchemy import text
 
 # Add plugins directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
@@ -243,37 +244,33 @@ class TestValidationChecks:
 class TestDatabaseQueries:
     """Test database query execution in validation"""
 
-    def test_with_temp_database(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test.duckdb"
-            conn = duckdb.connect(str(db_path))
+    def test_with_test_database(self):
+        # Create games table with PRIMARY KEY
+        default_db.execute("""
+            CREATE TABLE IF NOT EXISTS games (
+                game_id VARCHAR PRIMARY KEY,
+                game_date DATE,
+                home_team_name VARCHAR,
+                away_team_name VARCHAR,
+                home_score INTEGER,
+                away_score INTEGER,
+                game_state VARCHAR,
+                season INTEGER
+            )
+        """)
 
-            # Create games table with PRIMARY KEY (required for ON CONFLICT in SQLite tests)
-            conn.execute("""
-                CREATE TABLE games (
-                    game_id VARCHAR PRIMARY KEY,
-                    game_date DATE,
-                    home_team_name VARCHAR,
-                    away_team_name VARCHAR,
-                    home_score INTEGER,
-                    away_score INTEGER,
-                    game_state VARCHAR,
-                    season INTEGER
-                )
-            """)
+        # Insert test data
+        default_db.execute("""
+            INSERT INTO games (game_id, game_date, home_team_name, away_team_name, home_score, away_score, game_state, season)
+            VALUES
+            ('G1', '2024-01-15', 'Bruins', 'Rangers', 4, 2, 'OFF', 2024),
+            ('G2', '2024-01-16', 'Rangers', 'Bruins', 3, 5, 'FINAL', 2024)
+            ON CONFLICT (game_id) DO NOTHING
+        """)
 
-            # Insert test data
-            conn.execute("""
-                INSERT INTO games VALUES
-                ('G1', '2024-01-15', 'Bruins', 'Rangers', 4, 2, 'OFF', 2024),
-                ('G2', '2024-01-16', 'Rangers', 'Bruins', 3, 5, 'FINAL', 2024)
-            """)
-
-            # Query
-            result = conn.execute("SELECT COUNT(*) FROM games").fetchone()
-            assert result[0] == 2
-
-            conn.close()
+        # Query
+        result = default_db.fetch_df("SELECT COUNT(*) as count FROM games WHERE game_id IN ('G1', 'G2')")
+        assert result.iloc[0]["count"] >= 2
 
 
 class TestMultipleSports:

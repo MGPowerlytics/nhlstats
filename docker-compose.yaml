@@ -376,6 +376,7 @@ services:
       - ${AIRFLOW_PROJ_DIR:-.}:/opt/airflow
     working_dir: /opt/airflow
     environment:
+      - PYTHONPATH=/opt/airflow/plugins:/opt/airflow
       - PYTHONUNBUFFERED=1
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432

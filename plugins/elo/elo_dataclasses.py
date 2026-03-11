@@ -5,7 +5,7 @@ This module contains all the shared dataclasses to avoid circular dependencies
 and provide a single source of truth for data structures.
 """
 
-from typing import Dict, Optional, Union, Any
+from typing import Optional, Union
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -37,6 +37,19 @@ class Matchup:
     away_team: str
     is_neutral: bool = False
     game_date: Optional[datetime] = None
+
+
+@dataclass
+class GameScores:
+    """Represents game scores for backward compatibility updates."""
+
+    home_score: float
+    away_score: float
+
+    @property
+    def home_won(self) -> bool:
+        """Determine if home team won based on scores."""
+        return self.home_score > self.away_score
 
 
 @dataclass
@@ -79,3 +92,53 @@ class UpdateArgs:
     def from_kwargs(cls, **kwargs) -> "UpdateArgs":
         """Create UpdateArgs from keyword arguments."""
         return cls(**kwargs)
+
+    def extract_matchup_info(self) -> tuple[str, str, bool]:
+        """
+        Extract home team, away team, and is_neutral from UpdateArgs.
+
+        Returns:
+            Tuple of (home_team_str, away_team_str, is_neutral)
+
+        Raises:
+            ValueError: If UpdateArgs doesn't contain valid team information
+        """
+        # Extract from Matchup object if present
+        if self.matchup is not None:
+            return (
+                self.matchup.home_team,
+                self.matchup.away_team,
+                self.matchup.is_neutral,
+            )
+
+        # Extract from home_team/away_team strings if present
+        if isinstance(self.home_team, str):
+            home_team_str = self.home_team
+            away_team_str = self.away_team if isinstance(self.away_team, str) else ""
+            return (home_team_str, away_team_str, self.is_neutral)
+
+        raise ValueError(
+            "UpdateArgs must contain either home_team/away_team strings or a Matchup object"
+        )
+
+    def extract_score_info(self) -> tuple[float, float]:
+        """
+        Extract home score and away score from UpdateArgs.
+
+        Returns:
+            Tuple of (home_score_val, away_score_val)
+
+        Raises:
+            ValueError: If UpdateArgs doesn't contain valid score information
+        """
+        # Extract from direct score fields if present
+        if self.home_score is not None and self.away_score is not None:
+            return (self.home_score, self.away_score)
+
+        # Extract from GameResult if present
+        if self.result is not None:
+            home_score_val = self.result.home_score or 0.0
+            away_score_val = self.result.away_score or 0.0
+            return (home_score_val, away_score_val)
+
+        raise ValueError("UpdateArgs must contain scores")

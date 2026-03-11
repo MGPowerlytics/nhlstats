@@ -6,7 +6,7 @@ Base classes and utilities for sport-specific game data fetchers.
 import requests
 import time
 from pathlib import Path
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple
 from dataclasses import dataclass
 
 # HTTP Status Codes
@@ -40,7 +40,7 @@ class RequestConfig:
         headers: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
-        Make HTTP request with exponential backoff for rate limits and errors.
+        Make HTTP request with exponential backoff with jitter for rate limits and errors.
 
         Args:
             url: The URL to fetch.
@@ -55,39 +55,102 @@ class RequestConfig:
         """
         for attempt in range(self.max_retries):
             try:
-                response = requests.get(
-                    url, params=params, headers=headers, timeout=self.timeout
-                )
-
-                # Handle rate limiting (429)
-                if response.status_code == HTTP_TOO_MANY_REQUESTS:
-                    wait_time = (2**attempt) * self.base_wait_time
-                    print(
-                        f"Rate limited ({HTTP_TOO_MANY_REQUESTS}). Waiting {wait_time}s before retry {attempt + 1}/{self.max_retries}"
-                    )
-                    time.sleep(wait_time)
-                    continue
-
-                # Handle resource not found (404)
-                if response.status_code == HTTP_NOT_FOUND:
-                    print(f"  Resource not found ({HTTP_NOT_FOUND}): {url}")
-                    return {}
-
-                response.raise_for_status()
-                return response.json()
-
+                return self._execute_single_attempt(url, params, headers, attempt)
             except requests.exceptions.RequestException as e:
-                if attempt == self.max_retries - 1:
-                    print(f"Final retry failed for {url}: {e}")
-                    raise
-
-                wait_time = (2**attempt) * self.base_wait_time
-                print(
-                    f"Request failed: {e}. Retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})..."
-                )
-                time.sleep(wait_time)
+                if self._should_retry(attempt, e):
+                    self._handle_retry(url, e, attempt)
+                    continue
+                raise
 
         raise Exception(f"Failed to fetch {url} after {self.max_retries} attempts")
+
+    def _execute_single_attempt(
+        self,
+        url: str,
+        params: Optional[Dict[str, Any]],
+        headers: Optional[Dict[str, Any]],
+        attempt: int,
+    ) -> Dict[str, Any]:
+        """Execute a single HTTP request attempt with error handling."""
+        response = requests.get(
+            url, params=params, headers=headers, timeout=self.timeout
+        )
+
+        # Handle rate limiting (already sleeps internally)
+        if self._handle_rate_limit(response, attempt):
+            raise requests.exceptions.RequestException("Rate limited, retry loop will continue")
+
+        if self._handle_not_found(response, url):
+            return {}
+
+        response.raise_for_status()
+        return response.json()
+
+    def _should_retry(self, attempt: int, error: Exception) -> bool:
+        """Determine if a request should be retried."""
+        return attempt < self.max_retries - 1
+
+    def _handle_retry(self, url: str, error: Exception, attempt: int) -> None:
+        """Handle retry logic with exponential backoff."""
+        wait_time = self._calculate_wait_time(attempt, max_wait=60.0)
+        print(
+            f"Request failed for {url}: {error}. "
+            f"Retrying in {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})..."
+        )
+        time.sleep(wait_time)
+
+    def _handle_rate_limit(self, response: requests.Response, attempt: int) -> bool:
+        """Handle rate limiting (429) response with exponential backoff.
+
+        Args:
+            response: HTTP response object
+            attempt: Current retry attempt number (0-indexed)
+
+        Returns:
+            True if rate limited and should retry, False otherwise
+        """
+
+        if response.status_code == HTTP_TOO_MANY_REQUESTS:
+            wait_time = self._calculate_wait_time(attempt, max_wait=120.0)
+            print(
+                f"Rate limited ({HTTP_TOO_MANY_REQUESTS}). "
+                f"Waiting {wait_time:.1f}s (attempt {attempt + 1}/{self.max_retries})"
+            )
+            time.sleep(wait_time)
+            return True
+        return False
+
+    def _handle_not_found(self, response: requests.Response, url: str) -> bool:
+        """Handle 404 Not Found response.
+
+        Args:
+            response: HTTP response object
+            url: The URL that was requested
+
+        Returns:
+            True if resource was not found (404), False otherwise
+        """
+        if response.status_code == HTTP_NOT_FOUND:
+            print(f"  Resource not found ({HTTP_NOT_FOUND}): {url}")
+            return True
+        return False
+
+    def _calculate_wait_time(self, attempt: int, max_wait: float = 60.0) -> float:
+        """Calculate exponential backoff wait time with jitter.
+
+        Args:
+            attempt: Current retry attempt number (0-indexed)
+            max_wait: Maximum wait time in seconds
+
+        Returns:
+            Wait time in seconds
+        """
+        import random
+
+        base_wait = (2**attempt) * self.base_wait_time
+        jitter = random.uniform(0.8, 1.2)  # ±20% jitter
+        wait_time = base_wait * jitter
+        return min(wait_time, max_wait)
 
 
 # Massey Ratings Constants

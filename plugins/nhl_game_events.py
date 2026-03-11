@@ -3,12 +3,7 @@
 Download NHL game event data including shots, goals, hits, and other events with coordinates.
 """
 
-import requests
 import json
-import time
-from pathlib import Path
-
-
 from plugins.base_games import BaseGamesFetcher
 
 
@@ -26,7 +21,16 @@ class NHLGameEvents(BaseGamesFetcher):
         Date format: YYYY-MM-DD
         """
         url = f"{self.BASE_URL}/schedule/{date_str}"
-        return self._make_request(url)
+        # NHL API is particularly sensitive to rate limiting
+        # Use more retries and longer base wait time
+        from plugins.base_games import RequestConfig
+
+        nhl_config = RequestConfig(
+            max_retries=8,  # More retries for NHL
+            base_wait_time=3,  # Longer base wait time
+            timeout=45,  # Longer timeout for NHL API
+        )
+        return self._make_request(url, request_config=nhl_config)
 
     def get_season_schedule(self, season="20232024"):
         """
@@ -34,7 +38,15 @@ class NHLGameEvents(BaseGamesFetcher):
         Season format: YYYYYYYY (e.g., 20232024 for 2023-24 season)
         """
         url = f"{self.BASE_URL}/schedule/{season}"
-        return self._make_request(url)
+        # NHL API is particularly sensitive to rate limiting
+        from plugins.base_games import RequestConfig
+
+        nhl_config = RequestConfig(
+            max_retries=8,  # More retries for NHL
+            base_wait_time=3,  # Longer base wait time
+            timeout=45,  # Longer timeout for NHL API
+        )
+        return self._make_request(url, request_config=nhl_config)
 
     def get_game_data(self, game_id):
         """

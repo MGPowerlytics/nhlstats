@@ -52,7 +52,12 @@ class SoccerEloRating(BaseEloRating):
         """
         if is_neutral:
             return home_rating
-        return home_rating + self.config.home_advantage
+        # Use the home_advantage property which handles the case where config might be None
+        try:
+            return home_rating + self.home_advantage
+        except AttributeError:
+            # Fallback to default home advantage if config is not available
+            return home_rating + 60.0  # Default soccer home advantage
 
     def update(
         self,
@@ -81,16 +86,25 @@ class SoccerEloRating(BaseEloRating):
         parsed = self.parser.parse_update_args(
             home_team=home_team, away_team=away_team, home_won=home_won, **kwargs
         )
-        
+
+        # Extract values from parsed object to reduce feature envy
+        home_team_name = parsed.matchup.home_team
+        away_team_name = parsed.matchup.away_team
+        home_won_result = parsed.result.home_won
+
         # Extract soccer-specific parameters
-        is_neutral = kwargs.get('is_neutral', False)
-        
+        is_neutral = kwargs.get("is_neutral", False)
+
         # Get current ratings
-        if parsed.matchup.home_team is None or parsed.matchup.away_team is None:
+        if home_team_name is None or away_team_name is None:
             raise ValueError("Matchup must have both home and away teams")
-        
-        rh = self.get_rating(parsed.matchup.home_team)
-        ra = self.get_rating(parsed.matchup.away_team)
+
+        # Type narrowing: after the check above, we know these are not None
+        home_team_name_str: str = home_team_name
+        away_team_name_str: str = away_team_name
+
+        rh = self.get_rating(home_team_name_str)
+        ra = self.get_rating(away_team_name_str)
 
         # Apply home advantage if not neutral
         try:
@@ -100,31 +114,38 @@ class SoccerEloRating(BaseEloRating):
             if is_neutral:
                 home_rating_with_adv = rh
             else:
-                home_rating_with_adv = rh + self.config.home_advantage
+                # Handle case where config might be None
+                try:
+                    home_rating_with_adv = rh + self.config.home_advantage
+                except AttributeError:
+                    # Default soccer home advantage
+                    home_rating_with_adv = rh + 60.0
 
         # Calculate expected score for home team
         expected_home = self.expected_score(home_rating_with_adv, ra)
 
         # Determine actual score based on result
-        if parsed.result.home_won is True:
+        if home_won_result is True:
             actual_home = 1.0
-        elif parsed.result.home_won is False:
+        elif home_won_result is False:
             actual_home = 0.0
-        elif parsed.result.home_won == 0.5:
+        elif home_won_result == 0.5:
             actual_home = 0.5
         else:
             # For score margin, use logistic transformation
             # Max margin effect capped at 2.0 (equivalent to ~0.88 probability)
-            margin = min(max(float(parsed.result.home_won), -2.0), 2.0)
+            margin = min(max(float(home_won_result), -2.0), 2.0)
             actual_home = 1.0 / (1.0 + math.exp(-margin))
 
         # Calculate rating changes
-        home_change = self.calculator.calculate_rating_change(expected_home, actual_home)
+        home_change = self.calculator.calculate_rating_change(
+            expected_home, actual_home
+        )
 
         # Update ratings (Zero-sum)
-        self.ratings[parsed.matchup.home_team] = rh + home_change
-        self.ratings[parsed.matchup.away_team] = ra - home_change
-        
+        self.ratings[home_team_name_str] = rh + home_change
+        self.ratings[away_team_name_str] = ra - home_change
+
         return home_change
 
     def predict_probs(
@@ -149,6 +170,10 @@ class SoccerEloRating(BaseEloRating):
             ra = self.get_rating(matchup.away_team)
             is_neutral = matchup.is_neutral
         else:
+            if away_team is None:
+                raise ValueError(
+                    "away_team must be provided when home_team is a string"
+                )
             rh = self.get_rating(home_team)
             ra = self.get_rating(away_team)
 

@@ -107,7 +107,10 @@ def mock_db_manager_to_test_engine():
 
 
 def translate_sql(sql):
-    """Translate Postgres/DuckDB SQL to SQLite for tests."""
+    """Translate Postgres SQL to SQLite for tests."""
+    # Handle TextClause objects from SQLAlchemy
+    if hasattr(sql, 'text'):
+        sql = sql.text
     sql_upper = sql.strip().upper()
     sql_normalized = " ".join(sql_upper.split())
 
@@ -324,50 +327,6 @@ def patch_sqlalchemy_execute_for_duckdb_compat():
 
     with patch.object(Connection, "execute", mocked_execute):
         yield
-
-
-@pytest.fixture(autouse=True)
-def silence_duckdb():
-    """Mock duckdb.connect to redirect to our SQLite test engine."""
-    with patch("duckdb.connect") as mock:
-
-        class DuckDBBridge:
-            def __init__(self, engine):
-                self.engine = engine
-                self._conn = None
-
-            @property
-            def conn(self):
-                if not self._conn:
-                    self._conn = self.engine.connect()
-                return self._conn
-
-            def execute(self, sql, params=None):
-                sql = translate_sql(sql)
-                try:
-                    res = self.conn.execute(text(sql), params or {})
-                    self.conn.commit()
-                    return res
-                except Exception as e:
-                    # Log error?
-                    raise e
-
-            def fetchall(self):
-                return []
-
-            def fetchdf(self):
-                return []
-
-            def close(self):
-                if self._conn:
-                    self._conn.close()
-                    self._conn = None
-
-            def __getattr__(self, name):
-                return getattr(self.conn, name)
-
-        mock.return_value = DuckDBBridge(_TEST_ENGINE)
-        yield mock
 
 
 # ============================================================================

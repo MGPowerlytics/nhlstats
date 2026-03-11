@@ -49,6 +49,14 @@ Every improvement you make should ultimately serve the goal of increasing the pr
     - ANY FAILED AIRFLOW TASKS. FIX THESE FIRST.
     - ENSURE YOU MARK FIXED TASKS AS SUCCESS IN AIRFLOW SO WE DONT FIX THE SAME ISSUE AGAIN.
 
+   **⛔ CRITICAL DAG RUN RULE — NEVER VIOLATE THIS:**
+    - **NEVER trigger a new DagRun** of multi_sport_betting_workflow (or any DAG). Do NOT use `airflow dags trigger` or `airflow dags test`.
+    - To verify a fix worked, **CLEAR the failed task instances** from the existing failed DagRun and let Airflow re-run them automatically.
+    - Use: `docker exec nhlstats-airflow-apiserver-1 airflow tasks clear -s <start> -e <end> -t <task_id> multi_sport_betting_workflow`
+    - Or clear all failed tasks in a run: `docker exec nhlstats-airflow-apiserver-1 airflow tasks clear -s <start> -e <end> --only-failed multi_sport_betting_workflow`
+    - After clearing, the DagRun state resets to "running" and Airflow re-executes the cleared tasks within the EXISTING run.
+    - **DO NOT generate new DagRuns. CLEAR OUT the failing tasks and reset the DAG state to running.**
+
    **HIGH PRIORITY (Profitability):**
     - Fix any bugs that could lead to incorrect predictions or lost bets.
     - Random audits of airflow tasks to identify and fix any issues.
@@ -81,10 +89,14 @@ docker exec nhlstats-airflow-apiserver-1 airflow tasks states-for-dag-run multi_
 # Get status of a single task instance
 docker exec nhlstats-airflow-apiserver-1 airflow tasks state multi_sport_betting_workflow <task_id> "<run_id>"
 
-# Mark a task as success (to avoid re-fixing the same issue)
-docker exec nhlstats-airflow-apiserver-1 airflow tasks clear -s <YYYY-MM-DD> -e <YYYY-MM-DD> multi_sport_betting_workflow
-# Or mark success via the API server directly:
-docker exec nhlstats-airflow-apiserver-1 airflow tasks state multi_sport_betting_workflow <task_id> "<run_id>"
+# ⛔ NEVER USE: airflow dags trigger — DO NOT CREATE NEW DAGRUNS!
+# Instead, CLEAR failed tasks so Airflow re-runs them within the EXISTING DagRun:
+
+# Clear a specific failed task (resets it so Airflow re-runs it):
+docker exec nhlstats-airflow-apiserver-1 airflow tasks clear -s <YYYY-MM-DD> -e <YYYY-MM-DD> -t <task_id> multi_sport_betting_workflow
+
+# Clear ALL failed tasks in a date range (resets DagRun state to running):
+docker exec nhlstats-airflow-apiserver-1 airflow tasks clear -s <YYYY-MM-DD> -e <YYYY-MM-DD> --only-failed multi_sport_betting_workflow
 
 # Read scheduler logs (recent activity)
 docker logs nhlstats-airflow-scheduler-1 --tail 50
@@ -99,6 +111,7 @@ docker compose ps
 **Note:** `airflow dags list-runs` requires `dag_id` as a positional argument — `--dag-id` flag does NOT exist in Airflow 3.x.
 **Note:** `airflow tasks logs` does NOT exist — use `docker logs nhlstats-airflow-worker-1` instead.
 **Note:** Task log files are also available at `/mnt/data2/nhlstats/logs/dag_id=<dag>/run_id=<run>/task_id=<task>/`.
+**⛔ ABSOLUTE RULE:** NEVER use `airflow dags trigger` or `airflow dags test`. To verify fixes, CLEAR the failed tasks with `airflow tasks clear` and let Airflow re-run them in the EXISTING DagRun. Creating new DagRuns causes duplicate runs and scheduling chaos.
 
 ## Execution Steps
 

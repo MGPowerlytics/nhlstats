@@ -6,8 +6,7 @@ Inherits from BaseEloRating for unified interface.
 Handles 3-way outcomes (Home, Draw, Away).
 """
 
-import math
-from typing import Dict, Union
+from typing import Union
 
 from plugins.elo.soccer_elo_rating import SoccerEloRating
 
@@ -73,8 +72,15 @@ class EPLEloRating(SoccerEloRating):
         return self.k_factor * (0.5 if result == "D" else (1.0 if home_won else 0.0))
 
 
-def calculate_current_elo_ratings(csv_path="data/epl/E0.csv"):
-    """Calculate current ratings from season CSV."""
+def calculate_current_elo_ratings(csv_path: str = "data/epl/E0.csv") -> EPLEloRating:
+    """Calculate current ratings from season CSV.
+
+    Args:
+        csv_path: Path to the CSV file containing EPL game data.
+
+    Returns:
+        EPLEloRating: Elo rating system with ratings calculated from historical data.
+    """
     from epl_games import EPLGames
 
     epl_games = EPLGames()

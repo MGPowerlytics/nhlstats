@@ -43,10 +43,13 @@ class TestTennisEloInheritance:
         import inspect
 
         predict_sig = inspect.signature(elo.predict)
-        # Tennis predict has different parameters than base
-        assert "player_a" in predict_sig.parameters
-        assert "player_b" in predict_sig.parameters
+        # Tennis predict now matches BaseEloRating interface with home_team/away_team
+        assert "home_team" in predict_sig.parameters
+        assert "away_team" in predict_sig.parameters
+        assert "is_neutral" in predict_sig.parameters
         assert "tour" in predict_sig.parameters
+        # tour is keyword-only
+        assert predict_sig.parameters["tour"].kind == inspect.Parameter.KEYWORD_ONLY
 
         update_sig = inspect.signature(elo.update)
         # Tennis update has been refactored to match base interface

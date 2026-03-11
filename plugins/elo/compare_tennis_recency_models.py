@@ -241,23 +241,21 @@ except Exception:  # pragma: no cover
 
 
 def _load_matches_from_db(
-    db_path: Path,
     filters: MatchFilter,
 ) -> pd.DataFrame:
-    import duckdb
+    from plugins.db_manager import default_db
 
-    conn = duckdb.connect(str(db_path), read_only=True)
     where = []
-    params: List[object] = []
+    params = {}
     if filters.tour in {"ATP", "WTA"}:
-        where.append("tour = ?")
-        params.append(filters.tour)
+        where.append("tour = :tour")
+        params["tour"] = filters.tour
     if filters.since:
-        where.append("game_date >= ?")
-        params.append(filters.since)
+        where.append("game_date >= :since")
+        params["since"] = filters.since
     if filters.until:
-        where.append("game_date <= ?")
-        params.append(filters.until)
+        where.append("game_date <= :until")
+        params["until"] = filters.until
 
     where_sql = ("WHERE " + " AND ".join(where)) if where else ""
     query = f"""
@@ -266,8 +264,7 @@ def _load_matches_from_db(
         {where_sql}
         ORDER BY game_date ASC
     """
-    df = conn.execute(query, params).fetchdf()
-    conn.close()
+    df = default_db.fetch_df(query, params)
     return df
 
 
@@ -316,7 +313,6 @@ def _dataframe_to_matches(df: pd.DataFrame) -> List[TennisMatch]:
 
 def load_tennis_matches(
     *,
-    db_path: Path = Path("data/nhlstats.duckdb"),
     csv_dir: Path = Path("data/tennis"),
     filters: Optional[MatchFilter] = None,
 ) -> List[TennisMatch]:
@@ -325,9 +321,11 @@ def load_tennis_matches(
 
     filters.tour = filters.tour.upper()
 
-    if db_path.exists():
-        df = _load_matches_from_db(db_path, filters)
-    else:
+    # Try database first
+    try:
+        df = _load_matches_from_db(filters)
+    except Exception:
+        # Fallback to CSV
         df = _load_matches_from_csv(csv_dir, filters)
 
     if df.empty:
@@ -686,11 +684,6 @@ def parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Compare tennis recency/momentum/TrueSkill variants"
     )
-    p.add_argument(
-        "--db-path",
-        default="data/nhlstats.duckdb",
-        help="DuckDB path (use a snapshot if the main DB is locked)",
-    )
     p.add_argument("--tour", default="ALL", help="ATP|WTA|ALL")
     p.add_argument("--since", default=None, help="YYYY-MM-DD")
     p.add_argument("--until", default=None, help="YYYY-MM-DD")
@@ -721,7 +714,6 @@ def main(argv: Optional[Sequence[str]] = None) -> None:
     args = parse_args(argv)
 
     matches = load_tennis_matches(
-        db_path=Path(str(args.db_path)),
         filters=MatchFilter(
             tour=str(args.tour),
             since=args.since,

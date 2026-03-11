@@ -29,9 +29,15 @@ KEEP THIS PROJECT ORGANIZED, NEAT AND WELL-DOCUMENTED. FOLLOW THE CODING CONVENT
 10. Data goes in the database. That's what it exists for. Do not create random CSVs or JSON files outside of the data/ directory unless absolutely necessary. JSON and CSV are considered RAW and UNCLEAN. THEY ARE NOT ACCEPTABLE FOR PRODUCTION USAGE. ALWAYS USE THE DATABASE FOR PRODUCTION DATA STORAGE.
 11. Don't ask if you can or should do something - just do it, following these instructions and best practices
 
+### Database Usage
+- **ONLY USE POSTGRESQL.** DuckDB is strictly forbidden and must not be used in any part of the production codebase or tests.
+- All data must be stored in the PostgreSQL database.
+- Use `plugins/db_manager.py` for database connections.
+
 ## Technology Stack
 
 - **Python 3.10+**
+- **PostgreSQL** (Mandatory - DuckDB is forbidden)
 ## Project Structure
 
 ```

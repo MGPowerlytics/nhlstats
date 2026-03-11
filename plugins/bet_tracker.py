@@ -1,7 +1,7 @@
-"""Sync and track Kalshi fills in DuckDB.
+"""Sync and track Kalshi fills in PostgreSQL.
 
 This script is invoked by the Streamlit dashboard to sync fills and market
-metadata (close time/title) into DuckDB so the UI can show "open bets" along
+metadata (close time/title) into PostgreSQL so the UI can show "open bets" along
 with scheduled times in Eastern.
 """
 
@@ -691,7 +691,7 @@ def _process_and_save_fills(
     return added_count, updated_count
 
 
-def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default_db):
+def sync_bets_to_database(db: DBManager = default_db):
     """Sync all bets from Kalshi API to PostgreSQL database.
 
     Returns:
@@ -736,7 +736,6 @@ def sync_bets_to_database(db_path: Optional[str] = None, db: DBManager = default
 
 
 def get_betting_summary(
-    db_path: Optional[str] = None,
     db: DBManager = default_db,
     date: Optional[str] = None,
 ):

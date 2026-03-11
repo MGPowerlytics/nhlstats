@@ -98,6 +98,14 @@ class CSVHistoryLoader:
                 ),
                 "sport_name": "EPL",
             },
+            "Ligue1": {
+                "data_dir": Path("data/ligue1"),
+                "pattern": "F1_*.csv",
+                "loader_func": lambda file_path, target_date: self._load_csv_for_sport(
+                    "ligue1", file_path, target_date
+                ),
+                "sport_name": "Ligue1",
+            },
             "Tennis": {
                 "data_dir": Path("data/tennis"),
                 "pattern": "*_*.csv",
@@ -176,7 +184,7 @@ class CSVHistoryLoader:
             return
 
         # Apply date filter if provided
-        df = self._apply_date_filter(df, config.target_date, config.date_column)
+        df = self._apply_date_filter(df, config)
         if df is None:
             return
 
@@ -237,32 +245,34 @@ class CSVHistoryLoader:
         self, df: pd.DataFrame, config: CSVLoadConfig
     ) -> Optional[pd.DataFrame]:
         """Validate and parse date column in DataFrame."""
+        # Extract configuration values to reduce coupling
+        require_date_column = config.require_date_column
+        date_column = config.date_column
+        date_format = config.date_format
+        date_errors = config.date_errors
+
         # Check for required date column
-        if config.require_date_column and config.date_column not in df.columns:
+        if require_date_column and date_column not in df.columns:
             return None
 
         # Parse date column if it exists
-        if config.date_column in df.columns:
-            parse_kwargs: Dict[str, Any] = {
-                "dayfirst": config.date_format == "dayfirst"
-            }
-            if config.date_errors:
-                parse_kwargs["errors"] = config.date_errors
-            df[config.date_column] = pd.to_datetime(
-                df[config.date_column], **parse_kwargs
-            )
+        if date_column in df.columns:
+            parse_kwargs: Dict[str, Any] = {"dayfirst": date_format == "dayfirst"}
+            if date_errors:
+                parse_kwargs["errors"] = date_errors
+            df[date_column] = pd.to_datetime(df[date_column], **parse_kwargs)
 
         return df
 
     def _apply_date_filter(
-        self, df: pd.DataFrame, target_date: Optional[str], date_column: str
+        self, df: pd.DataFrame, config: CSVLoadConfig
     ) -> Optional[pd.DataFrame]:
         """Apply date filter to DataFrame if target date provided."""
-        if not target_date or date_column not in df.columns:
+        if not config.target_date or config.date_column not in df.columns:
             return df
 
-        target_dt = datetime.strptime(target_date, "%Y-%m-%d")
-        filtered_df = df[df[date_column] == target_dt]
+        target_dt = datetime.strptime(config.target_date, "%Y-%m-%d")
+        filtered_df = df[df[config.date_column] == target_dt]
 
         if filtered_df.empty:
             return None
@@ -351,6 +361,22 @@ class CSVHistoryLoader:
                 require_date_column=False,
                 target_date=target_date,
             )
+        elif sport == "ligue1":
+            season_code = file_path.stem.replace("F1_", "")
+
+            return CSVLoadConfig(
+                encoding=None,  # No specific encoding
+                fallback_encoding=False,
+                date_column="Date",
+                date_format="dayfirst",
+                date_errors=None,  # No error coercion
+                metadata_extractor=lambda fp: {"season_code": season_code},
+                row_processor=lambda row, metadata: self._process_csv_row(
+                    "ligue1", row, season_code=metadata["season_code"]
+                ),
+                require_date_column=False,
+                target_date=target_date,
+            )
         else:
             raise ValueError(f"Unsupported sport for CSV loading: {sport}")
 
@@ -369,3 +395,43 @@ class CSVHistoryLoader:
         """
         config = self._get_csv_load_config_for_sport(sport, file_path, target_date)
         self._load_sport_csv(file_path=file_path, sport=sport, config=config)
+
+    def load_sport_history_from_fetcher(self, sport: str) -> None:
+        """Load history for sports that use a dedicated fetcher class (NCAAB, WNCAAB, Unrivaled, CBA).
+
+        Args:
+            sport: Sport name
+        """
+        sport_lower = sport.lower()
+        if sport_lower == "ncaab":
+            from plugins.ncaab_games import NCAABGames
+            fetcher = NCAABGames()
+        elif sport_lower == "wncaab":
+            from plugins.wncaab_games import WNCAABGames
+            fetcher = WNCAABGames()
+        elif sport_lower == "unrivaled":
+            from plugins.unrivaled_games import UnrivaledGames
+            fetcher = UnrivaledGames()
+        elif sport_lower == "cba":
+            from plugins.cba_games import CBAGames
+            fetcher = CBAGames()
+        else:
+            raise ValueError(f"Unsupported sport for fetcher-based loading: {sport}")
+
+        print(f"📥 Loading {sport.upper()} history from fetcher...")
+        df = fetcher.load_games()
+
+        processor = get_csv_processor(sport, self.db)
+        if not processor:
+            print(f"⚠️ No processor found for {sport}")
+            return
+
+        count = 0
+        for _, row in df.iterrows():
+            try:
+                processor.process_row(row)
+                count += 1
+            except Exception:
+                pass
+
+        print(f"✓ Loaded {count} {sport.upper()} games into database")

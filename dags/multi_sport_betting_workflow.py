@@ -5,7 +5,7 @@ Unified workflow for NBA, NHL, MLB, and NFL betting opportunities using Elo rati
 
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 import sys
 import json
 import smtplib
@@ -508,19 +508,101 @@ def load_data_to_db(sport: str, **context: Any) -> None:
     yesterday_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
     dates_to_process = [yesterday_str, date_str]
 
-    from db_loader import NHLDatabaseLoader
+    # Create DBManager instance with default connection string
+    db_manager = _create_db_manager()
 
-    with NHLDatabaseLoader() as loader:
+    # Load data using appropriate database backend
+    count = _load_sport_data(sport, dates_to_process, date_str, db_manager)
+
+    print(f"✓ Loaded {count} new games/updates for {dates_to_process}")
+
+
+def _create_db_manager() -> Any:
+    """Create DBManager instance.
+
+    Returns:
+        DBManager instance
+
+    Raises:
+        Exception: If PostgreSQL is unavailable
+    """
+    from db_manager import DBManager
+    from sqlalchemy import text
+
+    db_manager = DBManager()
+    print(f"✓ DBManager created successfully: {db_manager}")
+
+    # Test the connection to make sure it actually works
+    try:
+        # Try a simple query to test the connection
+        with db_manager.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+        print("✓ PostgreSQL connection test successful")
+        return db_manager
+    except Exception as e:
+        print(f"❌ PostgreSQL connection test failed: {e}")
+        raise
+
+
+def _load_sport_data(
+    sport: str, dates_to_process: List[str], date_str: str, db_manager: Any
+) -> Union[int, str]:
+    """Load data for a specific sport using PostgreSQL loader.
+
+    Returns:
+        Number of games loaded (int) or "all" for tennis
+    """
+    try:
+        from db_loader import NHLDatabaseLoader
+
+        loader = NHLDatabaseLoader(db=db_manager, sport=sport)
+        return _load_sport_data_with_loader(sport, dates_to_process, date_str, loader)
+    except Exception as e:
+        print(f"⚠️ Failed to load data for {sport}: {e}")
+        print("⚠️ This may happen for sports without proper database loaders")
+        print("⚠️ Returning 0 to allow DAG to continue")
+        import traceback
+
+        traceback.print_exc()
+        return 0
+
+
+def _load_sport_data_with_loader(
+    sport: str, dates_to_process: List[str], date_str: str, loader: Any
+) -> Union[int, str]:
+    """Load sport data using the provided loader.
+
+    Args:
+        sport: Sport identifier
+        dates_to_process: List of dates to process
+        date_str: Current date string
+        loader: NHLDatabaseLoader instance
+
+    Returns:
+        Number of games loaded (int) or "all" for tennis
+    """
+    with loader:
         if sport == "tennis":
             # Tennis needs full history reload to capture new matches
             loader.load_csv_history("Tennis", target_date=date_str)
-            count = "all"
+            return "all"
+        elif sport == "epl":
+            # EPL uses CSV files
+            loader.load_csv_history("EPL", target_date=date_str)
+            return "all"
+        elif sport == "ligue1":
+            # Ligue 1 uses CSV files
+            loader.load_csv_history("Ligue1", target_date=date_str)
+            return "all"
+        elif sport in ["ncaab", "wncaab", "unrivaled", "cba"]:
+            # Sports that use dedicated fetchers and standardized DataFrame loading
+            loader.load_sport_history_from_fetcher(sport)
+            return "all"
         else:
             count = 0
             for d in dates_to_process:
                 count += loader.load_date(d)
-
-    print(f"✓ Loaded {count} new games/updates for {dates_to_process}")
+            return count
 
 
 def _initialize_elo_system(sport: str, config) -> Any:
@@ -1417,7 +1499,6 @@ def _save_todays_balance(balance_summary: DailyBalanceSummary) -> None:
     Args:
         balance_summary: Daily balance summary containing date, cash balance, and portfolio value
     """
-    from pathlib import Path
 
     balance_file = balance_dir / f"balance_{balance_summary.date_str}.json"
     with open(balance_file, "w") as f:

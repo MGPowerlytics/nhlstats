@@ -6,8 +6,7 @@ Similar to EPL implementation with draw probability from rating difference.
 Inherits from BaseEloRating for unified interface.
 """
 
-import math
-from typing import Dict, Union
+from typing import Dict
 
 from plugins.elo.soccer_elo_rating import SoccerEloRating
 

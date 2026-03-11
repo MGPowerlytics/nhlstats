@@ -1,6 +1,6 @@
 """
 Unified Database Manager for the multi-sport betting system.
-Abstracts database connections (Postgres, DuckDB) and operations to provide flexibility.
+Exclusively uses PostgreSQL for all data storage.
 """
 
 import os

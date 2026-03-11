@@ -108,6 +108,59 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
         prob = self.optimizer._extract_prob_from_rows(df, "home")
         self.assertEqual(prob, 0.4)
 
+    def test_derive_market_prob_from_asks_home_yes_ask_available(self):
+        """Test market probability calculation for home bet when yes_ask is available."""
+        # yes_ask = 60 means 60 cents = 0.60 probability
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=60.0, no_ask=40.0, bet_direction="home", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.60)
+
+    def test_derive_market_prob_from_asks_home_no_ask_available(self):
+        """Test market probability calculation for home bet when only no_ask is available."""
+        # no_ask = 70 means away probability = 0.70, so home probability = 0.30
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=0.0, no_ask=70.0, bet_direction="home", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.30)
+
+    def test_derive_market_prob_from_asks_away_no_ask_available(self):
+        """Test market probability calculation for away bet when no_ask is available."""
+        # no_ask = 65 means 65 cents = 0.65 probability for away
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=35.0, no_ask=65.0, bet_direction="away", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.65)
+
+    def test_derive_market_prob_from_asks_away_yes_ask_available(self):
+        """Test market probability calculation for away bet when only yes_ask is available."""
+        # yes_ask = 80 means home probability = 0.80, so away probability = 0.20
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=80.0, no_ask=0.0, bet_direction="away", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.20)
+
+    def test_derive_market_prob_from_asks_fallback_when_no_asks(self):
+        """Test that fallback probability is used when no ask prices are available."""
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=0.0, no_ask=0.0, bet_direction="home", fallback_prob=0.55
+        )
+        self.assertAlmostEqual(prob, 0.55)
+
+    def test_derive_market_prob_from_asks_edge_cases(self):
+        """Test edge cases for market probability calculation."""
+        # Test with very high ask prices
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=99.0, no_ask=1.0, bet_direction="home", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.99)
+
+        # Test with very low ask prices
+        prob = self.json_parser._derive_market_prob_from_asks(
+            yes_ask=1.0, no_ask=99.0, bet_direction="away", fallback_prob=0.5
+        )
+        self.assertAlmostEqual(prob, 0.99)
+
 
 if __name__ == "__main__":
     unittest.main()

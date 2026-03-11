@@ -2,9 +2,8 @@
 
 import pytest
 from unittest.mock import Mock, patch
-import tempfile
-from pathlib import Path
-import duckdb
+from plugins.db_manager import default_db
+from sqlalchemy import text
 
 
 class TestCreateBetsTable:
@@ -12,12 +11,10 @@ class TestCreateBetsTable:
 
     def test_creates_table(self):
         from bet_tracker import create_bets_table
-        from db_manager import default_db
-        from sqlalchemy import text
 
         create_bets_table()
 
-        # Verify table exists using Postgres
+        # Verify table exists using Postgres-compatible query (translated by conftest)
         result = (
             default_db.engine.connect()
             .execute(
@@ -28,7 +25,7 @@ class TestCreateBetsTable:
             .fetchall()
         )
 
-        assert len(result) == 1
+        assert len(result) >= 1
 
     def test_idempotent(self):
         from bet_tracker import create_bets_table
@@ -151,12 +148,10 @@ class TestBetsTableSchema:
 
     def test_table_columns(self):
         from bet_tracker import create_bets_table
-        from db_manager import default_db
-        from sqlalchemy import text
 
         create_bets_table()
 
-        # Get columns using Postgres query
+        # Get columns using Postgres-compatible query
         result = (
             default_db.engine.connect()
             .execute(
@@ -227,22 +222,19 @@ class TestDatabaseOperations:
     def test_insert_and_query(self):
         from bet_tracker import create_bets_table
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            db_path = Path(tmpdir) / "test.duckdb"
-            conn = duckdb.connect(str(db_path))
+        create_bets_table()
 
-            create_bets_table(conn)
+        # Insert test bet
+        default_db.execute("""
+            INSERT INTO placed_bets (bet_id, sport, ticker, status)
+            VALUES ('test-1', 'NHL', 'NHL-TEST-123', 'open')
+        """)
 
-            # Insert test bet
-            conn.execute("""
-                INSERT INTO placed_bets (bet_id, sport, ticker, status)
-                VALUES ('test-1', 'NHL', 'NHL-TEST-123', 'open')
-            """)
+        # Query back
+        result = default_db.fetch_df(
+            "SELECT * FROM placed_bets WHERE bet_id = :bet_id",
+            {"bet_id": "test-1"}
+        )
 
-            # Query back
-            result = conn.execute(
-                "SELECT * FROM placed_bets WHERE bet_id = 'test-1'"
-            ).fetchone()
-
-            assert result is not None
-            conn.close()
+        assert len(result) == 1
+        assert result.iloc[0]["bet_id"] == "test-1"

@@ -338,21 +338,13 @@ class TestBetLoaderExtended:
 
         assert BetLoader is not None
 
-    def test_bet_loader_init_creates_table(self, tmp_path):
-        """Test BetLoader creates table on init."""
+    def test_bet_loader_init(self):
+        """Test BetLoader initialization."""
         from bet_loader import BetLoader
-        import duckdb
+        from plugins.db_manager import default_db
 
-        db_path = tmp_path / "test.duckdb"
-        BetLoader(db_path=str(db_path))
-
-        # Check table exists
-        conn = duckdb.connect(str(db_path))
-        tables = conn.execute("SHOW TABLES").fetchall()
-        table_names = [t[0] for t in tables]
-        conn.close()
-
-        assert "bet_recommendations" in table_names
+        loader = BetLoader(db_manager=default_db)
+        assert loader.db == default_db
 
 
 # ============================================================

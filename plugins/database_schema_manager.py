@@ -81,6 +81,10 @@ class DatabaseSchemaManager:
             "CREATE TABLE IF NOT EXISTS epl_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
             "season VARCHAR, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
             "away_score INTEGER, result VARCHAR)",
+            # Ligue 1 games table
+            "CREATE TABLE IF NOT EXISTS ligue1_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
+            "season VARCHAR, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
+            "away_score INTEGER, result VARCHAR)",
             # Tennis games table
             "CREATE TABLE IF NOT EXISTS tennis_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
             "season VARCHAR, tour VARCHAR, tournament VARCHAR, surface VARCHAR, winner VARCHAR, "
@@ -89,6 +93,18 @@ class DatabaseSchemaManager:
             "CREATE TABLE IF NOT EXISTS ncaab_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
             "season INTEGER, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
             "away_score INTEGER, is_neutral BOOLEAN)",
+            # WNCAAB games table
+            "CREATE TABLE IF NOT EXISTS wncaab_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
+            "season INTEGER, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
+            "away_score INTEGER, is_neutral BOOLEAN)",
+            # Unrivaled games table
+            "CREATE TABLE IF NOT EXISTS unrivaled_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
+            "season INTEGER, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
+            "away_score INTEGER, is_neutral BOOLEAN)",
+            # CBA games table
+            "CREATE TABLE IF NOT EXISTS cba_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
+            "season INTEGER, home_team VARCHAR, away_team VARCHAR, home_score INTEGER, "
+            "away_score INTEGER, is_neutral BOOLEAN, status VARCHAR)",
         ]
 
     def _get_unified_table_definitions(self) -> List[str]:

@@ -452,14 +452,27 @@ class JsonFileParser(OpportunityParser):
         """Derive market probability from ask prices.
 
         Uses the appropriate ask price (yes_ask for home bets, no_ask for away bets)
-        to calculate the market-implied probability.
+        to calculate the market-implied probability. If the primary ask is 0,
+        tries to calculate from the opposite ask if available.
         """
         if bet_direction == "home":
-            return (
-                yes_ask / CENTS_TO_PROBABILITY_FACTOR if yes_ask > 0 else fallback_prob
-            )
-        else:
-            return no_ask / CENTS_TO_PROBABILITY_FACTOR if no_ask > 0 else fallback_prob
+            if yes_ask > 0:
+                return yes_ask / CENTS_TO_PROBABILITY_FACTOR
+            elif no_ask > 0:
+                # Calculate from no_ask: market_prob = 1 - (no_ask / 100)
+                return 1.0 - (no_ask / CENTS_TO_PROBABILITY_FACTOR)
+            else:
+                return fallback_prob
+        else:  # away bet
+            if no_ask > 0:
+                return no_ask / CENTS_TO_PROBABILITY_FACTOR
+            elif yes_ask > 0:
+                # Calculate from yes_ask: market_prob = yes_ask / 100
+                # For away bet, market_prob is probability of away winning
+                # which is 1 - probability of home winning
+                return 1.0 - (yes_ask / CENTS_TO_PROBABILITY_FACTOR)
+            else:
+                return fallback_prob
 
 
 class PortfolioOptimizer:

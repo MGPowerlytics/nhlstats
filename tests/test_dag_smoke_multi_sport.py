@@ -14,8 +14,7 @@ Run on every commit to catch breaking changes early.
 import sys
 import pytest
 from pathlib import Path
-from unittest.mock import patch, MagicMock, PropertyMock
-from datetime import datetime
+from unittest.mock import patch, MagicMock
 
 # Add plugins and dags to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
@@ -316,7 +315,7 @@ class TestUpdateEloRatingsTask:
         """update_elo_ratings queries nba_games table for NBA."""
         from multi_sport_betting_workflow import update_elo_ratings
 
-        with patch("db_manager.default_db") as mock_db:
+        with patch("plugins.db_manager.default_db") as mock_db:
             with patch("elo.get_elo_class") as mock_get_elo:
                 mock_db.fetch_df.return_value = sample_game_data
                 mock_elo_class = MagicMock()
@@ -340,7 +339,7 @@ class TestUpdateEloRatingsTask:
         """update_elo_ratings pushes ratings to XCom."""
         from multi_sport_betting_workflow import update_elo_ratings
 
-        with patch("db_manager.default_db") as mock_db:
+        with patch("plugins.db_manager.default_db") as mock_db:
             with patch("elo.get_elo_class") as mock_get_elo:
                 mock_db.fetch_df.return_value = sample_game_data
                 mock_elo_class = MagicMock()
@@ -362,7 +361,7 @@ class TestUpdateEloRatingsTask:
         import pandas as pd
         from multi_sport_betting_workflow import update_elo_ratings
 
-        with patch("db_manager.default_db") as mock_db:
+        with patch("plugins.db_manager.default_db") as mock_db:
             with patch("elo.get_elo_class") as mock_get_elo:
                 mock_db.fetch_df.return_value = pd.DataFrame()
 
@@ -470,7 +469,7 @@ class TestIdentifyGoodBetsTask:
         )
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            with patch("db_manager.default_db") as mock_db:
+            with patch("plugins.db_manager.default_db") as mock_db:
                 mock_db.fetch_df.return_value = MagicMock(empty=False)
                 mock_db.fetch_df.return_value.__len__ = lambda x: 1
                 mock_comparator_instance = MagicMock()
@@ -486,14 +485,14 @@ class TestIdentifyGoodBetsTask:
     def test_identify_bets_uses_min_edge(self, mock_airflow_context):
         """identify_good_bets uses min_edge parameter."""
         from multi_sport_betting_workflow import identify_good_bets
-        from odds_comparator import BettingThresholds, BettingOpportunityConfig
+        from odds_comparator import BettingOpportunityConfig
 
         mock_airflow_context["task_instance"].xcom_pull = MagicMock(
             return_value={"Lakers": 1550, "Celtics": 1520}
         )
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            with patch("db_manager.default_db") as mock_db:
+            with patch("plugins.db_manager.default_db") as mock_db:
                 mock_db.fetch_df.return_value = MagicMock(empty=False)
                 mock_db.fetch_df.return_value.__len__ = lambda x: 1
                 mock_comparator_instance = MagicMock()
@@ -519,7 +518,7 @@ class TestIdentifyGoodBetsTask:
         mock_airflow_context["task_instance"].xcom_pull = MagicMock(return_value=None)
 
         with patch("odds_comparator.OddsComparator") as mock_comparator:
-            with patch("db_manager.default_db") as mock_db:
+            with patch("plugins.db_manager.default_db") as mock_db:
                 # Should return early due to missing ratings
                 try:
                     identify_good_bets("nba", **mock_airflow_context)
@@ -543,7 +542,7 @@ class TestUpdateGlicko2RatingsTask:
         """update_glicko2_ratings queries database for NBA games."""
         from multi_sport_betting_workflow import update_glicko2_ratings
 
-        with patch("db_manager.default_db") as mock_db:
+        with patch("plugins.db_manager.default_db") as mock_db:
             with patch("glicko2_rating.NBAGlicko2Rating") as mock_glicko_class:
                 mock_db.fetch_df.return_value = sample_game_data
                 mock_glicko_instance = MagicMock()

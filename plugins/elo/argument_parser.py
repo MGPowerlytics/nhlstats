@@ -6,7 +6,7 @@ formats (legacy, new, mixed) used in Elo update methods. It eliminates
 feature envy by centralizing argument parsing logic.
 """
 
-from typing import Optional, Union, Any, Tuple
+from typing import Optional, Union, Any, Tuple, List, Callable
 from dataclasses import dataclass
 
 from plugins.elo.elo_dataclasses import Matchup, GameResult, UpdateArgs
@@ -95,6 +95,34 @@ class ArgumentParser:
             return primary_value
         return getattr(update_args, fallback_attr, None)
 
+    def _extract_attributes(
+        self,
+        update_args: Optional[UpdateArgs],
+        attribute_specs: List[Tuple[str, Any, Optional[Callable]]],
+    ) -> List[Any]:
+        """
+        Extract multiple attributes from UpdateArgs with defaults and optional transformation.
+
+        Args:
+            update_args: The UpdateArgs object or None
+            attribute_specs: List of (attribute_name, default_value, transform_func) tuples
+                           transform_func is optional and can be used to validate/convert the value
+
+        Returns:
+            List of extracted attribute values
+        """
+        if update_args is None:
+            return [default for _, default, _ in attribute_specs]
+
+        result = []
+        for attr_name, default, transform in attribute_specs:
+            value = getattr(update_args, attr_name, default)
+            if transform is not None:
+                value = transform(value)
+            result.append(value)
+
+        return result
+
     def _extract_raw_matchup(
         self, update_args: UpdateArgs
     ) -> Optional[Union[Matchup, str]]:
@@ -103,8 +131,10 @@ class ArgumentParser:
 
         Returns:
             Raw matchup input, preferring explicit matchup over home_team.
+            Returns None if neither matchup nor home_team is available.
         """
-        return self._extract_attribute(update_args, "matchup", "home_team")
+        # Extract matchup with home_team as fallback
+        return self._extract_raw_attribute(update_args, "matchup", "home_team")
 
     def _extract_raw_result(
         self, update_args: UpdateArgs
@@ -114,8 +144,21 @@ class ArgumentParser:
 
         Returns:
             Raw result input, preferring explicit result over away_team.
+            Returns None if neither result nor away_team is available.
         """
-        return self._extract_attribute(update_args, "result", "away_team")
+        # Extract result with away_team as fallback (for legacy support)
+        return self._extract_raw_attribute(update_args, "result", "away_team")
+
+    def _extract_raw_attribute(
+        self, update_args: UpdateArgs, primary_attr: str, fallback_attr: str
+    ) -> Any:
+        """
+        Generic method to extract raw attribute with fallback.
+
+        Used by both _extract_raw_matchup and _extract_raw_result to eliminate
+        duplicate code while maintaining clear type hints in public methods.
+        """
+        return self._extract_attribute(update_args, primary_attr, fallback_attr)
 
     def _extract_home_won_status(
         self, update_args: UpdateArgs
@@ -193,24 +236,15 @@ class ArgumentParser:
         Returns:
             Tuple of (home_team, away_team, is_neutral)
         """
-        if update_args is not None:
-            home_team = (
-                update_args.home_team
-                if isinstance(update_args.home_team, str)
-                else None
-            )
-            away_team = (
-                update_args.away_team
-                if isinstance(update_args.away_team, str)
-                else None
-            )
-            is_neutral = update_args.is_neutral
-        else:
-            # Fallback to defaults
-            home_team = None
-            away_team = None
-            is_neutral = False
-
+        # Use helper to extract attributes with defaults
+        home_team, away_team, is_neutral = self._extract_attributes(
+            update_args,
+            [
+                ("home_team", None, lambda x: x if isinstance(x, str) else None),
+                ("away_team", None, lambda x: x if isinstance(x, str) else None),
+                ("is_neutral", False, None),
+            ],
+        )
         return home_team, away_team, is_neutral
 
     def _parse_result_from_args(
@@ -245,7 +279,9 @@ class ArgumentParser:
             home_won=home_won, home_score=home_score, away_score=away_score
         )
 
-    def _extract_result_components(self, update_args: Optional[UpdateArgs]) -> Tuple[
+    def _extract_result_components(
+        self, update_args: Optional[UpdateArgs]
+    ) -> Tuple[
         Optional[Union[bool, float]],
         Optional[float],
         Optional[float],
@@ -258,20 +294,19 @@ class ArgumentParser:
         Returns:
             Tuple of (home_won, home_score, away_score, home_win, is_neutral)
         """
-        if update_args is not None:
-            home_won = update_args.home_won
-            home_score = update_args.home_score
-            away_score = update_args.away_score
-            home_win = update_args.home_win
-            is_neutral = update_args.is_neutral
-        else:
-            # Fallback to defaults
-            home_won = None
-            home_score = None
-            away_score = None
-            home_win = None
-            is_neutral = False
-
+        # Use helper to extract attributes with defaults
+        home_won, home_score, away_score, home_win, is_neutral = (
+            self._extract_attributes(
+                update_args,
+                [
+                    ("home_won", None, None),
+                    ("home_score", None, None),
+                    ("away_score", None, None),
+                    ("home_win", None, None),
+                    ("is_neutral", False, None),
+                ],
+            )
+        )
         return home_won, home_score, away_score, home_win, is_neutral
 
     def _detect_scores_in_legacy_args(
@@ -337,7 +372,7 @@ class ArgumentParser:
         if isinstance(result_input, GameResult):
             return result_input
 
-        # Initial values from context
+        # Extract all needed values from kwargs at once to reduce feature envy
         home_won = kwargs.get("home_won")
         home_score = kwargs.get("home_score")
         away_score = kwargs.get("away_score")

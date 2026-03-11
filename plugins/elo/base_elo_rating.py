@@ -15,7 +15,13 @@ from abc import ABC, abstractmethod
 from typing import Dict, Optional, Union, List, Any
 
 # Import from shared dataclasses module to avoid circular dependencies
-from plugins.elo.elo_dataclasses import Matchup, GameResult, EloConfig
+from plugins.elo.elo_dataclasses import (
+    Matchup,
+    GameResult,
+    EloConfig,
+    GameScores,
+    UpdateArgs,
+)
 from plugins.elo.elo_calculator import EloCalculator
 from plugins.elo.argument_parser import ArgumentParser
 from plugins.elo.rating_store import RatingStore
@@ -219,28 +225,79 @@ class BaseEloRating(ABC):
 
     def update_with_scores(
         self,
-        home_team: str,
-        away_team: str,
-        home_score: float,
-        away_score: float,
+        home_team: Optional[Union[str, UpdateArgs]] = None,
+        away_team: Optional[str] = None,
+        home_score: Optional[float] = None,
+        away_score: Optional[float] = None,
+        update_args: Optional[UpdateArgs] = None,
         **kwargs,
     ) -> None:
         """
         Update with scores (backward compatibility).
 
+        Supports both primitive parameters (for backward compatibility) and
+        UpdateArgs dataclass (for cleaner new code).
+
         Args:
-            home_team: Name of home team
-            away_team: Name of away team
-            home_score: Home team score
-            away_score: Away team score
+            home_team: Name of home team (or UpdateArgs object if using dataclass)
+            away_team: Name of away team (ignored if home_team is UpdateArgs)
+            home_score: Home team score (ignored if home_team is UpdateArgs)
+            away_score: Away team score (ignored if home_team is UpdateArgs)
+            update_args: UpdateArgs dataclass containing all parameters
             **kwargs: Additional arguments passed to update()
         """
-        # Create Matchup and GameResult objects from primitive parameters
-        matchup = Matchup(home_team=home_team, away_team=away_team)
+        # Handle UpdateArgs dataclass
+        if isinstance(home_team, UpdateArgs):
+            update_args = home_team
+            # Extract parameters using UpdateArgs methods
+            home_team_str, away_team_str, is_neutral = (
+                update_args.extract_matchup_info()
+            )
+            home_score_val, away_score_val = update_args.extract_score_info()
+        else:
+            # Handle primitive parameters (backward compatibility)
+            if (
+                home_team is None
+                or away_team is None
+                or home_score is None
+                or away_score is None
+            ):
+                raise ValueError("Must provide all primitive parameters or UpdateArgs")
+
+            home_team_str = home_team
+            away_team_str = away_team
+            home_score_val = home_score
+            away_score_val = away_score
+            is_neutral = kwargs.get("is_neutral", False)
+
+        # Create GameScores and Matchup objects
+        scores = GameScores(home_score=home_score_val, away_score=away_score_val)
+        matchup = Matchup(
+            home_team=home_team_str, away_team=away_team_str, is_neutral=is_neutral
+        )
+
+        # Use the overloaded version that accepts dataclasses
+        self._update_with_dataclasses(matchup, scores, **kwargs)
+
+    def _update_with_dataclasses(
+        self,
+        matchup: Matchup,
+        scores: GameScores,
+        **kwargs,
+    ) -> None:
+        """
+        Update with dataclasses (internal method).
+
+        Args:
+            matchup: Matchup object containing home_team, away_team, and is_neutral
+            scores: GameScores object containing home_score and away_score
+            **kwargs: Additional arguments passed to update()
+        """
+        # Create GameResult object from scores
         result = GameResult(
-            home_won=home_score > away_score,
-            home_score=home_score,
-            away_score=away_score,
+            home_won=scores.home_won,
+            home_score=scores.home_score,
+            away_score=scores.away_score,
         )
 
         # Use the unified update method with dataclasses

@@ -665,14 +665,41 @@ class KalshiBetting:
             2,
         )
 
+    def _fetch_from_kalshi_api(
+        self, endpoint: str, data_key: str, error_message: str
+    ) -> List[Dict]:
+        """Fetch data from Kalshi API with error handling.
+
+        Args:
+            endpoint: API endpoint to call
+            data_key: Key in response JSON containing the data
+            error_message: Error message prefix for logging
+
+        Returns:
+            List of data items or empty list on error
+        """
+        try:
+            response = self._get(endpoint)
+            return response.get(data_key, [])
+        except Exception as e:
+            print(f"⚠️  {error_message}: {e}")
+            return []
+
     def get_open_positions(self) -> List[Dict]:
         """Fetch all open positions from Kalshi API."""
-        try:
-            response = self._get("/trade-api/v2/portfolio/positions")
-            return response.get("positions", [])
-        except Exception as e:
-            print(f"⚠️  Failed to get open positions: {e}")
-            return []
+        return self._fetch_from_kalshi_api(
+            endpoint="/trade-api/v2/portfolio/positions",
+            data_key="positions",
+            error_message="Failed to get open positions",
+        )
+
+    def get_open_orders(self) -> List[Dict]:
+        """Fetch all resting orders from Kalshi API."""
+        return self._fetch_from_kalshi_api(
+            endpoint="/trade-api/v2/portfolio/orders?status=resting",
+            data_key="orders",
+            error_message="Failed to get open orders",
+        )
 
     def get_match_prefix(self, ticker: str) -> str:
         """Extract match/event prefix from ticker."""
@@ -725,14 +752,23 @@ class KalshiBetting:
         return reservation
 
     def _has_existing_position(self, market: MarketSide) -> bool:
-        """Check if we already have an open position on this match."""
-        open_positions = self.get_open_positions()
+        """Check if we already have an open position OR resting order on this match."""
         match_prefix = self.get_match_prefix(market.ticker)
 
+        # 1. Check open positions
+        open_positions = self.get_open_positions()
         for pos in open_positions:
             if self.get_match_prefix(pos.get("ticker", "")) == match_prefix:
                 print(f"   ❌ Skipping: Already have open position on {match_prefix}")
                 return True
+
+        # 2. Check resting orders
+        resting_orders = self.get_open_orders()
+        for order in resting_orders:
+            if self.get_match_prefix(order.get("ticker", "")) == match_prefix:
+                print(f"   ❌ Skipping: Already have resting order on {match_prefix}")
+                return True
+
         return False
 
     def _release_lock(self, reservation: Any) -> None:

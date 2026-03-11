@@ -251,12 +251,239 @@ class EPLCSVProcessor(BaseCSVProcessor):
         return "epl_games"
 
 
+class Ligue1CSVProcessor(BaseCSVProcessor):
+    """CSV processor for Ligue 1 (French Soccer) games."""
+
+    def process_row(self, row: pd.Series, **kwargs) -> None:
+        """Process a single Ligue 1 game row and upsert into database.
+
+        Args:
+            row: Pandas Series with Ligue 1 game data
+            **kwargs: Must contain 'season_code' parameter
+        """
+        season_code = kwargs.get("season_code", "")
+
+        # Check for required column (matching original behavior)
+        if pd.isna(row.get("FTHG")):
+            return
+
+        try:
+            params = self._extract_ligue1_game_data(row, season_code)
+            self.db.execute(
+                """
+                INSERT INTO ligue1_games (
+                    game_id, game_date, season, home_team, away_team, home_score, away_score, result
+                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :result)
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    result = EXCLUDED.result
+            """,
+                params,
+            )
+        except Exception:
+            # Silently skip rows with errors
+            pass
+
+    def _extract_ligue1_game_data(
+        self, row: pd.Series, season_code: str
+    ) -> Dict[str, Any]:
+        """Extract and transform Ligue 1 game data from CSV row.
+
+        Args:
+            row: Pandas Series with Ligue 1 game data
+            season_code: Season code (e.g., "2023-2024")
+
+        Returns:
+            Dictionary of parameters for database insertion
+        """
+        game_date = row["Date"].strftime("%Y-%m-%d")
+        home_team = row["HomeTeam"]
+        away_team = row["AwayTeam"]
+        game_id = (
+            f"LIGUE1_{game_date}_{home_team.replace(' ', '')}_{away_team.replace(' ', '')}"
+        )
+
+        return {
+            "game_id": game_id,
+            "game_date": game_date,
+            "season": season_code,
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_score": int(row["FTHG"]),
+            "away_score": int(row["FTAG"]),
+            "result": row["FTR"],
+        }
+
+    def get_table_name(self) -> str:
+        """Get the database table name for Ligue 1 games.
+
+        Returns:
+            Table name "ligue1_games"
+        """
+        return "ligue1_games"
+
+
+class WNCAABCSVProcessor(BaseCSVProcessor):
+    """CSV processor for WNCAAB games."""
+
+    def process_row(self, row: pd.Series, **kwargs) -> None:
+        """Process a single WNCAAB game row and upsert into database.
+
+        Args:
+            row: Pandas Series with WNCAAB game data
+            **kwargs: Not used for WNCAAB
+        """
+        try:
+            params = self._extract_wncaab_game_data(row)
+            self.db.execute(
+                """
+                INSERT INTO wncaab_games (
+                    game_id, game_date, season, home_team, away_team,
+                    home_score, away_score, is_neutral
+                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :is_neutral)
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score
+            """,
+                params,
+            )
+        except Exception:
+            # Silently skip rows with errors
+            pass
+
+    def _extract_wncaab_game_data(self, row: pd.Series) -> Dict[str, Any]:
+        """Extract and transform WNCAAB game data from CSV row.
+
+        Args:
+            row: Pandas Series with WNCAAB game data
+
+        Returns:
+            Dictionary of parameters for database insertion
+        """
+        game_date = row["date"].strftime("%Y-%m-%d")
+        h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+        a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
+        game_id = f"WNCAAB_{game_date}_{h_slug}_{a_slug}"
+
+        return {
+            "game_id": game_id,
+            "game_date": game_date,
+            "season": int(row["season"]),
+            "home_team": row["home_team"],
+            "away_team": row["away_team"],
+            "home_score": int(row["home_score"]),
+            "away_score": int(row["away_score"]),
+            "is_neutral": bool(row["neutral"]),
+        }
+
+    def get_table_name(self) -> str:
+        """Get the database table name for WNCAAB games.
+
+        Returns:
+            Table name "wncaab_games"
+        """
+        return "wncaab_games"
+
+
+class UnrivaledCSVProcessor(BaseCSVProcessor):
+    """CSV processor for Unrivaled Basketball games."""
+
+    def process_row(self, row: pd.Series, **kwargs) -> None:
+        """Process a single Unrivaled game row and upsert into database."""
+        try:
+            params = self._extract_unrivaled_game_data(row)
+            self.db.execute(
+                """
+                INSERT INTO unrivaled_games (
+                    game_id, game_date, season, home_team, away_team,
+                    home_score, away_score, is_neutral
+                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :is_neutral)
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score
+            """,
+                params,
+            )
+        except Exception:
+            pass
+
+    def _extract_unrivaled_game_data(self, row: pd.Series) -> Dict[str, Any]:
+        """Extract and transform Unrivaled game data."""
+        game_date = row["date"].strftime("%Y-%m-%d")
+        h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+        a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
+        game_id = f"UNRIVALED_{game_date}_{h_slug}_{a_slug}"
+
+        return {
+            "game_id": game_id,
+            "game_date": game_date,
+            "season": int(row["season"]),
+            "home_team": row["home_team"],
+            "away_team": row["away_team"],
+            "home_score": int(row["home_score"]) if not pd.isna(row["home_score"]) else 0,
+            "away_score": int(row["away_score"]) if not pd.isna(row["away_score"]) else 0,
+            "is_neutral": bool(row.get("neutral", True)),
+        }
+
+    def get_table_name(self) -> str:
+        """Get the database table name for Unrivaled games."""
+        return "unrivaled_games"
+
+
+class CBACSVProcessor(BaseCSVProcessor):
+    """CSV processor for CBA (Chinese Basketball Association) games."""
+
+    def process_row(self, row: pd.Series, **kwargs) -> None:
+        """Process a single CBA game row and upsert into database."""
+        try:
+            params = self._extract_cba_game_data(row)
+            self.db.execute(
+                """
+                INSERT INTO cba_games (
+                    game_id, game_date, season, home_team, away_team,
+                    home_score, away_score, is_neutral, status
+                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :is_neutral, :status)
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    status = EXCLUDED.status
+            """,
+                params,
+            )
+        except Exception:
+            pass
+
+    def _extract_cba_game_data(self, row: pd.Series) -> Dict[str, Any]:
+        """Extract and transform CBA game data."""
+        game_date = row["date"].strftime("%Y-%m-%d")
+        h_slug = "".join(x for x in str(row["home_team"]) if x.isalnum())
+        a_slug = "".join(x for x in str(row["away_team"]) if x.isalnum())
+        game_id = f"CBA_{game_date}_{h_slug}_{a_slug}"
+
+        return {
+            "game_id": game_id,
+            "game_date": game_date,
+            "season": int(row["season"]),
+            "home_team": row["home_team"],
+            "away_team": row["away_team"],
+            "home_score": int(row["home_score"]) if not pd.isna(row["home_score"]) else None,
+            "away_score": int(row["away_score"]) if not pd.isna(row["away_score"]) else None,
+            "is_neutral": bool(row.get("neutral", False)),
+            "status": str(row.get("status", "Final")),
+        }
+
+    def get_table_name(self) -> str:
+        """Get the database table name for CBA games."""
+        return "cba_games"
+
+
 # Factory function to get appropriate CSV processor
 def get_csv_processor(sport: str, db_manager: DBManager) -> Optional[BaseCSVProcessor]:
     """Get CSV processor for a specific sport.
 
     Args:
-        sport: Sport name (e.g., "ncaab", "tennis", "epl")
+        sport: Sport name (e.g., "ncaab", "wncaab", "unrivaled", "cba", "tennis", "epl", "ligue1")
         db_manager: Database manager for executing SQL queries
 
     Returns:
@@ -264,8 +491,12 @@ def get_csv_processor(sport: str, db_manager: DBManager) -> Optional[BaseCSVProc
     """
     processors = {
         "ncaab": NCAABCSVProcessor,
+        "wncaab": WNCAABCSVProcessor,
+        "unrivaled": UnrivaledCSVProcessor,
+        "cba": CBACSVProcessor,
         "tennis": TennisCSVProcessor,
         "epl": EPLCSVProcessor,
+        "ligue1": Ligue1CSVProcessor,
     }
 
     processor_class = processors.get(sport.lower())

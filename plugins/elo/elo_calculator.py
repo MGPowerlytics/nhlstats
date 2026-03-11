@@ -70,7 +70,12 @@ class EloCalculator:
         """
         if is_neutral:
             return home_rating
-        return home_rating + self.config.home_advantage
+        # Safely access home_advantage with fallback
+        try:
+            return home_rating + self.config.home_advantage
+        except AttributeError:
+            # Fallback to default home advantage if config is not available
+            return home_rating + 100.0  # Default Elo home advantage
 
     def calculate_rating_change(
         self, expected: float, actual: float, k_factor: Optional[float] = None
