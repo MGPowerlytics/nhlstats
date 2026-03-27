@@ -9,6 +9,7 @@ Provides market fetching functions for all sports with:
 - Import error handling for missing kalshi_python package
 """
 
+import json
 import logging
 import re
 import time
@@ -16,14 +17,15 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Callable, Optional, Tuple, Union, List, Dict
 
-from base_games import UnifiedGameInfo
+from plugins.base_games import UnifiedGameInfo
+from plugins.the_odds_api import TheOddsAPI
 
 # Configure module logger
 logger = logging.getLogger(__name__)
 
-# Try to import kalshi_python - handle gracefully if missing
+
 try:
     from kalshi_python import Configuration, ApiClient, MarketsApi
 
@@ -85,7 +87,13 @@ def _rate_limit():
 class KalshiAPI:
     """Kalshi API client using official SDK"""
 
-    def __init__(self, api_key_id, private_key_pem):
+    def __init__(self, api_key_id: str, private_key_pem: str) -> None:
+        """Initialize Kalshi API client.
+
+        Args:
+            api_key_id: Kalshi API key ID
+            private_key_pem: PEM-encoded private key for authentication
+        """
         if not KALSHI_AVAILABLE:
             raise ImportError(
                 "kalshi_python package not installed. Run: pip install kalshi-python"
@@ -104,8 +112,12 @@ class KalshiAPI:
         self.markets_api = MarketsApi(self.api_client)
 
     def get_markets(
-        self, event_ticker=None, series_ticker=None, status="open", limit=100
-    ):
+        self,
+        event_ticker: Optional[str] = None,
+        series_ticker: Optional[str] = None,
+        status: str = "open",
+        limit: int = 100,
+    ) -> Optional[dict]:
         """Get markets from Kalshi with rate limiting and error handling.
 
         Args:
@@ -145,6 +157,130 @@ class KalshiAPI:
                 logger.error(f"✗ Failed to get markets from {series_ticker}: {e}")
             return None
 
+    def get_market(self, ticker: str) -> Optional[dict]:
+        """Get detailed market information including prices.
+
+        The Kalshi SDK v2.1.0 model does not map dollar-denominated price
+        fields (yes_ask_dollars, last_price_dollars, etc.) returned by the
+        API, so we parse the raw JSON response directly.
+
+        Args:
+            ticker: Market ticker (e.g., 'KXNBAGAME-26MAR22MINBOS-MIN')
+
+        Returns:
+            dict with detailed market information including prices, or None on error
+        """
+        _rate_limit()  # Enforce rate limiting
+
+        try:
+            logger.debug(f"Fetching market details: {ticker}")
+            response = self.markets_api.get_market_with_http_info(ticker=ticker)
+            raw = json.loads(response.raw_data)
+            market_data = raw.get("market", {})
+
+            # Convert dollar-string prices to cent-integer prices for backward
+            # compatibility with the rest of the codebase.
+            self._convert_dollar_prices(market_data)
+
+            # Log market data structure once
+            if not hasattr(self, "_logged_market_data"):
+                logger.info(f"Sample Market Data for {ticker}: {market_data}")
+                self._logged_market_data = True
+
+            # Also try order book as supplementary price source
+            self._add_order_book_data(ticker, market_data)
+
+            logger.info(f"✓ Fetched market details for {ticker}")
+            return market_data
+        except Exception as e:
+            self._handle_market_error(ticker, e)
+            return None
+
+    @staticmethod
+    def _convert_dollar_prices(market_data: dict) -> None:
+        """Convert dollar-string price fields to cents (int).
+
+        The Kalshi v2 API returns prices as dollar strings
+        (e.g., ``"0.5900"``).  The rest of the codebase expects
+        cent-integer values (e.g., ``59``).
+
+        Mutates *market_data* in-place.
+        """
+        DOLLAR_TO_CENTS = {
+            "yes_ask_dollars": "yes_ask",
+            "yes_bid_dollars": "yes_bid",
+            "no_ask_dollars": "no_ask",
+            "no_bid_dollars": "no_bid",
+            "last_price_dollars": "last_price",
+            "previous_price_dollars": "previous_price",
+            "previous_yes_ask_dollars": "previous_yes_ask",
+            "previous_yes_bid_dollars": "previous_yes_bid",
+        }
+        for dollar_key, cents_key in DOLLAR_TO_CENTS.items():
+            value = market_data.get(dollar_key)
+            if value is not None:
+                try:
+                    market_data[cents_key] = int(round(float(value) * 100))
+                except (ValueError, TypeError):
+                    pass
+
+    def _add_order_book_data(self, ticker: str, market_data: dict) -> None:
+        """Fetch and add order book data to market data.
+
+        The Kalshi v2 API returns order book data under ``orderbook_fp``
+        with ``yes_dollars`` / ``no_dollars`` arrays.  The SDK model
+        does not map these, so we parse the raw JSON.
+
+        Only overwrites ``yes_ask`` if it is not already present
+        (i.e., the market endpoint already provided it).
+
+        Args:
+            ticker: Market ticker
+            market_data: Dictionary to add order book data to
+        """
+        # Skip if we already have a price from the market endpoint
+        if market_data.get("yes_ask", 0) > 0:
+            return
+
+        try:
+            response = self.markets_api.get_market_orderbook_with_http_info(
+                ticker=ticker
+            )
+            raw = json.loads(response.raw_data)
+
+            orderbook = raw.get("orderbook_fp") or raw.get("orderbook") or {}
+
+            # yes_dollars is a list of [price_str, qty_str] sorted ascending
+            yes_levels = orderbook.get("yes_dollars") or orderbook.get("yes") or []
+            no_levels = orderbook.get("no_dollars") or orderbook.get("no") or []
+
+            # Best yes ask = highest yes bid price (last element)
+            if yes_levels:
+                best_yes_price = float(yes_levels[-1][0])
+                market_data["yes_ask"] = int(round(best_yes_price * 100))
+
+            if no_levels:
+                best_no_price = float(no_levels[-1][0])
+                market_data["no_ask"] = int(round(best_no_price * 100))
+
+        except Exception as e:
+            logger.warning(f"⚠️  Could not get order book for {ticker}: {e}")
+
+    def _handle_market_error(self, ticker: str, error: Exception) -> None:
+        """Handle errors from market API calls.
+
+        Args:
+            ticker: Market ticker that failed
+            error: Exception that was raised
+        """
+        error_msg = str(error)
+        if "429" in error_msg or "Too Many Requests" in error_msg:
+            logger.warning(f"⚠️  Rate limited by Kalshi API for {ticker}: {error}")
+        elif "401" in error_msg or "403" in error_msg:
+            logger.error(f"✗ Authentication failed for Kalshi API: {error}")
+        else:
+            logger.error(f"✗ Failed to get market {ticker}: {error}")
+
 
 class TickerParser(ABC):
     """Abstract base for parsing Kalshi tickers into (home_team, away_team, game_date)."""
@@ -158,7 +294,8 @@ class TickerParser(ABC):
 class StandardTickerParser(TickerParser):
     """Parses standard sport tickers (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB)."""
 
-    # Ticker part indices
+    # Ticker part indices and validation constants
+    MIN_TICKER_PARTS = 3  # Minimum parts needed for valid ticker: sport-date-teams
     DATE_PART_IDX = 1
     TEAMS_PART_IDX = 2
     TEAM_CODE_LENGTH = 3
@@ -166,7 +303,7 @@ class StandardTickerParser(TickerParser):
 
     def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
         parts = ticker.split("-")
-        if len(parts) < 3:
+        if len(parts) < self.MIN_TICKER_PARTS:
             return None
 
         # Attempt 1: Old numeric date format (YYMMDD)
@@ -179,12 +316,12 @@ class StandardTickerParser(TickerParser):
             home_team = teams_part[self.TEAM_CODE_LENGTH :]
             return home_team, away_team, game_date
 
-        # Attempt 2: New alphanumeric date format (YYMMMDDTEAMS)
+        # Attempt 2: New alphanumeric date format (YYMMMDDTEAMS or YYMMMDDHHMMTEAMS)
         if len(parts) >= 2:
             middle = parts[self.DATE_PART_IDX]
-            match = re.match(r"^(\d{2})([A-Z]{3})(\d{2})([A-Z]+)$", middle)
+            match = re.match(r"^(\d{2})([A-Z]{3})(\d{2})(\d{2,4})?([A-Z]+)$", middle)
             if match:
-                y_str, m_str, d_str, teams_str = match.groups()
+                y_str, m_str, d_str, _time_str, teams_str = match.groups()
                 try:
                     dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
                     game_date = dt.strftime("%Y-%m-%d")
@@ -206,11 +343,17 @@ class StandardTickerParser(TickerParser):
     @staticmethod
     def _parse_numeric_date(date_part: str) -> Optional[str]:
         """Parse YYMMDD numeric date string to YYYY-MM-DD."""
-        if len(date_part) == 6 and date_part.isdigit():
+        NUMERIC_DATE_LENGTH = 6  # YYMMDD format length
+        CENTURY_OFFSET = 2000  # Offset for 2-digit years (2000s)
+        YEAR_SLICE = slice(0, 2)  # YY in YYMMDD
+        MONTH_SLICE = slice(2, 4)  # MM in YYMMDD
+        DAY_SLICE = slice(4, 6)  # DD in YYMMDD
+
+        if len(date_part) == NUMERIC_DATE_LENGTH and date_part.isdigit():
             try:
-                year = 2000 + int(date_part[0:2])
-                month = int(date_part[2:4])
-                day = int(date_part[4:6])
+                year = CENTURY_OFFSET + int(date_part[YEAR_SLICE])
+                month = int(date_part[MONTH_SLICE])
+                day = int(date_part[DAY_SLICE])
                 return f"{year}-{month:02d}-{day:02d}"
             except ValueError:
                 pass
@@ -284,7 +427,10 @@ def _parse_market(ticker: str, title: str, sport: str) -> Optional[GameParseData
 
 def _resolve_names(game_data: GameParseData) -> Tuple[str, str]:
     """Resolve canonical team/player names using NamingResolver."""
-    from naming_resolver import NamingResolver, NamingContext
+    try:
+        from naming_resolver import NamingResolver, NamingContext
+    except ImportError:
+        from plugins.naming_resolver import NamingResolver, NamingContext
 
     canon_home = (
         NamingResolver.resolve(
@@ -301,11 +447,43 @@ def _resolve_names(game_data: GameParseData) -> Tuple[str, str]:
     return canon_home, canon_away
 
 
-def _generate_game_id(sport, game_date, home_team, away_team):
+def _generate_game_id(
+    sport_or_game: Union[str, GameParseData, UnifiedGameInfo],
+    game_date: Optional[str] = None,
+    home_team: Optional[str] = None,
+    away_team: Optional[str] = None,
+) -> str:
     """
     Generates a consistent and unique game_id.
     Format: SPORT_YYYYMMDD_HOME_AWAY (cleaned)
+
+    Accepts either:
+    1. Primitive parameters: (sport: str, game_date: str, home_team: str, away_team: str)
+    2. GameParseData object
+    3. UnifiedGameInfo object
+
+    For backward compatibility, supports both calling styles.
     """
+    # Handle object parameter (GameParseData or UnifiedGameInfo)
+    if isinstance(sport_or_game, (GameParseData, UnifiedGameInfo)):
+        game = sport_or_game
+        sport = game.sport
+        game_date = game.game_date
+        # Use canon_home/canon_away if available (UnifiedGameInfo), otherwise home_team/away_team
+        if hasattr(game, "canon_home") and hasattr(game, "canon_away"):
+            home_team = game.canon_home
+            away_team = game.canon_away
+        else:
+            home_team = game.home_team
+            away_team = game.away_team
+    else:
+        # Handle primitive parameters (backward compatibility)
+        sport = sport_or_game
+        # game_date, home_team, away_team are passed as separate parameters
+
+    if game_date is None or home_team is None or away_team is None:
+        raise ValueError("Missing required parameters for game ID generation")
+
     date_str = game_date.replace("-", "")
     home_slug = "".join(filter(str.isalnum, home_team)).upper()
     away_slug = "".join(filter(str.isalnum, away_team)).upper()
@@ -317,9 +495,7 @@ def _upsert_game(
     game: UnifiedGameInfo,
 ) -> str:
     """Upsert game into unified_games table and return game_id."""
-    game_id = _generate_game_id(
-        game.sport, game.game_date, game.canon_home, game.canon_away
-    )
+    game_id = _generate_game_id(game)
     db_manager.execute(
         """
         INSERT INTO unified_games (
@@ -358,11 +534,10 @@ def _upsert_odds(
     Accepts either individual parameters (home_team, away_team, ticker) or a GameParseData object.
     GameParseData takes precedence if provided.
     """
-    # Use game_data if provided, otherwise use individual parameters
-    if game_data:
-        home_team = game_data.home_team
-        away_team = game_data.away_team
-        ticker = game_data.ticker
+    # Normalize parameters
+    home_team, away_team, ticker = _normalize_odds_parameters(
+        home_team, away_team, ticker, game_data
+    )
 
     if not all([home_team, away_team, ticker]):
         logger.warning(
@@ -370,29 +545,124 @@ def _upsert_odds(
         )
         return False
 
-    parts = ticker.split("-")
-    outcome_side = parts[-1] if len(parts) > 1 else None
+    # Extract outcome side and price from ticker and market
+    outcome_side = _extract_outcome_side_from_ticker(ticker)
     yes_price_cents = market.get("yes_ask", 0)
 
-    if yes_price_cents <= 0 or not outcome_side:
+    if not outcome_side:
+        logger.warning(f"Could not extract side from {ticker}")
         return False
 
-    decimal_odds = 100.0 / yes_price_cents
+    decimal_odds = 0.0
+    if yes_price_cents > 0:
+        decimal_odds = _calculate_decimal_odds(yes_price_cents)
+    else:
+        logger.warning(
+            f"Invalid price for {ticker}: {yes_price_cents}. Saving ticker only."
+        )
+
+    # Determine outcome name based on team codes
+    outcome_name = _determine_outcome_name(outcome_side, home_team, away_team)
+
+    # Insert or update odds in database
+    return _upsert_odds_to_database(
+        db_manager, game_id, outcome_name, decimal_odds, ticker
+    )
+
+
+def _normalize_odds_parameters(
+    home_team: Optional[str],
+    away_team: Optional[str],
+    ticker: Optional[str],
+    game_data: Optional[GameParseData],
+) -> Tuple[Optional[str], Optional[str], Optional[str]]:
+    """Normalize odds parameters, preferring game_data if provided.
+
+    Returns:
+        Tuple of (home_team, away_team, ticker)
+    """
+    if game_data:
+        return game_data.home_team, game_data.away_team, game_data.ticker
+    return home_team, away_team, ticker
+
+
+def _extract_outcome_side_from_ticker(ticker: str) -> Optional[str]:
+    """Extract outcome side from ticker string.
+
+    Args:
+        ticker: Market ticker (e.g., 'KXNBAGAME-26MAR22MINBOS-MIN')
+
+    Returns:
+        Outcome side (e.g., 'MIN') or None if cannot extract
+    """
+    parts = ticker.split("-")
+    return parts[-1] if len(parts) > 1 else None
+
+
+def _calculate_decimal_odds(yes_price_cents: float) -> float:
+    """Calculate decimal odds from yes price in cents.
+
+    Args:
+        yes_price_cents: Price in cents for 'yes' outcome
+
+    Returns:
+        Decimal odds
+    """
+    CENTS_PER_DOLLAR = 100.0  # Conversion factor: 100 cents = $1.00
+    return CENTS_PER_DOLLAR / yes_price_cents
+
+
+def _determine_outcome_name(outcome_side: str, home_team: str, away_team: str) -> str:
+    """Determine outcome name (home/away) based on outcome side and team names.
+
+    Args:
+        outcome_side: Outcome side from ticker (e.g., 'MIN')
+        home_team: Home team name
+        away_team: Away team name
+
+    Returns:
+        'home' or 'away'
+    """
 
     def _last_name_code(name: str) -> str:
+        TEAM_CODE_LENGTH = 3  # Standard team code length (e.g., "LAL", "BOS")
         parts = name.split()
-        return parts[-1][:3].upper() if parts else name[:3].upper()
+        return (
+            parts[-1][:TEAM_CODE_LENGTH].upper()
+            if parts
+            else name[:TEAM_CODE_LENGTH].upper()
+        )
 
     h_code = _last_name_code(home_team)
     a_code = _last_name_code(away_team)
 
     if outcome_side == h_code:
-        outcome_name = "home"
+        return "home"
     elif outcome_side == a_code:
-        outcome_name = "away"
+        return "away"
     else:
-        outcome_name = "home" if outcome_side == home_team else "away"
+        return "home" if outcome_side == home_team else "away"
 
+
+def _upsert_odds_to_database(
+    db_manager: DBManager,
+    game_id: str,
+    outcome_name: str,
+    decimal_odds: float,
+    ticker: str,
+) -> bool:
+    """Insert or update odds in game_odds table.
+
+    Args:
+        db_manager: Database manager instance
+        game_id: Game identifier
+        outcome_name: 'home' or 'away'
+        decimal_odds: Decimal odds
+        ticker: Market ticker
+
+    Returns:
+        True if successful
+    """
     odds_id = f"{game_id}_kalshi_{outcome_name}"
     db_manager.execute(
         """
@@ -401,7 +671,8 @@ def _upsert_odds(
         ) VALUES (:odds_id, :game_id, 'Kalshi', 'moneyline', :outcome_name, :price, True, :ticker)
         ON CONFLICT (odds_id) DO UPDATE SET
             price = EXCLUDED.price,
-            external_id = EXCLUDED.external_id
+            external_id = EXCLUDED.external_id,
+            last_update = NOW()
     """,
         {
             "odds_id": odds_id,
@@ -414,12 +685,21 @@ def _upsert_odds(
     return True
 
 
-def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
+def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db) -> int:
     """
     Save Kalshi markets to the unified_games and game_odds tables in PostgreSQL.
+
+    Returns:
+        Number of odds records saved
     """
     if not markets:
         return 0
+
+    # Ensure database schema is initialized
+    from plugins.database_schema_manager import DatabaseSchemaManager
+
+    schema_manager = DatabaseSchemaManager(db_manager)
+    schema_manager.initialize_schema()
 
     odds_count = 0
     logger.info(
@@ -433,6 +713,7 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
         # Parse market
         game_data = _parse_market(ticker, title, sport)
         if not game_data:
+            logger.warning(f"Failed to parse market: {ticker} ({title})")
             continue
 
         # If date missing, try to get it from close_time
@@ -445,6 +726,9 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
                     game_data.game_date = close_time.strftime("%Y-%m-%d")
 
         if not game_data.has_teams or not game_data.game_date:
+            logger.warning(
+                f"Missing teams/date for {ticker}: teams={game_data.has_teams}, date={game_data.game_date}"
+            )
             continue
 
         # Resolve canonical names
@@ -466,6 +750,8 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db):
         # Upsert odds using game_data object
         if _upsert_odds(db_manager, game_id, market, game_data=game_data):
             odds_count += 1
+        else:
+            logger.warning(f"Failed to upsert odds for {ticker}")
 
     return odds_count
 
@@ -581,23 +867,89 @@ def _init_kalshi_api(sport: str) -> Optional[KalshiAPI]:
     return None
 
 
+def _filter_active_markets(result: dict) -> list:
+    """Filter markets to only include active, initialized, or open ones.
+
+    Args:
+        result: API response containing markets list
+
+    Returns:
+        List of active markets
+    """
+    if not result or "markets" not in result:
+        return []
+
+    return [
+        m
+        for m in result["markets"]
+        if m.get("status") in ["active", "initialized", "open"]
+    ]
+
+
+def _get_detailed_market(api: KalshiAPI, market: dict) -> dict:
+    """Fetch detailed price data for a single market.
+
+    Args:
+        api: KalshiAPI instance
+        market: Basic market data
+
+    Returns:
+        Market with detailed price data if available
+    """
+    ticker = market.get("ticker")
+    if not ticker:
+        return market
+
+    try:
+        detailed_market = api.get_market(ticker)
+        if detailed_market:
+            # Merge basic and detailed data
+            market.update(detailed_market)
+    except Exception as e:
+        logger.warning(f"    ⚠️  Could not get details for {ticker}: {e}")
+
+    return market
+
+
+def _process_series_ticker(api: KalshiAPI, series_ticker: str, limit: int) -> list:
+    """Fetch and process markets for a single series ticker.
+
+    Args:
+        api: KalshiAPI instance
+        series_ticker: Series ticker to fetch
+        limit: Maximum number of markets to fetch
+
+    Returns:
+        List of detailed markets for this series
+    """
+    try:
+        result = api.get_markets(series_ticker=series_ticker, limit=limit)
+        markets = _filter_active_markets(result)
+
+        if not markets:
+            return []
+
+        # Get detailed market data with prices for each market
+        detailed_markets = [_get_detailed_market(api, market) for market in markets]
+
+        logger.info(
+            f"  📊 {series_ticker}: {len(detailed_markets)} active markets with price data"
+        )
+        return detailed_markets
+
+    except Exception as e:
+        logger.warning(f"  ⚠️  Failed to fetch {series_ticker}: {e}")
+        return []
+
+
 def _fetch_all_markets(api: KalshiAPI, series_tickers: list, limit: int) -> list:
-    """Fetch active markets for all provided series tickers."""
+    """Fetch active markets for all provided series tickers with detailed price data."""
     all_markets = []
+
     for series_ticker in series_tickers:
-        try:
-            result = api.get_markets(series_ticker=series_ticker, limit=limit)
-            if result and "markets" in result:
-                markets = [
-                    m
-                    for m in result["markets"]
-                    if m.get("status") in ["active", "initialized", "open"]
-                ]
-                all_markets.extend(markets)
-                logger.info(f"  📊 {series_ticker}: {len(markets)} active markets")
-        except Exception as e:
-            logger.warning(f"  ⚠️  Failed to fetch {series_ticker}: {e}")
-            continue
+        detailed_markets = _process_series_ticker(api, series_ticker, limit)
+        all_markets.extend(detailed_markets)
+
     return all_markets
 
 
@@ -620,7 +972,7 @@ def _fetch_sport_markets(
     sport: str,
     series_tickers: Optional[list] = None,
     limit: Optional[int] = None,
-    _date_str: str = None,  # kept for API compatibility, currently unused
+    _date_str: Optional[str] = None,  # kept for API compatibility, currently unused
 ) -> list:
     """
     Generic function to fetch markets for any sport with error handling.
@@ -657,45 +1009,89 @@ def _fetch_sport_markets(
 
 
 # Sport-specific fetch functions (unchanged signatures for Airflow compatibility)
-def fetch_nba_markets(date_str=None):
-    return _fetch_sport_markets("nba", _date_str=date_str)
+# Generated dynamically to eliminate code duplication while maintaining backward compatibility
 
 
-def fetch_nhl_markets(date_str=None):
-    return _fetch_sport_markets("nhl", _date_str=date_str)
+def _create_sport_market_fetcher(
+    sport: str, description: str
+) -> Callable[[Optional[str]], list]:
+    """Create a sport-specific market fetch function.
+
+    Args:
+        sport: Sport identifier (e.g., "nba", "nhl")
+        description: Function docstring description
+
+    Returns:
+        Function that fetches markets for the specified sport
+    """
+
+    def fetch_sport_markets(date_str: Optional[str] = None) -> list:
+        """{description}"""
+        return _fetch_sport_markets(sport, _date_str=date_str)
+
+    # Set function metadata
+    fetch_sport_markets.__doc__ = description
+    fetch_sport_markets.__name__ = f"fetch_{sport}_markets"
+    return fetch_sport_markets
 
 
-def fetch_epl_markets(date_str=None):
-    return _fetch_sport_markets("epl", _date_str=date_str)
+# Dynamically generate sport-specific market fetch functions
+# This eliminates code duplication while maintaining backward compatibility
+fetch_nba_markets = _create_sport_market_fetcher(
+    "nba", "Fetch NBA markets from Kalshi."
+)
+fetch_nhl_markets = _create_sport_market_fetcher(
+    "nhl", "Fetch NHL markets from Kalshi."
+)
+fetch_epl_markets = _create_sport_market_fetcher(
+    "epl", "Fetch EPL (English Premier League) markets from Kalshi."
+)
+fetch_ligue1_markets = _create_sport_market_fetcher(
+    "ligue1", "Fetch Ligue 1 (French football) markets from Kalshi."
+)
+fetch_ncaab_markets = _create_sport_market_fetcher(
+    "ncaab", "Fetch NCAAB (men's college basketball) markets from Kalshi."
+)
+fetch_wncaab_markets = _create_sport_market_fetcher(
+    "wncaab", "Fetch WNCAAB (women's college basketball) markets from Kalshi."
+)
+fetch_mlb_markets = _create_sport_market_fetcher(
+    "mlb", "Fetch MLB (baseball) markets from Kalshi."
+)
+fetch_nfl_markets = _create_sport_market_fetcher(
+    "nfl", "Fetch NFL (American football) markets from Kalshi."
+)
+
+# Manual implementations for sports using alternative sources or placeholders
 
 
-def fetch_ligue1_markets(date_str=None):
-    return _fetch_sport_markets("ligue1", _date_str=date_str)
+def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
+    """Fetch tennis markets from TheOddsAPI."""
+    logger.info("💰 Fetching TENNIS prediction markets from TheOddsAPI...")
+
+    try:
+        api = TheOddsAPI()
+        # Fetch markets (this returns list of games with odds)
+        markets = api.fetch_markets("tennis")
+
+        # Save to database immediately so they are available for odds comparison
+        if markets:
+            count = api.save_to_db(markets)
+            logger.info(f"✓ Saved {count} tennis odds records to database")
+
+        return markets
+    except Exception as e:
+        logger.error(f"✗ Failed to fetch tennis markets: {e}")
+        return []
 
 
-def fetch_tennis_markets(date_str=None):
-    return _fetch_sport_markets("tennis", _date_str=date_str)
+def fetch_cba_markets(date_str: Optional[str] = None) -> list:
+    """Fetch CBA (Chinese Basketball Association) markets (Placeholder)."""
+    logger.info("💰 Fetching CBA prediction markets (Placeholder)...")
+    return []
 
 
-def fetch_ncaab_markets(date_str=None):
-    return _fetch_sport_markets("ncaab", _date_str=date_str)
-
-
-def fetch_wncaab_markets(date_str=None):
-    return _fetch_sport_markets("wncaab", _date_str=date_str)
-
-
-def fetch_mlb_markets(date_str=None):
-    return _fetch_sport_markets("mlb", _date_str=date_str)
-
-
-def fetch_nfl_markets(date_str=None):
-    return _fetch_sport_markets("nfl", _date_str=date_str)
-
-
-def fetch_unrivaled_markets(date_str=None):
-    return _fetch_sport_markets("unrivaled", _date_str=date_str)
-
-
-def fetch_cba_markets(date_str=None):
-    return _fetch_sport_markets("cba", _date_str=date_str)
+def fetch_unrivaled_markets(date_str: Optional[str] = None) -> list:
+    """Fetch Unrivaled (3x3 women's basketball) markets (Placeholder)."""
+    logger.info("💰 Fetching Unrivaled prediction markets (Placeholder)...")
+    return []
