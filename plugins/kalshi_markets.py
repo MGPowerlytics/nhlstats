@@ -115,7 +115,7 @@ class KalshiAPI:
         self,
         event_ticker: Optional[str] = None,
         series_ticker: Optional[str] = None,
-        status: str = "open",
+        status: Optional[str] = None,
         limit: int = 100,
     ) -> Optional[dict]:
         """Get markets from Kalshi with rate limiting and error handling.
@@ -123,7 +123,8 @@ class KalshiAPI:
         Args:
             event_ticker: Optional event ticker filter
             series_ticker: Optional series ticker filter (e.g., 'KXNBAGAME')
-            status: Market status filter (default: 'open')
+            status: Market status filter. Valid Kalshi API values vary by version.
+                If None, fetches all statuses and filters client-side.
             limit: Maximum number of markets to return
 
         Returns:
@@ -133,12 +134,15 @@ class KalshiAPI:
 
         try:
             logger.debug(f"Fetching markets: series={series_ticker}, limit={limit}")
-            response = self.markets_api.get_markets(
-                event_ticker=event_ticker,
-                series_ticker=series_ticker,
-                status=status,
-                limit=limit,
-            )
+            kwargs = {
+                "series_ticker": series_ticker,
+                "limit": limit,
+            }
+            if event_ticker:
+                kwargs["event_ticker"] = event_ticker
+            if status:
+                kwargs["status"] = status
+            response = self.markets_api.get_markets(**kwargs)
             result = response.to_dict()
             market_count = len(result.get("markets", []))
             logger.info(
@@ -147,6 +151,14 @@ class KalshiAPI:
             return result
         except Exception as e:
             error_msg = str(e)
+            # Handle SDK Pydantic validation errors (e.g., unknown status values
+            # like 'finalized') by falling back to raw HTTP request
+            if "validation error" in error_msg.lower():
+                logger.warning(
+                    f"⚠️  SDK validation error for {series_ticker}, "
+                    f"falling back to raw HTTP request"
+                )
+                return self._get_markets_raw(series_ticker, limit)
             if "429" in error_msg or "Too Many Requests" in error_msg:
                 logger.warning(
                     f"⚠️  Rate limited by Kalshi API for {series_ticker}: {e}"
@@ -155,6 +167,44 @@ class KalshiAPI:
                 logger.error(f"✗ Authentication failed for Kalshi API: {e}")
             else:
                 logger.error(f"✗ Failed to get markets from {series_ticker}: {e}")
+            return None
+
+    def _get_markets_raw(
+        self, series_ticker: Optional[str], limit: int
+    ) -> Optional[dict]:
+        """Fetch markets via raw HTTP when SDK deserialization fails.
+
+        Args:
+            series_ticker: Series ticker filter
+            limit: Maximum number of markets
+
+        Returns:
+            dict with 'markets' key, or None on error
+        """
+        import requests
+
+        try:
+            base_url = self.api_client.configuration.host
+            url = f"{base_url}/markets"
+            params = {"limit": limit}
+            if series_ticker:
+                params["series_ticker"] = series_ticker
+
+            headers = dict(self.api_client.default_headers)
+            headers["Accept"] = "application/json"
+
+            resp = requests.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+
+            market_count = len(data.get("markets", []))
+            logger.info(
+                f"✓ Fetched {market_count} markets from {series_ticker or 'all'} "
+                f"(raw HTTP fallback)"
+            )
+            return data
+        except Exception as e:
+            logger.error(f"✗ Raw HTTP fallback also failed for {series_ticker}: {e}")
             return None
 
     def get_market(self, ticker: str) -> Optional[dict]:

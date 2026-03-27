@@ -1,3 +1,19 @@
+### [2026-03-27] - MLB Season Readiness: Elo Data Cleanup + Kalshi Market Fix
+
+- **Fixed MLB Elo Ratings Contamination (🐛 CRITICAL FIX)**:
+  - **Issue**: MLB Elo ratings CSV contained 59 teams — 28 were non-MLB (WBC national teams like Dominican Republic/Venezuela, minor league teams like Dayton Dragons/Memphis Redbirds, international teams like Hanshin Tigers/Kiwoom Heroes, college teams, All-Star teams). Root cause: Elo query processed ALL games from `unified_games` including 2,353 spring training, 79 exhibition/WBC, and 5 All-Star games.
+  - **Fix**: Created MLB-specific query in `elo_update_config.py` that reads from `mlb_games` table with `game_type IN ('R','D','L','W','F')` filter (regular season + postseason only). Rebuilt ratings from 12,356 clean games → 32 legitimate teams.
+  - **Files Modified**: `plugins/elo/elo_update_config.py`, `data/mlb_current_elo_ratings.csv`
+
+- **Cleaned Cross-Sport Contamination in unified_games (🐛 DATA FIX)**:
+  - **Issue**: 244 rows in `unified_games` had non-MLB teams tagged as sport='MLB' — including "Boston Bruins" (NHL), "Milwaukee Bucks" (NBA), "St. Louis Blues" (NHL), abbreviations (BOS, MIL, NYM), and 16 garbage Kalshi odds rows with price=0.
+  - **Fix**: Deleted 244 contaminated unified_games rows and 16 associated garbage game_odds rows.
+
+- **Fixed Kalshi Market Fetching Status Filter (🐛 CRITICAL FIX)**:
+  - **Issue**: `KalshiAPI.get_markets()` defaulted to `status="open"` which Kalshi API rejects with 400 Bad Request. MLB markets have `status="active"`. Additionally, omitting status returns "finalized" markets that crash the SDK's Pydantic model validation. Result: zero Kalshi markets fetched for ALL sports.
+  - **Fix**: Changed status default to `None` (omit from API request), added `_get_markets_raw()` fallback method that bypasses SDK deserialization when Pydantic validation fails. Now successfully fetches 74 active MLB markets with real prices.
+  - **Files Modified**: `plugins/kalshi_markets.py`
+
 ### [2026-03-27] - Fixed Kalshi Price Extraction, MLB Parser, and Ticker Resolution
 
 - **Fixed Kalshi SDK v2.1.0 Price Extraction (🐛 CRITICAL FIX)**:

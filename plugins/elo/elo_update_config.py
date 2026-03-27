@@ -106,18 +106,22 @@ def _create_sport_config_registry() -> Dict[str, SportEloConfig]:
         "tennis": _create_tennis_config(),
     }
 
-    # Add unified table sports with standard query
-    # These sports use home_score/away_score for MOV multipliers
-    for sport_id, k, home in [
-        ("mlb", MLB_K_FACTOR, MLB_HOME_ADVANTAGE),
-        ("nfl", NFL_K_FACTOR, NFL_HOME_ADVANTAGE),
-    ]:
-        registry[sport_id] = SportEloConfig(
-            sport_id=sport_id,
-            k_factor=k,
-            home_advantage=home,
-            query=get_default_query(sport_id),
-        )
+    # MLB uses mlb_games table with game_type filter to exclude
+    # spring training, exhibition, WBC, and All-Star games
+    registry["mlb"] = SportEloConfig(
+        sport_id="mlb",
+        k_factor=MLB_K_FACTOR,
+        home_advantage=MLB_HOME_ADVANTAGE,
+        query=_get_mlb_query(),
+    )
+
+    # NFL uses standard unified_games query
+    registry["nfl"] = SportEloConfig(
+        sport_id="nfl",
+        k_factor=NFL_K_FACTOR,
+        home_advantage=NFL_HOME_ADVANTAGE,
+        query=get_default_query("nfl"),
+    )
 
     # Add sports that use separate game classes (query=None)
     for sport_id, k, home in [
@@ -404,6 +408,26 @@ def _create_nhl_team_mapper() -> Callable[[str], Optional[str]]:
         return team_name  # Fallback for unknown but non-blocked names
 
     return map_nhl_team
+
+
+def _get_mlb_query() -> str:
+    """Get MLB-specific query that filters to regular season and postseason only.
+
+    Uses the mlb_games table which has game_type to exclude spring training (S),
+    exhibition/WBC (E), and All-Star (A) games that contaminate Elo ratings.
+    """
+    return """
+        SELECT game_date, home_team, away_team,
+               home_score, away_score,
+               CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+        FROM mlb_games
+        WHERE game_type IN ('R', 'D', 'L', 'W', 'F')
+          AND home_score IS NOT NULL
+          AND away_score IS NOT NULL
+          AND home_team IS NOT NULL
+          AND away_team IS NOT NULL
+        ORDER BY game_date
+    """
 
 
 def get_default_query(sport: str) -> str:
