@@ -1324,13 +1324,9 @@ def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
     return all_markets
 
 
-def fetch_cba_markets(date_str: Optional[str] = None) -> list:
-    """Fetch CBA (Chinese Basketball Association) markets (Placeholder)."""
-    logger.info("💰 Fetching CBA prediction markets (Placeholder)...")
-    return []
-
-
-def fetch_unrivaled_markets(date_str: Optional[str] = None) -> list:
-    """Fetch Unrivaled (3x3 women's basketball) markets (Placeholder)."""
-    logger.info("💰 Fetching Unrivaled prediction markets (Placeholder)...")
-    return []
+fetch_cba_markets = _create_sport_market_fetcher(
+    "cba", "Fetch CBA (Chinese Basketball Association) markets from Kalshi."
+)
+fetch_unrivaled_markets = _create_sport_market_fetcher(
+    "unrivaled", "Fetch Unrivaled (3x3 women's basketball) markets from Kalshi."
+)
