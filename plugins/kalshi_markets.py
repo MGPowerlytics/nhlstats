@@ -457,6 +457,39 @@ class StandardTickerParser(TickerParser):
                     home_team = teams_str[self.TEAM_CODE_LENGTH :]
                     return home_team, away_team, game_date
 
+                # Variable-length team codes (e.g., NCAAB mixes 3- and 4-char codes).
+                # Use the outcome code from parts[2] to split teams_str unambiguously:
+                #   teams_str = AWAY + HOME  (away team appears first)
+                # If outcome_code is a prefix → away team; if suffix → home team.
+                if len(parts) > 2:
+                    outcome_code = parts[2]
+                    n = len(outcome_code)
+                    if n > 0:
+                        if teams_str.startswith(outcome_code):
+                            away_team = outcome_code
+                            home_team = teams_str[n:]
+                            if home_team:
+                                return home_team, away_team, game_date
+                        elif teams_str.endswith(outcome_code):
+                            home_team = outcome_code
+                            away_team = teams_str[:-n]
+                            if away_team:
+                                return home_team, away_team, game_date
+
+        # Fallback: extract teams from " at " title format (e.g. "Oklahoma at Colorado Winner?")
+        clean_title = title.rstrip("?").strip()
+        if " at " in clean_title:
+            at_parts = clean_title.split(" at ", 1)
+            if len(at_parts) == 2:
+                away_name = at_parts[0].strip()
+                home_part = at_parts[1].strip()
+                # Strip trailing descriptors like "Winner" or "Champion"
+                home_name = re.split(r"\s+(?:Winner|Champion|Winner\?)", home_part)[
+                    0
+                ].strip()
+                if away_name and home_name:
+                    return home_name, away_name, game_date
+
         # Fallback: try to extract teams from title
         if " vs " in title:
             # Simple fallback – caller may handle further resolution
