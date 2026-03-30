@@ -73,7 +73,9 @@ def create_diagnostic_tables(engine):
                 passes_gate INTEGER, avg_hours_before_game REAL,
                 timing_roi_under_2hr REAL, timing_roi_over_8hr REAL,
                 bets_with_closing_price INTEGER, bets_flagged_stale INTEGER,
-                recommendation TEXT, elo_replay_divergence REAL)
+                recommendation TEXT, elo_replay_divergence REAL,
+                market_impact_verdict VARCHAR, median_market_impact_pct REAL,
+                fill_time_roi_under_2hr REAL, fill_time_roi_over_24hr REAL)
         """
             )
         )

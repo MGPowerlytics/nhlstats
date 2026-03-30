@@ -25,6 +25,7 @@ from typing import Dict, List, Optional, Tuple
 
 from plugins.constants import (
     ACCEPTABLE_BOOKMAKERS,
+    KALSHI_CLOSING_BOOKMAKER,
     STALE_CLOSING_PRICE_HOURS,
 )
 from plugins.db_manager import default_db
@@ -63,6 +64,7 @@ def compute_real_closing_price(
     bet_on: str,
     placed_date: str,
     market_close_time_utc: Optional[datetime] = None,
+    prefer_kalshi_close: bool = False,
 ) -> Optional[float]:
     """Compute real closing price from game_odds for a placed bet.
 
@@ -77,6 +79,8 @@ def compute_real_closing_price(
         bet_on: 'home', 'away', or team abbreviation.
         placed_date: Date string (YYYY-MM-DD) from placed_bets.
         market_close_time_utc: When the market closed (for snapshot filtering).
+        prefer_kalshi_close: When True, 'Kalshi_close' bookmaker records are
+            preferred over all other bookmakers for the closing price lookup.
 
     Returns:
         Implied probability (0.0–1.0) from closing odds, or None if unavailable.
@@ -89,7 +93,9 @@ def compute_real_closing_price(
         return None
 
     # Step 2: Find latest pre-close odds snapshot
-    closing_odds = _find_closing_odds(game_id, outcome_name, market_close_time_utc)
+    closing_odds = _find_closing_odds(
+        game_id, outcome_name, market_close_time_utc, prefer_kalshi_close
+    )
     if closing_odds is None:
         return None
 
@@ -142,6 +148,7 @@ def _find_closing_odds(
     game_id: str,
     outcome_name: str,
     market_close_time_utc: Optional[datetime] = None,
+    prefer_kalshi_close: bool = False,
 ) -> Optional[float]:
     """Find the last pre-close odds price for a game outcome.
 
@@ -153,13 +160,12 @@ def _find_closing_odds(
         game_id: The unified_games.game_id to look up.
         outcome_name: 'home' or 'away'.
         market_close_time_utc: Cutoff time; only snapshots before this are used.
+        prefer_kalshi_close: When True, 'Kalshi_close' bookmaker records are
+            given highest priority over all other bookmakers.
 
     Returns:
         Decimal odds (float > 1.0), or None if no snapshot found.
     """
-    # Build bookmaker priority CASE expression
-    bookmaker_cases = ", ".join(f"'{b}'" for b in ACCEPTABLE_BOOKMAKERS)
-
     if market_close_time_utc is not None:
         query = f"""
             SELECT price, bookmaker, last_update
@@ -170,7 +176,7 @@ def _find_closing_odds(
             ORDER BY
               last_update DESC NULLS LAST,
               CASE bookmaker
-                {_bookmaker_priority_sql()}
+                {_bookmaker_priority_sql(prefer_kalshi_close)}
               END ASC
             LIMIT 1
         """
@@ -193,7 +199,7 @@ def _find_closing_odds(
             ORDER BY
               last_update DESC NULLS LAST,
               CASE bookmaker
-                {_bookmaker_priority_sql()}
+                {_bookmaker_priority_sql(prefer_kalshi_close)}
               END ASC
             LIMIT 1
         """
@@ -209,12 +215,24 @@ def _find_closing_odds(
         return None
 
 
-def _bookmaker_priority_sql() -> str:
-    """Generate SQL CASE expression for bookmaker priority ordering."""
-    cases = []
-    for i, bookmaker in enumerate(ACCEPTABLE_BOOKMAKERS):
-        cases.append(f"WHEN '{bookmaker}' THEN {i}")
-    cases.append(f"ELSE {len(ACCEPTABLE_BOOKMAKERS)}")
+def _bookmaker_priority_sql(prefer_kalshi_close: bool = False) -> str:
+    """Generate SQL CASE expression for bookmaker priority ordering.
+
+    Args:
+        prefer_kalshi_close: When True, prepend KALSHI_CLOSING_BOOKMAKER to
+            the priority list so Kalshi_close records win over all others.
+
+    Returns:
+        SQL CASE expression string for ORDER BY clauses.
+    """
+    if prefer_kalshi_close:
+        priority = [KALSHI_CLOSING_BOOKMAKER] + [
+            b for b in ACCEPTABLE_BOOKMAKERS if b != KALSHI_CLOSING_BOOKMAKER
+        ]
+    else:
+        priority = ACCEPTABLE_BOOKMAKERS
+    cases = [f"WHEN '{b}' THEN {i}" for i, b in enumerate(priority)]
+    cases.append(f"ELSE {len(priority)}")
     return " ".join(cases)
 
 
@@ -237,11 +255,15 @@ def _is_stale_snapshot(
     return gap > timedelta(hours=STALE_CLOSING_PRICE_HOURS)
 
 
-def backfill_real_clv() -> Dict[str, int]:
+def backfill_real_clv(prefer_kalshi_close: bool = False) -> Dict[str, int]:
     """Backfill historical placed_bets with real closing prices from game_odds.
 
     Finds all settled bets with binary CLV (closing_line_prob IN (0.0, 1.0))
     and attempts to replace them with real market closing prices.
+
+    Args:
+        prefer_kalshi_close: When True, 'Kalshi_close' bookmaker records are
+            preferred over all other bookmakers for the closing price lookup.
 
     Returns:
         Dict with keys: 'updated', 'null_count', 'stale_count', 'total_processed'.
@@ -294,6 +316,7 @@ def backfill_real_clv() -> Dict[str, int]:
             bet_on=bet_on or "home",
             placed_date=str(placed_date) if placed_date else "",
             market_close_time_utc=market_close_time_utc,
+            prefer_kalshi_close=prefer_kalshi_close,
         )
 
         if closing_prob is None:
@@ -374,16 +397,212 @@ def _update_bet_clv(bet_id: str, closing_prob: float, clv: Optional[float]) -> N
         print(f"  ⚠️ Failed to update CLV for {bet_id}: {e}")
 
 
-def update_real_closing_lines() -> int:
+def _store_kalshi_closing_price(
+    game_id: str,
+    ticker: str,
+    outcome_name: str,
+    decimal_odds: float,
+    bookmaker: str,
+) -> int:
+    """Upsert a single Kalshi closing price into game_odds.
+
+    Args:
+        game_id: unified_games game identifier.
+        ticker: Kalshi market ticker (used to build a deterministic odds_id).
+        outcome_name: 'home' or 'away'.
+        decimal_odds: Price as decimal odds (e.g., 1.667 for a 60% probability).
+        bookmaker: Bookmaker label (e.g., 'Kalshi_close').
+
+    Returns:
+        1 on success, 0 on failure.
+    """
+    odds_id = f"{ticker}_{bookmaker}_{outcome_name}"
+    now_str = datetime.utcnow().isoformat()
+    try:
+        default_db.execute(
+            """
+            INSERT INTO game_odds
+                (odds_id, game_id, bookmaker, market_name, outcome_name, price, last_update)
+            VALUES
+                (:odds_id, :game_id, :bookmaker, 'moneyline', :outcome_name, :price, :last_update)
+            ON CONFLICT (odds_id) DO UPDATE SET
+                price = EXCLUDED.price,
+                last_update = EXCLUDED.last_update
+            """,
+            {
+                "odds_id": odds_id,
+                "game_id": game_id,
+                "bookmaker": bookmaker,
+                "outcome_name": outcome_name,
+                "price": decimal_odds,
+                "last_update": now_str,
+            },
+        )
+        return 1
+    except Exception as e:
+        print(f"  ⚠️ Failed to store closing price for {ticker}/{outcome_name}: {e}")
+        return 0
+
+
+def fetch_and_store_kalshi_closing_prices(
+    lookahead_minutes: int = 30,
+) -> Dict[str, int]:
+    """Fetch Kalshi prices for games closing within lookahead_minutes.
+
+    Queries placed_bets for bets whose market_close_time_utc is within
+    [now - lookahead_minutes, now + lookahead_minutes]. For each such bet,
+    fetches the current Kalshi market price and stores it in game_odds
+    with bookmaker='Kalshi_close'.
+
+    Args:
+        lookahead_minutes: Window around market close to capture prices.
+
+    Returns:
+        Dict with 'fetched', 'stored', 'errors' counts.
+    """
+    from plugins.kalshi_markets import load_kalshi_credentials, KalshiAPI
+
+    counts: Dict[str, int] = {"fetched": 0, "stored": 0, "errors": 0}
+
+    # Initialise Kalshi API client
+    try:
+        api_key_id, private_key = load_kalshi_credentials()
+        api = KalshiAPI(api_key_id, private_key)
+    except Exception as e:
+        print(f"⚠️  Could not initialise Kalshi API for closing prices: {e}")
+        return counts
+
+    # Compute the time window
+    now = datetime.utcnow()
+    window_start = now - timedelta(minutes=lookahead_minutes)
+    window_end = now + timedelta(minutes=lookahead_minutes)
+
+    query = """
+        SELECT bet_id, ticker, sport, placed_date,
+               home_team, away_team, bet_on, side,
+               market_close_time_utc
+        FROM placed_bets
+        WHERE market_close_time_utc IS NOT NULL
+          AND market_close_time_utc >= :window_start
+          AND market_close_time_utc <= :window_end
+          AND ticker IS NOT NULL
+          AND ticker != ''
+    """
+
+    try:
+        result = default_db.execute(
+            query,
+            {
+                "window_start": window_start.isoformat(),
+                "window_end": window_end.isoformat(),
+            },
+        )
+        bets = result.fetchall()
+    except Exception as e:
+        print(f"❌ Error querying placed_bets for Kalshi closing prices: {e}")
+        counts["errors"] += 1
+        return counts
+
+    for bet in bets:
+        (
+            bet_id,
+            ticker,
+            sport,
+            placed_date,
+            home_team,
+            away_team,
+            bet_on,
+            side,
+            _market_close,
+        ) = bet
+
+        # Resolve game_id from unified_games
+        game_id = _find_game_id(
+            sport or "",
+            str(placed_date) if placed_date else "",
+            home_team or "",
+            away_team or "",
+        )
+        if not game_id:
+            print(f"  ⚠️ No game_id found for bet {bet_id} — skipping")
+            counts["errors"] += 1
+            continue
+
+        # Fetch current market price from Kalshi
+        try:
+            market_data = api.get_market(ticker)
+            if not market_data:
+                print(f"  ⚠️ Empty market data for ticker {ticker}")
+                counts["errors"] += 1
+                continue
+            counts["fetched"] += 1
+        except Exception as e:
+            print(f"  ⚠️ Could not fetch market {ticker}: {e}")
+            counts["errors"] += 1
+            continue
+
+        # Extract yes/no ask prices (in cents, 0–100)
+        yes_ask: int = market_data.get("yes_ask", 0) or 0
+        no_ask: int = market_data.get("no_ask", 0) or 0
+
+        # Fallback to last_price if ask prices are absent
+        if not yes_ask:
+            last_price = market_data.get("last_price", 0) or 0
+            if last_price:
+                yes_ask = last_price
+                no_ask = 100 - last_price
+
+        if yes_ask <= 0:
+            print(f"  ⚠️ No usable price data for ticker {ticker}")
+            counts["errors"] += 1
+            continue
+
+        # Determine outcome mapping from bet_on + side
+        # e.g. bet_on='home', side='yes'  → YES=home, NO=away
+        #       bet_on='home', side='no'   → NO=home, YES=away
+        #       bet_on='away', side='yes'  → YES=away, NO=home
+        #       bet_on='away', side='no'   → NO=away, YES=home
+        resolved_outcome = _resolve_outcome_name(
+            bet_on or "home", home_team or "", away_team or ""
+        )
+        side_lower = (side or "yes").lower()
+        yes_is_home = (resolved_outcome == "home") == (side_lower == "yes")
+
+        if yes_is_home:
+            home_cents, away_cents = yes_ask, no_ask or (100 - yes_ask)
+        else:
+            home_cents, away_cents = no_ask or (100 - yes_ask), yes_ask
+
+        # Convert cents → probability → decimal odds and upsert
+        stored = 0
+        for outcome, cents in (("home", home_cents), ("away", away_cents)):
+            if cents <= 0 or cents >= 100:
+                continue
+            decimal_odds = 1.0 / (cents / 100.0)
+            stored += _store_kalshi_closing_price(
+                game_id, ticker, outcome, decimal_odds, KALSHI_CLOSING_BOOKMAKER
+            )
+
+        counts["stored"] += stored
+
+    return counts
+
+
+def update_real_closing_lines(prefer_kalshi_close: bool = True) -> int:
     """Update CLV for recently settled bets that still have binary closing prices.
 
     Designed to be called from the hourly bet_sync DAG. Only processes bets
     that are settled and still have binary CLV values (0.0 or 1.0).
 
+    Args:
+        prefer_kalshi_close: When True (default), 'Kalshi_close' bookmaker records
+            are preferred over SBR and other bookmakers when computing CLV. This
+            enables true CLV measurement against Kalshi-specific closing prices.
+
     Returns:
         Number of bets updated.
     """
-    result = backfill_real_clv()
+    result = backfill_real_clv(prefer_kalshi_close=prefer_kalshi_close)
     return result.get("updated", 0)
 
 

@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Tuple, Union, List, Dict
+from typing import Any, Callable, Dict, List, Optional, Tuple, Union
 
 from plugins.base_games import UnifiedGameInfo
 from plugins.the_odds_api import TheOddsAPI
@@ -315,6 +315,80 @@ class KalshiAPI:
 
         except Exception as e:
             logger.warning(f"⚠️  Could not get order book for {ticker}: {e}")
+
+    def get_order_book_depth(
+        self, ticker: str, bet_size: float = 10.0
+    ) -> Dict[str, Any]:
+        """Fetch full order book depth for a Kalshi market.
+
+        Unlike _add_order_book_data() which only extracts top-of-book,
+        this returns all price levels with quantities for market impact analysis.
+
+        Unlike _add_order_book_data(), this method does NOT have an early-exit
+        guard — it always fetches the full order book from the API.
+
+        Args:
+            ticker: Kalshi market ticker symbol.
+            bet_size: Dollar size to compute market impact for. Defaults to 10.0.
+
+        Returns:
+            Dict with keys:
+                'yes_levels': List of {'price': float, 'quantity': float}
+                    sorted by price desc
+                'no_levels': List of {'price': float, 'quantity': float}
+                    sorted by price desc
+                'yes_top_of_book': float (best yes ask price, 0-1)
+                'no_top_of_book': float (best no ask price, 0-1)
+                'total_yes_depth_usd': float (sum of price*quantity for yes levels)
+                'total_no_depth_usd': float (sum of price*quantity for no levels)
+                'market_impact_pct': float (bet_size / total_yes_depth_usd * 100)
+            Returns empty dict if API unavailable.
+        """
+        try:
+            response = self.markets_api.get_market_orderbook_with_http_info(
+                ticker=ticker
+            )
+            raw = json.loads(response.raw_data)
+            orderbook = raw.get("orderbook_fp") or raw.get("orderbook") or {}
+
+            yes_raw = orderbook.get("yes_dollars") or orderbook.get("yes") or []
+            no_raw = orderbook.get("no_dollars") or orderbook.get("no") or []
+
+            def _parse_levels(raw_levels: list) -> List[Dict[str, float]]:
+                levels = []
+                for entry in raw_levels:
+                    try:
+                        price = float(entry[0])
+                        quantity = float(entry[1])
+                        levels.append({"price": price, "quantity": quantity})
+                    except (IndexError, ValueError, TypeError):
+                        continue
+                # Sort descending by price (raw is ascending; best ask is last)
+                return sorted(levels, key=lambda x: x["price"], reverse=True)
+
+            yes_levels = _parse_levels(yes_raw)
+            no_levels = _parse_levels(no_raw)
+
+            yes_top = yes_levels[0]["price"] if yes_levels else 0.0
+            no_top = no_levels[0]["price"] if no_levels else 0.0
+
+            total_yes = sum(lvl["price"] * lvl["quantity"] for lvl in yes_levels)
+            total_no = sum(lvl["price"] * lvl["quantity"] for lvl in no_levels)
+
+            impact_pct = (bet_size / total_yes * 100) if total_yes > 0 else 0.0
+
+            return {
+                "yes_levels": yes_levels,
+                "no_levels": no_levels,
+                "yes_top_of_book": yes_top,
+                "no_top_of_book": no_top,
+                "total_yes_depth_usd": total_yes,
+                "total_no_depth_usd": total_no,
+                "market_impact_pct": impact_pct,
+            }
+        except Exception as e:
+            logger.warning(f"⚠️  Could not get order book depth for {ticker}: {e}")
+            return {}
 
     def _handle_market_error(self, ticker: str, error: Exception) -> None:
         """Handle errors from market API calls.

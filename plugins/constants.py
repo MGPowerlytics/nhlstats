@@ -131,6 +131,15 @@ BOOTSTRAP_CONFIDENCE_LEVEL = 0.95
 # Stale closing price threshold (hours before market close)
 STALE_CLOSING_PRICE_HOURS = 4.0
 
-# Timing analysis bucket boundaries (hours before game)
+# Kalshi closing line tracking
+KALSHI_CLOSING_BOOKMAKER = "Kalshi_close"
+KALSHI_CLOSING_WINDOW_MINUTES = 30
+
+# Timing analysis bucket boundaries (hours before game, for closing-line analysis)
 TIMING_BUCKETS = [0, 1, 2, 4, 8, float("inf")]
 TIMING_BUCKET_LABELS = ["<1hr", "1-2hr", "2-4hr", "4-8hr", "8+hr"]
+
+# Fill time analysis bucket boundaries (hours before game at Kalshi fill time)
+# placed_time_utc = Kalshi fill timestamp (created_time from fills API)
+FILL_TIME_BUCKETS = [0, 2, 4, 8, 24, float("inf")]
+FILL_TIME_BUCKET_LABELS = ["<2hr", "2-4hr", "4-8hr", "8-24hr", "24+hr"]

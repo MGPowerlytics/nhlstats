@@ -14,7 +14,7 @@ Usage:
 import csv
 import os
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 import numpy as np
 import pandas as pd
@@ -22,6 +22,9 @@ import pandas as pd
 from plugins.constants import (
     BOOTSTRAP_CONFIDENCE_LEVEL,
     BOOTSTRAP_N_ITERATIONS,
+    FILL_TIME_BUCKET_LABELS,
+    FILL_TIME_BUCKETS,
+    MAX_BET_SIZE,
     MIN_BETS_FOR_DIAGNOSTIC,
     STALE_CLOSING_PRICE_HOURS,
     TIMING_BUCKET_LABELS,
@@ -181,6 +184,159 @@ def what_if_timing_replay(bets_df: pd.DataFrame, max_hours: float = 2.0) -> Dict
         "total_cost": total_cost,
         "roi": float(roi) if n > 0 else 0.0,
     }
+
+
+# ---------------------------------------------------------------------------
+# Fill time analysis (hours before game at Kalshi fill time)
+# ---------------------------------------------------------------------------
+
+
+def compute_fill_time_analysis(bets_df: pd.DataFrame) -> pd.DataFrame:
+    """Analyze ROI and edge degradation by hours-before-game at fill time.
+
+    Since placed_time_utc = Kalshi fill timestamp (created_time), this computes
+    how early/late bets were filled relative to game start, and whether
+    earlier fills have better or worse ROI (adverse selection signal).
+
+    Uses ``game_start_time_utc`` column if present; falls back to
+    ``market_close_time_utc``.  Accepts ``profit_loss`` or ``profit_dollars``
+    column for profit data.
+
+    Args:
+        bets_df: DataFrame with columns: placed_time_utc, game_start_time_utc
+            (or market_close_time_utc), profit_loss (or profit_dollars), edge,
+            sport. Must have both timestamp columns.
+
+    Returns:
+        DataFrame with columns: hours_bucket, n_bets, roi_pct, avg_edge,
+        avg_hours_before_game, sport (only when sport column is present in
+        input).  Returns empty DataFrame when input is empty, has no valid
+        timestamps, or is missing required profit column.
+    """
+    _empty = pd.DataFrame(
+        columns=[
+            "hours_bucket",
+            "n_bets",
+            "roi_pct",
+            "avg_edge",
+            "avg_hours_before_game",
+        ]
+    )
+
+    if bets_df.empty:
+        return _empty
+
+    df = bets_df.copy()
+
+    # Resolve profit column
+    if "profit_loss" in df.columns:
+        profit_col = "profit_loss"
+    elif "profit_dollars" in df.columns:
+        profit_col = "profit_dollars"
+    else:
+        return _empty
+
+    # Resolve game-time column
+    if "game_start_time_utc" in df.columns:
+        game_time_col = "game_start_time_utc"
+    elif "market_close_time_utc" in df.columns:
+        game_time_col = "market_close_time_utc"
+    else:
+        return _empty
+
+    # Parse timestamps
+    df["placed_time_utc"] = pd.to_datetime(df["placed_time_utc"], errors="coerce")
+    df[game_time_col] = pd.to_datetime(df[game_time_col], errors="coerce")
+
+    # Drop rows with missing timestamps
+    df = df.dropna(subset=["placed_time_utc", game_time_col])
+    if df.empty:
+        return _empty
+
+    # Compute hours before game at fill time
+    df["_hours_before_game"] = (
+        df[game_time_col] - df["placed_time_utc"]
+    ).dt.total_seconds() / 3600.0
+
+    # Assign fill-time buckets
+    df["hours_bucket"] = pd.cut(
+        df["_hours_before_game"],
+        bins=FILL_TIME_BUCKETS,
+        labels=FILL_TIME_BUCKET_LABELS,
+        right=False,
+    )
+
+    # Group by bucket (and sport if present); use scalar key for single-column groupby
+    has_sport = "sport" in df.columns
+
+    rows: List[Dict] = []
+
+    if has_sport:
+        for (bucket, sport_val), group in df.groupby(
+            ["hours_bucket", "sport"], observed=True
+        ):
+            n = len(group)
+            profit_sum = float(group[profit_col].sum())
+
+            if "cost_dollars" in group.columns:
+                cost_sum = float(group["cost_dollars"].sum())
+                roi_pct = (profit_sum / cost_sum * 100.0) if cost_sum > 0 else 0.0
+            else:
+                losses_sum = float(
+                    group.loc[group[profit_col] < 0, profit_col].abs().sum()
+                )
+                roi_pct = (profit_sum / losses_sum * 100.0) if losses_sum > 0 else 0.0
+
+            avg_edge: Optional[float] = None
+            if "edge" in group.columns:
+                edge_vals = group["edge"].dropna()
+                if not edge_vals.empty:
+                    avg_edge = float(edge_vals.mean())
+
+            rows.append(
+                {
+                    "hours_bucket": bucket,
+                    "n_bets": n,
+                    "roi_pct": float(roi_pct),
+                    "avg_edge": avg_edge,
+                    "avg_hours_before_game": float(group["_hours_before_game"].mean()),
+                    "sport": sport_val,
+                }
+            )
+    else:
+        for bucket, group in df.groupby("hours_bucket", observed=True):
+            n = len(group)
+            profit_sum = float(group[profit_col].sum())
+
+            if "cost_dollars" in group.columns:
+                cost_sum = float(group["cost_dollars"].sum())
+                roi_pct = (profit_sum / cost_sum * 100.0) if cost_sum > 0 else 0.0
+            else:
+                losses_sum = float(
+                    group.loc[group[profit_col] < 0, profit_col].abs().sum()
+                )
+                roi_pct = (profit_sum / losses_sum * 100.0) if losses_sum > 0 else 0.0
+
+            avg_edge = None
+            if "edge" in group.columns:
+                edge_vals = group["edge"].dropna()
+                if not edge_vals.empty:
+                    avg_edge = float(edge_vals.mean())
+
+            rows.append(
+                {
+                    "hours_bucket": bucket,
+                    "n_bets": n,
+                    "roi_pct": float(roi_pct),
+                    "avg_edge": avg_edge,
+                    "avg_hours_before_game": float(group["_hours_before_game"].mean()),
+                }
+            )
+
+    if not rows:
+        return _empty
+
+    return pd.DataFrame(rows)
 
 
 # ---------------------------------------------------------------------------
@@ -462,6 +618,144 @@ def recalculate_bet_metrics(
 
 
 # ---------------------------------------------------------------------------
+# Market impact helpers
+# ---------------------------------------------------------------------------
+
+_MARKET_IMPACT_NEGLIGIBLE_THRESHOLD = 1.0  # percent
+_MARKET_IMPACT_SIGNIFICANT_THRESHOLD = 5.0  # percent
+
+
+def _get_kalshi_api_instance() -> Any:
+    """Return a live KalshiAPI instance, or None if credentials unavailable.
+
+    Returns:
+        KalshiAPI instance or None.
+    """
+    try:
+        from plugins.kalshi_markets import KalshiAPI, load_kalshi_credentials
+
+        api_key_id, private_key_pem = load_kalshi_credentials()
+        if not api_key_id or not private_key_pem:
+            return None
+        return KalshiAPI(api_key_id=api_key_id, private_key_pem=private_key_pem)
+    except Exception:
+        return None
+
+
+def _compute_verdict(max_impact_pct: float) -> str:
+    """Map max market impact percentage to a verdict label.
+
+    Args:
+        max_impact_pct: Maximum observed market impact percentage.
+
+    Returns:
+        'NEGLIGIBLE' if max_impact_pct < 1%, 'MONITOR' if 1-5%,
+        'SIGNIFICANT' if >= 5%.
+    """
+    if max_impact_pct >= _MARKET_IMPACT_SIGNIFICANT_THRESHOLD:
+        return "SIGNIFICANT"
+    if max_impact_pct >= _MARKET_IMPACT_NEGLIGIBLE_THRESHOLD:
+        return "MONITOR"
+    return "NEGLIGIBLE"
+
+
+def analyze_market_impact(
+    sample_tickers: Optional[List[str]] = None,
+    bet_size: float = MAX_BET_SIZE,
+    max_tickers: int = 20,
+) -> Dict[str, Any]:
+    """Analyze Kalshi order book depth vs bet size for market impact assessment.
+
+    Fetches order book depth for a sample of recently-active tickers and
+    computes the market impact percentage of current bet sizes.
+
+    Args:
+        sample_tickers: List of Kalshi tickers to sample. If None, queries
+                       placed_bets for recent tickers.
+        bet_size: Dollar size to analyze for market impact. Defaults to
+                  MAX_BET_SIZE.
+        max_tickers: Maximum number of tickers to fetch. Defaults to 20.
+
+    Returns:
+        Dict with keys:
+            'tickers_analyzed': int
+            'median_yes_depth_usd': float or None
+            'median_market_impact_pct': float or None
+            'max_market_impact_pct': float or None
+            'verdict': str ('NEGLIGIBLE' if max < 1%, 'MONITOR' if 1-5%,
+                'SIGNIFICANT' if >= 5%, 'UNKNOWN' if unavailable)
+            'bet_size_analyzed': float
+            'per_ticker': List[Dict] with depth data per ticker
+    """
+    unknown_result: Dict[str, Any] = {
+        "tickers_analyzed": 0,
+        "median_yes_depth_usd": None,
+        "median_market_impact_pct": None,
+        "max_market_impact_pct": None,
+        "verdict": "UNKNOWN",
+        "bet_size_analyzed": bet_size,
+        "per_ticker": [],
+    }
+
+    api = _get_kalshi_api_instance()
+    if api is None:
+        return unknown_result
+
+    # Resolve tickers to sample
+    if sample_tickers is None:
+        query = """
+            SELECT DISTINCT ticker FROM placed_bets
+            WHERE placed_time_utc > NOW() - INTERVAL '30 days'
+            AND ticker IS NOT NULL
+            LIMIT :max_tickers
+        """
+        try:
+            result = default_db.execute(query, {"max_tickers": max_tickers})
+            rows = result.fetchall()
+            sample_tickers = [row[0] for row in rows]
+        except Exception as e:
+            print(f"⚠️ Could not query placed_bets for tickers: {e}")
+            return unknown_result
+
+    if not sample_tickers:
+        return unknown_result
+
+    per_ticker: List[Dict[str, Any]] = []
+    for ticker in sample_tickers[:max_tickers]:
+        depth = api.get_order_book_depth(ticker, bet_size=bet_size)
+        if not depth:
+            continue  # skip tickers where API failed
+        per_ticker.append(
+            {
+                "ticker": ticker,
+                "total_yes_depth_usd": depth["total_yes_depth_usd"],
+                "market_impact_pct": depth["market_impact_pct"],
+                "yes_top_of_book": depth["yes_top_of_book"],
+            }
+        )
+
+    if not per_ticker:
+        return {**unknown_result, "tickers_analyzed": 0}
+
+    depths = [t["total_yes_depth_usd"] for t in per_ticker]
+    impacts = [t["market_impact_pct"] for t in per_ticker]
+
+    median_depth = float(np.median(depths))
+    median_impact = float(np.median(impacts))
+    max_impact = float(np.max(impacts))
+
+    return {
+        "tickers_analyzed": len(per_ticker),
+        "median_yes_depth_usd": median_depth,
+        "median_market_impact_pct": median_impact,
+        "max_market_impact_pct": max_impact,
+        "verdict": _compute_verdict(max_impact),
+        "bet_size_analyzed": bet_size,
+        "per_ticker": per_ticker,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Write results to DB
 # ---------------------------------------------------------------------------
 
@@ -491,6 +785,10 @@ def write_results_to_db(results: Dict) -> bool:
         "bets_flagged_stale",
         "recommendation",
         "elo_replay_divergence",
+        "market_impact_verdict",
+        "median_market_impact_pct",
+        "fill_time_roi_under_2hr",
+        "fill_time_roi_over_24hr",
     ]
 
     try:
@@ -611,6 +909,22 @@ def _diagnose_sport(sport_upper: str, sport_lower: str) -> Dict:
     timing = compute_timing_analysis(full_bets)
     what_if = what_if_timing_replay(full_bets, max_hours=2.0)
 
+    # Step 6b: Fill time analysis (hours before game at Kalshi fill time)
+    print("  ⏰ Computing fill time analysis...")
+    fill_time_df = compute_fill_time_analysis(full_bets)
+
+    # Extract summary scalars for DB storage
+    def _roi_for_bucket(df: pd.DataFrame, bucket: str) -> Optional[float]:
+        if df.empty or "hours_bucket" not in df.columns:
+            return None
+        row = df[df["hours_bucket"].astype(str) == bucket]
+        if row.empty:
+            return None
+        return float(row.iloc[0]["roi_pct"])
+
+    fill_time_roi_under_2hr = _roi_for_bucket(fill_time_df, "<2hr")
+    fill_time_roi_over_24hr = _roi_for_bucket(fill_time_df, "24+hr")
+
     # Step 7: Bootstrap P&L test
     print("  🎲 Running bootstrap significance test...")
     profits = full_bets["profit_dollars"].dropna().tolist() if settled > 0 else []
@@ -650,6 +964,9 @@ def _diagnose_sport(sport_upper: str, sport_lower: str) -> Dict:
         "bootstrap": bootstrap,
         "timing_buckets": timing,
         "what_if_2hr": what_if,
+        "fill_time_analysis": fill_time_df,
+        "fill_time_roi_under_2hr": fill_time_roi_under_2hr,
+        "fill_time_roi_over_24hr": fill_time_roi_over_24hr,
     }
 
     _print_sport_summary(sport_upper, result)
@@ -657,7 +974,14 @@ def _diagnose_sport(sport_upper: str, sport_lower: str) -> Dict:
 
 
 def _load_full_bets(sport: str) -> pd.DataFrame:
-    """Load all settled bets for a sport from DB."""
+    """Load all settled bets for a sport from DB.
+
+    Note:
+        For Kalshi bets, placed_time_utc = Kalshi fill timestamp (created_time
+        from the fills API).  The ``hours_before_game`` column is derived from
+        ``market_close_time_utc - placed_time_utc`` and represents how far
+        before game start each bet was filled.
+    """
     query = """
         SELECT bet_id, sport, placed_date, placed_time_utc,
                home_team, away_team, bet_on, side,
@@ -669,9 +993,23 @@ def _load_full_bets(sport: str) -> pd.DataFrame:
           AND status IN ('won', 'lost')
     """
     try:
-        return default_db.fetch_df(query, {"sport": sport})
+        df = default_db.fetch_df(query, {"sport": sport})
     except Exception:
         return pd.DataFrame()
+
+    if df.empty:
+        return df
+
+    # Compute hours_before_game from fill time to game start (market close ≈ game time)
+    df["placed_time_utc"] = pd.to_datetime(df["placed_time_utc"], errors="coerce")
+    df["market_close_time_utc"] = pd.to_datetime(
+        df["market_close_time_utc"], errors="coerce"
+    )
+    df["hours_before_game"] = (
+        df["market_close_time_utc"] - df["placed_time_utc"]
+    ).dt.total_seconds() / 3600.0
+
+    return df
 
 
 def _compute_real_clv_avg(bets_df: pd.DataFrame) -> Optional[float]:
@@ -741,6 +1079,71 @@ def _print_sport_summary(sport: str, result: Dict) -> None:
     )
     print(f"    Elo divergence: {result.get('elo_replay_divergence', '?'):.1f}")
 
+    # Fill Time Analysis section
+    fill_df = result.get("fill_time_analysis")
+    if fill_df is not None and isinstance(fill_df, pd.DataFrame) and not fill_df.empty:
+        print("  ⏰ Fill Time Analysis (hours before game at fill):")
+        for _, row in fill_df.iterrows():
+            bucket = str(row.get("hours_bucket", "?"))
+            n = int(row.get("n_bets", 0))
+            roi = float(row.get("roi_pct", 0.0))
+            avg_edge = row.get("avg_edge")
+            edge_str = (
+                f"{avg_edge:.2f}"
+                if avg_edge is not None and not pd.isna(avg_edge)
+                else "N/A"
+            )
+            sign = "+" if roi >= 0 else ""
+            print(
+                f"     {bucket:<8}  ROI={sign}{roi:.1f}%  ({n} bets, avg edge={edge_str})"
+            )
+
+
+def generate_timing_heatmap_data() -> pd.DataFrame:
+    """Query diagnostic_results and return a DataFrame suitable for heatmap rendering.
+
+    Fetches the most recent diagnostic run per sport and pivots the stored
+    ``timing_roi_under_2hr`` / ``timing_roi_over_8hr`` columns into a wide
+    DataFrame where rows are sports and columns are timing-bucket labels.
+
+    Returns:
+        DataFrame with index=sport, columns=[timing bucket labels], values=ROI.
+        Returns an empty DataFrame on error or when the table contains no rows.
+    """
+    query = """
+        SELECT sport, timing_roi_under_2hr, timing_roi_over_8hr, run_date
+        FROM diagnostic_results
+        ORDER BY run_date DESC
+    """
+    try:
+        df = default_db.fetch_df(query)
+    except Exception:
+        return pd.DataFrame()
+
+    if df is None or df.empty:
+        return pd.DataFrame()
+
+    # Keep only the most recent run per sport
+    df["run_date"] = pd.to_datetime(df["run_date"], errors="coerce")
+    df = df.sort_values("run_date", ascending=False)
+    df = df.drop_duplicates(subset=["sport"], keep="first")
+
+    # Build heatmap: rows = sport, cols = bucket labels
+    bucket_map = {
+        "<2hr": "timing_roi_under_2hr",
+        "8+hr": "timing_roi_over_8hr",
+    }
+    heatmap_rows: List[Dict] = []
+    for _, row in df.iterrows():
+        entry: Dict = {}
+        for label, col in bucket_map.items():
+            val = row.get(col)
+            entry[label] = float(val) if val is not None and pd.notna(val) else np.nan
+        heatmap_rows.append(entry)
+
+    result = pd.DataFrame(heatmap_rows, index=df["sport"].tolist())
+    return result
+
 
 def print_diagnostic_report(all_results: Dict) -> None:
     """Print a formatted diagnostic report across all sports."""
@@ -755,5 +1158,33 @@ def print_diagnostic_report(all_results: Dict) -> None:
             print(f"\n  ❌ {sport}: ERROR — {metrics['error']}")
             continue
         _print_sport_summary(sport, metrics)
+
+    # Market impact section
+    market_impact = analyze_market_impact()
+    bet_size = market_impact.get("bet_size_analyzed", MAX_BET_SIZE)
+    verdict = market_impact.get("verdict", "UNKNOWN")
+    tickers_analyzed = market_impact.get("tickers_analyzed", 0)
+    median_depth = market_impact.get("median_yes_depth_usd")
+    median_impact = market_impact.get("median_market_impact_pct")
+    max_impact = market_impact.get("max_market_impact_pct")
+
+    verdict_icon = {"NEGLIGIBLE": "✓", "MONITOR": "⚠", "SIGNIFICANT": "❌"}.get(
+        verdict, "?"
+    )
+
+    print(f"\n  📊 Market Impact Analysis (bet_size=${bet_size:.2f}):")
+    print(f"     Tickers analyzed: {tickers_analyzed}")
+    if median_depth is not None:
+        print(f"     Median book depth: ${median_depth:,.0f}")
+    else:
+        print("     Median book depth: N/A")
+    if median_impact is not None:
+        print(f"     Median impact: {median_impact:.2f}% — {verdict} {verdict_icon}")
+    else:
+        print(f"     Median impact: N/A — {verdict}")
+    if max_impact is not None:
+        print(f"     Max impact: {max_impact:.2f}%")
+    else:
+        print("     Max impact: N/A")
 
     print(f"\n{'=' * 60}\n")
