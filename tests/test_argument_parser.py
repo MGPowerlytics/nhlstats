@@ -7,24 +7,25 @@ If it has bugs, Elo ratings become corrupted, predictions become wrong, and we l
 
 import pytest
 from plugins.elo.argument_parser import ArgumentParser
+from plugins.elo.elo_dataclasses import UpdateArgs
 
 
 class TestArgumentParserExtractResultFromKwargs:
-    """Tests for the _extract_result_from_kwargs method."""
+    """Tests for the _extract_result_components method."""
 
     def test_extract_all_values_present(self):
         """Test extracting all result values when all are present in kwargs."""
         parser = ArgumentParser()
-        kwargs = {
-            "home_won": True,
-            "home_score": 100,
-            "away_score": 90,
-            "home_win": True,  # alias for home_won
-            "is_neutral": False,
-        }
+        update_args = UpdateArgs.from_kwargs(
+            home_won=True,
+            home_score=100,
+            away_score=90,
+            home_win=True,
+            is_neutral=False,
+        )
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is True
@@ -36,30 +37,28 @@ class TestArgumentParserExtractResultFromKwargs:
     def test_extract_missing_values(self):
         """Test extracting when some values are missing (should return None)."""
         parser = ArgumentParser()
-        kwargs = {
-            "home_won": False,
-            # home_score missing
-            # away_score missing
-            "is_neutral": True,
-        }
+        update_args = UpdateArgs.from_kwargs(
+            home_won=False,
+            is_neutral=True,
+        )
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is False
         assert home_score is None
         assert away_score is None
-        assert home_win is None  # Not provided
+        assert home_win is None
         assert is_neutral is True
 
     def test_extract_empty_kwargs(self):
         """Test extracting from empty kwargs dictionary."""
         parser = ArgumentParser()
-        kwargs = {}
+        update_args = UpdateArgs.from_kwargs()
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is None
@@ -71,10 +70,10 @@ class TestArgumentParserExtractResultFromKwargs:
     def test_extract_with_default_is_neutral(self):
         """Test that is_neutral defaults to False when not provided."""
         parser = ArgumentParser()
-        kwargs = {"home_won": True}
+        update_args = UpdateArgs.from_kwargs(home_won=True)
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert is_neutral is False
@@ -82,10 +81,10 @@ class TestArgumentParserExtractResultFromKwargs:
     def test_extract_with_explicit_is_neutral(self):
         """Test that is_neutral can be explicitly set to True."""
         parser = ArgumentParser()
-        kwargs = {"home_won": True, "is_neutral": True}
+        update_args = UpdateArgs.from_kwargs(home_won=True, is_neutral=True)
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert is_neutral is True
@@ -93,10 +92,10 @@ class TestArgumentParserExtractResultFromKwargs:
     def test_extract_home_win_alias(self):
         """Test that home_win is extracted as an alias for home_won."""
         parser = ArgumentParser()
-        kwargs = {"home_win": False, "home_score": 80, "away_score": 85}
+        update_args = UpdateArgs.from_kwargs(home_win=False, home_score=80, away_score=85)
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is None  # home_won not provided
@@ -152,16 +151,16 @@ class TestArgumentParserEdgeCases:
     def test_extract_with_none_values(self):
         """Test extracting when values are explicitly None."""
         parser = ArgumentParser()
-        kwargs = {
-            "home_won": None,
-            "home_score": None,
-            "away_score": None,
-            "home_win": None,
-            "is_neutral": None,
-        }
+        update_args = UpdateArgs.from_kwargs(
+            home_won=None,
+            home_score=None,
+            away_score=None,
+            home_win=None,
+            is_neutral=None,
+        )
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is None
@@ -173,14 +172,14 @@ class TestArgumentParserEdgeCases:
     def test_extract_with_float_scores(self):
         """Test extracting float scores (should work)."""
         parser = ArgumentParser()
-        kwargs = {
-            "home_won": True,
-            "home_score": 100.5,  # Float score
-            "away_score": 90.0,  # Float score
-        }
+        update_args = UpdateArgs.from_kwargs(
+            home_won=True,
+            home_score=100.5,
+            away_score=90.0,
+        )
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is True
@@ -190,15 +189,15 @@ class TestArgumentParserEdgeCases:
     def test_extract_with_zero_scores(self):
         """Test extracting zero scores (valid edge case)."""
         parser = ArgumentParser()
-        kwargs = {
-            "home_won": True,
-            "home_score": 0,
-            "away_score": 0,
-            "is_neutral": True,
-        }
+        update_args = UpdateArgs.from_kwargs(
+            home_won=True,
+            home_score=0,
+            away_score=0,
+            is_neutral=True,
+        )
 
         home_won, home_score, away_score, home_win, is_neutral = (
-            parser._extract_result_from_kwargs(kwargs)
+            parser._extract_result_components(update_args)
         )
 
         assert home_won is True
