@@ -1216,11 +1216,9 @@ def _display_data_quality_summary(all_reports: Dict[str, Any]) -> None:
     for sport, report in all_reports.items():
         checks = report.checks
         total_checks = len(checks)
-        passed_checks = sum(1 for check in checks if check.get("severity") == "info")
-        warning_checks = sum(
-            1 for check in checks if check.get("severity") == "warning"
-        )
-        error_checks = sum(1 for check in checks if check.get("severity") == "error")
+        passed_checks = sum(1 for check in checks if check.severity == "info")
+        warning_checks = sum(1 for check in checks if check.severity == "warning")
+        error_checks = sum(1 for check in checks if check.severity == "error")
 
         summary_data.append(
             {
@@ -1276,10 +1274,10 @@ def _display_detailed_validation_reports(all_reports: Dict[str, Any]) -> None:
                 for check in report.checks:
                     checks_data.append(
                         {
-                            "Check": check.get("name", "Unknown"),
-                            "Status": check.get("severity", "unknown"),
-                            "Message": check.get("message", ""),
-                            "Passed": "✅" if check.get("passed", False) else "❌",
+                            "Check": check.name,
+                            "Status": check.severity,
+                            "Message": check.message,
+                            "Passed": "✅" if check.passed else "❌",
                         }
                     )
                 checks_df = pd.DataFrame(checks_data)
