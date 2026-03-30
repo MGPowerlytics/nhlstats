@@ -62,6 +62,7 @@ MAX_MARKET_PROBABILITY = 0.99  # Reject markets with probability > 99% (arbitrag
 
 # Portfolio betting parameters
 MAX_DAILY_RISK_PCT = 0.25  # 25% maximum daily risk exposure
+MAX_DAILY_ABSOLUTE_RISK = 200.0  # Hard cap: max $200 risked per calendar day
 KELLY_FRACTION = 0.20  # Conservative Kelly fraction (20%) for more volume (matches DAG)
 MAX_BET_SIZE = 10.0  # Lower max bet size ($10) to spread across more bets (matches DAG)
 DEFAULT_KALSHI_BET_SIZE = 5.0  # Default bet size for Kalshi API (safety default)

@@ -1359,10 +1359,12 @@ def _initialize_portfolio_manager(
         excluded_segments=excluded_segments,
     )
 
+    # Allow dry-run override via env var — set BETTING_DRY_RUN=true to disable live orders
+    dry_run = os.environ.get("BETTING_DRY_RUN", "false").lower() == "true"
     return PortfolioBettingManager(
         kalshi_client=kalshi_client,
         config=config,
-        dry_run=False,  # LIVE BETTING
+        dry_run=dry_run,
     )
 
 

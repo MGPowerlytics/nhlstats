@@ -113,19 +113,39 @@ def _extract_basic_fill_data(fill: Dict) -> FillData:
     """Extract basic fill data from Kalshi API response.
 
     Args:
-        fill: Fill data from Kalshi API
+        fill: Fill data from Kalshi API. The Kalshi v2 fills API
+            (``/trade-api/v2/portfolio/fills``) returns a single ``price``
+            field per fill rather than separate ``yes_price``/``no_price``
+            fields (those exist on *orders*, not fills). Legacy payloads that
+            do carry ``yes_price``/``no_price`` are handled via the fallback.
 
     Returns:
         FillData object with extracted data
+
+    Note:
+        ROOT CAUSE FIX (price_cents=0 bug): The old code called
+        ``fill.get("yes_price", 0)`` which always returned 0 because
+        ``yes_price`` is absent from v2 fill payloads, causing every
+        ``price_cents`` in ``placed_bets`` to be stored as 0.
+        Fix: prefer ``yes_price``/``no_price`` for backward compatibility,
+        but fall back to the canonical ``price`` field that v2 fills return.
     """
     ticker = fill.get("ticker", "")
-    trade_id = fill.get("trade_id", "")
+    # Prefer fill_id (Kalshi v2 API) with fallback to legacy trade_id.
+    trade_id = fill.get("fill_id", fill.get("trade_id", ""))
     bet_id = f"{ticker}_{trade_id}"
     sport = _detect_sport_from_ticker(ticker)
 
     side = fill.get("side", "")
     count = fill.get("count", 0)
-    price = fill.get("yes_price", 0) if side == "yes" else fill.get("no_price", 0)
+    # ROOT CAUSE FIX: Kalshi v2 fills API returns a single ``price`` field.
+    # ``yes_price``/``no_price`` are absent from fill payloads (they appear on
+    # orders only).  Prefer the side-specific keys for backward compatibility,
+    # then fall back to the generic ``price`` that v2 always supplies.
+    if side == "yes":
+        price = fill.get("yes_price", fill.get("price", 0))
+    else:
+        price = fill.get("no_price", fill.get("price", 0))
     cost = count * price / 100
     fees = float(fill.get("fee_cost", 0)) / 100
 

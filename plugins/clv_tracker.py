@@ -15,6 +15,7 @@ Real closing prices are sourced from the game_odds table — the last pre-market
 snapshot of decimal odds from any acceptable bookmaker, converted to implied probability.
 """
 
+import logging
 import sys
 import os
 
@@ -22,6 +23,8 @@ sys.path.append(os.path.dirname(__file__))
 
 from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+
+logger = logging.getLogger(__name__)
 
 from plugins.constants import (
     ACCEPTABLE_BOOKMAKERS,
@@ -469,7 +472,7 @@ def fetch_and_store_kalshi_closing_prices(
         api_key_id, private_key = load_kalshi_credentials()
         api = KalshiAPI(api_key_id, private_key)
     except Exception as e:
-        print(f"⚠️  Could not initialise Kalshi API for closing prices: {e}")
+        logger.warning("Could not initialise Kalshi API for closing prices: %s", e)
         return counts
 
     # Compute the time window
@@ -499,7 +502,7 @@ def fetch_and_store_kalshi_closing_prices(
         )
         bets = result.fetchall()
     except Exception as e:
-        print(f"❌ Error querying placed_bets for Kalshi closing prices: {e}")
+        logger.error("Error querying placed_bets for Kalshi closing prices: %s", e)
         counts["errors"] += 1
         return counts
 
@@ -524,7 +527,7 @@ def fetch_and_store_kalshi_closing_prices(
             away_team or "",
         )
         if not game_id:
-            print(f"  ⚠️ No game_id found for bet {bet_id} — skipping")
+            logger.warning("No game_id found for bet %s — skipping", bet_id)
             counts["errors"] += 1
             continue
 
@@ -537,7 +540,7 @@ def fetch_and_store_kalshi_closing_prices(
                 continue
             counts["fetched"] += 1
         except Exception as e:
-            print(f"  ⚠️ Could not fetch market {ticker}: {e}")
+            logger.warning("Could not fetch market %s: %s", ticker, e)
             counts["errors"] += 1
             continue
 

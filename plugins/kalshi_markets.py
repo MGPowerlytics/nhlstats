@@ -518,16 +518,35 @@ class StandardTickerParser(TickerParser):
 
 
 class TennisTickerParser(TickerParser):
-    """Parses tennis tickers (ATP, WTA, Challenger)."""
+    """Parses tennis tickers (ATP, WTA, Challenger).
 
-    # Regex for extracting player names from title
+    Ticker format: {SERIES}-{YYMMMDD}{P1CODE}{P2CODE}-{OUTCOMESCODE}
+    Example: KXATPMATCH-26MAR31SKAUGO-UGO
+      - Date part (YYMMMDD) is tournament START date, not match date.
+      - Player codes are always exactly 3+3 chars after the date.
+      - Outcome code (parts[2]) = 3-char winner code matching one of P1/P2.
+
+    Title format: "Will {FULL_NAME} win the {P1_LAST} vs {P2_LAST} : {ROUND} match?"
+    """
+
+    # Primary: " : " colon variant (all real active markets as of 2026-04)
+    # Fallback: " match" variant for older/finalized markets
     PLAYER_REGEXES = [
+        r"win the (.*?) vs (.*?) :",
         r"win the (.*?) vs (.*?) (?:match|:)",
         r"win the (.*?) vs (.*?) match",
     ]
 
     def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
-        # Extract date from ticker (format: SERIES-YYMMMDD???-OUTCOME)
+        """Parse a tennis ticker+title into (player1, player2, game_date).
+
+        Args:
+            ticker: Kalshi market ticker, e.g. ``KXATPMATCH-26MAR31SKAUGO-UGO``.
+            title: Market title, e.g. ``Will X win the A vs B : R32 match?``.
+
+        Returns:
+            Tuple of (home_player, away_player, game_date_str) or None if unparseable.
+        """
         parts = ticker.split("-")
         game_date = None
         if len(parts) >= 2:
@@ -537,11 +556,12 @@ class TennisTickerParser(TickerParser):
                 y_str, m_str, d_str = match.groups()
                 try:
                     dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
+                    # Note: this is tournament start date; actual match date is
+                    # overwritten from close_time in _save_markets_to_db.
                     game_date = dt.strftime("%Y-%m-%d")
                 except ValueError:
                     pass
 
-        # Extract player names from title
         home_team = away_team = None
         for pattern in self.PLAYER_REGEXES:
             match = re.search(pattern, title)
@@ -556,6 +576,39 @@ class TennisTickerParser(TickerParser):
             return None
 
         return home_team, away_team, game_date
+
+    @staticmethod
+    def extract_outcome_code(ticker: str) -> Optional[str]:
+        """Return the 3-char winner code from parts[2] of a tennis ticker.
+
+        Args:
+            ticker: Full Kalshi ticker string.
+
+        Returns:
+            3-char outcome code, or None if not present.
+        """
+        parts = ticker.split("-")
+        return parts[2] if len(parts) >= 3 else None
+
+    @staticmethod
+    def extract_player_codes(ticker: str) -> Optional[Tuple[str, str]]:
+        """Extract (player1_code, player2_code) from the 6-char segment in parts[1].
+
+        Args:
+            ticker: Full Kalshi ticker string.
+
+        Returns:
+            Tuple of two 3-char player codes, or None if format not recognised.
+        """
+        parts = ticker.split("-")
+        if len(parts) < 2:
+            return None
+        middle = parts[1]
+        m = re.match(r"^\d{2}[A-Z]{3}\d{2}([A-Z]{6})$", middle)
+        if m:
+            code_pair = m.group(1)
+            return code_pair[:3], code_pair[3:]
+        return None
 
 
 def _get_parser(sport: str) -> TickerParser:
@@ -1223,23 +1276,52 @@ fetch_nfl_markets = _create_sport_market_fetcher(
 
 
 def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
-    """Fetch tennis markets from TheOddsAPI."""
-    logger.info("💰 Fetching TENNIS prediction markets from TheOddsAPI...")
+    """Fetch tennis prediction markets from Kalshi SDK.
 
-    try:
-        api = TheOddsAPI()
-        # Fetch markets (this returns list of games with odds)
-        markets = api.fetch_markets("tennis")
+    Queries all tennis series: KXATPMATCH, KXWTAMATCH,
+    KXATPCHALLENGERMATCH, KXWTACHALLENGERMATCH.
 
-        # Save to database immediately so they are available for odds comparison
-        if markets:
-            count = api.save_to_db(markets)
-            logger.info(f"✓ Saved {count} tennis odds records to database")
+    Args:
+        date_str: Optional date filter (unused, kept for interface compat).
 
-        return markets
-    except Exception as e:
-        logger.error(f"✗ Failed to fetch tennis markets: {e}")
+    Returns:
+        List of market dicts saved to database.
+    """
+    logger.info("💰 Fetching TENNIS prediction markets from Kalshi SDK...")
+
+    if not KALSHI_AVAILABLE:
+        logger.error("✗ Cannot fetch TENNIS markets: kalshi_python not installed")
         return []
+
+    api = _init_kalshi_api("tennis")
+    if not api:
+        return []
+
+    series_tickers = SPORT_SERIES["tennis"]
+    limit = SPORT_LIMITS.get("tennis", 200)
+
+    # Fetch each series separately so one failure never blocks the others
+    series_results: Dict[str, list] = {ticker: [] for ticker in series_tickers}
+    for series_ticker in series_tickers:
+        series_results[series_ticker] = _process_series_ticker(
+            api, series_ticker, limit
+        )
+
+    atp = len(series_results.get("KXATPMATCH", []))
+    wta = len(series_results.get("KXWTAMATCH", []))
+    challengers = len(series_results.get("KXATPCHALLENGERMATCH", [])) + len(
+        series_results.get("KXWTACHALLENGERMATCH", [])
+    )
+    all_markets = [m for markets in series_results.values() for m in markets]
+
+    total = len(all_markets)
+    logger.info(
+        f"✓ Fetched {total} tennis markets "
+        f"(ATP: {atp}, WTA: {wta}, Challengers: {challengers})"
+    )
+
+    _save_and_log_markets("tennis", all_markets)
+    return all_markets
 
 
 def fetch_cba_markets(date_str: Optional[str] = None) -> list:
