@@ -1,3 +1,41 @@
+### [2026-03-30] - TODO-005/006/007/008/009: Diagnostic Dashboard, Order Book Depth, Timing Heatmap, Kalshi Closing Lines, Fill-Time Analysis
+
+- **TODO-005: Diagnostic Report Dashboard Page (✨ NEW FEATURE)**:
+  - Added `diagnostic_report_page()` to `dashboard/dashboard_app.py` with per-sport qualification gates table (Bootstrap CI, p-value, recommendation), 4-metric summary row, and Run Diagnostic button.
+  - Registered as "Diagnostic Report" in sidebar navigation.
+  - Graceful handling of empty `diagnostic_reports` table and DB errors.
+  - Tests: 22 new tests in `tests/test_diagnostic_dashboard.py` (all passing)
+
+- **TODO-006: Kalshi Order Book Depth Analysis (✨ NEW FEATURE)**:
+  - Added `get_order_book_depth()` to `KalshiAPI` in `plugins/kalshi_markets.py` — returns all price levels + quantities + `market_impact_pct`.
+  - Added `analyze_market_impact()` to `plugins/pnl_diagnostic.py` — NEGLIGIBLE/MONITOR/SIGNIFICANT verdict stored to `diagnostic_reports`.
+  - At $10 max bet size, market impact is expected to be NEGLIGIBLE (<1% of typical order book depth).
+  - Tests: 22 new tests in `tests/test_order_book_depth.py` (all passing)
+
+- **TODO-007: Timing Heatmap Visualization (✨ NEW FEATURE)**:
+  - Added `generate_timing_heatmap_data()` to `plugins/pnl_diagnostic.py` — pivots timing ROI into sport×bucket DataFrame.
+  - Added Plotly `RdYlGn` heatmap (red=negative, green=positive ROI) to `diagnostic_report_page()` in the dashboard.
+  - Included in TODO-005 test coverage.
+
+- **TODO-008: Kalshi-Specific Closing Line Tracking (✨ NEW FEATURE)**:
+  - Added `fetch_and_store_kalshi_closing_prices()` to `plugins/clv_tracker.py` — upserts Kalshi prices near market close into `game_odds` with `bookmaker='Kalshi_close'`.
+  - Added `capture_kalshi_closing_prices` task to `dags/bet_sync_hourly.py` (wired after CLV update task, non-blocking).
+  - `update_real_closing_lines()` now defaults `prefer_kalshi_close=True` — prefers Kalshi-specific closing prices over SBR.
+  - Added constants: `KALSHI_CLOSING_BOOKMAKER = "Kalshi_close"`, `KALSHI_CLOSING_WINDOW_MINUTES = 30`.
+  - Tests: 19 new tests in `tests/test_kalshi_closing_tracker.py` (all passing)
+
+- **TODO-009: Fill Time / Resting Duration Analysis (✨ NEW FEATURE)**:
+  - Added `compute_fill_time_analysis()` to `plugins/pnl_diagnostic.py` — buckets bets by hours-before-game at fill time (`<2hr`, `2-4hr`, `4-8hr`, `8-24hr`, `24+hr`), computes ROI and avg edge per bucket.
+  - `placed_time_utc` confirmed as Kalshi fill timestamp (`created_time`) — no new API calls needed.
+  - Integrated into `_diagnose_sport()`, `write_results_to_db()`, `_print_sport_summary()`.
+  - Added constants: `FILL_TIME_BUCKETS`, `FILL_TIME_BUCKET_LABELS`.
+  - Also fixed pre-existing missing `Any` import in `pnl_diagnostic.py`.
+  - Tests: 27 new tests in `tests/test_fill_time_analysis.py` (all passing)
+
+- **Net: 90 new tests across 4 new test files; 133 total related tests all passing.**
+
+---
+
 ### [2026-03-30] - P&L Diagnostic Module + Critical CLV Fix
 
 - **Fixed Critical CLV Bug — Binary Outcomes → Real Closing Prices (🐛 CRITICAL FIX)**:
