@@ -1,3 +1,31 @@
+### [2026-03-30] - QA Pass: Dashboard Crash Fix, Chart Labels, CBA Markets
+
+- **CRITICAL FIX: Data Quality page crash** (`dashboard/dashboard_app.py`):
+  - `_display_data_quality_summary` and `_display_detailed_validation_reports` were calling
+    `check.get("severity")`, `check["name"]` etc., treating `CheckResult` (a dataclass) as a dict.
+  - Fixed to use attribute access: `check.severity`, `check.name`, `check.message`, `check.passed`.
+  - Added regression test: `tests/test_dashboard_check_result_attrs_regression_1.py` (5 tests).
+
+- **FIX: CBA/Unrivaled market fetchers** (`plugins/kalshi_markets.py`):
+  - `fetch_cba_markets()` and `fetch_unrivaled_markets()` were placeholder stubs that did not call
+    `_fetch_sport_markets()`, causing test `test_fetch_cba_markets_calls_internal` to fail.
+  - Replaced with `_create_sport_market_fetcher()` factory calls, consistent with all other sports.
+
+- **FIX: Raw column names in chart axis labels** (`dashboard/dashboard_app.py`):
+  - Added `labels=` dicts to Plotly Express charts so human-readable names appear on axes/legends:
+    - `portfolio_value_dollars` → "Portfolio Value ($)"
+    - `cumulative_pl` → "Cumulative P&L ($)"
+    - `avg_clv` → "Average CLV (%)"
+    - `actual_roi` → "Actual ROI (%)"
+    - `avg_ev` → "Average EV (%)"
+
+- **FIX: Streamlit sidebar theme config** (`.streamlit/config.toml`):
+  - Added `widgetBackgroundColor`, `widgetBorderColor`, `skeletonBackgroundColor` to `[theme]`.
+  - Added `[theme.sidebar]` section for Streamlit 1.54 sidebar-specific theming.
+  - Note: `widgetBackgroundColor`/`widgetBorderColor`/`skeletonBackgroundColor` warnings in
+    `theme.sidebar` are a known Streamlit 1.54 upstream bug — these properties are JS-frontend-only
+    and not exposed in the Python config schema.
+
 ### [2026-04-14] - Security Hardening, NBA Price Fix, Tennis SDK Migration, DB Dedup
 
 - **C2 FIX: dry_run now reads env var** (`dags/multi_sport_betting_workflow.py`):
