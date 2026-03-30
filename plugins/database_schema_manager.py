@@ -123,7 +123,16 @@ class DatabaseSchemaManager:
             "CREATE TABLE IF NOT EXISTS game_odds (odds_id VARCHAR PRIMARY KEY, game_id VARCHAR NOT NULL, "
             "bookmaker VARCHAR NOT NULL, market_name VARCHAR NOT NULL, outcome_name VARCHAR, "
             "price DECIMAL(10, 4) NOT NULL, line DECIMAL(10, 4), last_update TIMESTAMP, "
-            "is_pregame BOOLEAN DEFAULT TRUE, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "is_pregame BOOLEAN DEFAULT TRUE, external_id VARCHAR, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            # Diagnostic results table (P&L diagnostics per sport per run)
+            "CREATE TABLE IF NOT EXISTS diagnostic_results (id SERIAL PRIMARY KEY, "
+            "run_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP, sport TEXT NOT NULL, settled_bets INTEGER, "
+            "wins INTEGER, losses INTEGER, roi FLOAT, real_clv FLOAT, p_value FLOAT, "
+            "passes_gate BOOLEAN, avg_hours_before_game FLOAT, timing_roi_under_2hr FLOAT, "
+            "timing_roi_over_8hr FLOAT, bets_with_closing_price INTEGER, bets_flagged_stale INTEGER, "
+            "recommendation TEXT, elo_replay_divergence FLOAT)",
+            # Composite index for diagnostic results lookups by sport and date
+            "CREATE INDEX IF NOT EXISTS idx_diagnostic_results_sport_date ON diagnostic_results (sport, run_date)",
         ]
 
     def is_schema_initialized(self) -> bool:

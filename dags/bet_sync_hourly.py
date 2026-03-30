@@ -3,6 +3,9 @@ Hourly DAG to sync placed bets from Kalshi API to PostgreSQL database.
 
 This ensures the Financial Performance dashboard always has up-to-date data
 without requiring manual sync button clicks.
+
+Also updates real closing line values (CLV) for recently settled bets using
+the last pre-close odds snapshot from game_odds.
 """
 
 from datetime import datetime, timedelta
@@ -44,6 +47,31 @@ def sync_bets_from_kalshi():
         raise
 
 
+def update_closing_lines():
+    """Update real closing line values for recently settled bets.
+
+    Finds bets with binary CLV (0.0 or 1.0 closing_line_prob — the old bug)
+    and replaces with real market closing prices from game_odds.
+
+    Returns:
+        int: Number of bets updated with real closing prices.
+    """
+    import sys
+
+    sys.path.append(str(Path(__file__).resolve().parents[1] / "plugins"))
+
+    from clv_tracker import update_real_closing_lines
+
+    try:
+        count = update_real_closing_lines()
+        print(f"✅ Updated {count} bets with real closing prices")
+        return count
+    except Exception as e:
+        # CLV failures must NOT block bet syncing — log and continue
+        print(f"⚠️ CLV update failed (non-blocking): {e}")
+        return 0
+
+
 # Default arguments for the DAG
 default_args = {
     "owner": "airflow",
@@ -63,7 +91,7 @@ with DAG(
     start_date=datetime(2026, 1, 22),
     catchup=False,
     max_active_runs=1,
-    tags=["betting", "kalshi", "sync"],
+    tags=["betting", "kalshi", "sync", "clv"],
 ) as dag:
     sync_task = PythonOperator(
         task_id="sync_bets_from_kalshi",
@@ -71,3 +99,13 @@ with DAG(
         retries=3,
         retry_delay=timedelta(minutes=5),
     )
+
+    clv_task = PythonOperator(
+        task_id="update_closing_lines",
+        python_callable=update_closing_lines,
+        retries=1,
+        retry_delay=timedelta(minutes=2),
+    )
+
+    # CLV update runs after bet sync — depends on fresh bet data
+    sync_task >> clv_task

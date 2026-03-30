@@ -1,3 +1,33 @@
+### [2026-03-30] - P&L Diagnostic Module + Critical CLV Fix
+
+- **Fixed Critical CLV Bug — Binary Outcomes → Real Closing Prices (🐛 CRITICAL FIX)**:
+  - **Issue**: `_calculate_closing_probability()` in `bet_tracker.py` returned binary 1.0/0.0 based on game outcome, NOT market closing prices. `fetch_closing_lines_from_kalshi()` and `fetch_closing_lines_from_sbr()` in `clv_tracker.py` were unimplemented stubs. Result: "positive CLV everywhere" was a mathematical artifact — CLV was meaningless.
+  - **Fix**: Rewrote `clv_tracker.py` with real closing price computation. New functions: `compute_real_closing_price()` joins `placed_bets → unified_games → game_odds` to find actual market closing prices. `backfill_real_clv()` retroactively fixes all historical bets. `update_real_closing_lines()` handles ongoing updates. Bookmaker priority: Kalshi > SBR > fanduel > betrivers > bovada. Stale snapshot detection (>4hr before game start).
+  - **Files Modified**: `plugins/clv_tracker.py`, `plugins/bet_tracker.py` (docstring update)
+  - **Tests**: 17 new tests in `tests/test_clv_tracker_fix.py` (all passing)
+
+- **Added Ongoing CLV Tracking to Hourly DAG (🔧 ENHANCEMENT)**:
+  - **Issue**: CLV was only computed at bet placement time (with the broken binary method). No mechanism to update closing prices as markets moved.
+  - **Fix**: Added `update_closing_lines` task to `bet_sync_hourly` DAG. Runs after bet sync to update closing prices for recently settled bets. Fault-tolerant: CLV failures are logged but don't block bet syncing.
+  - **Files Modified**: `dags/bet_sync_hourly.py`
+
+- **Created P&L Diagnostic Module (✨ NEW FEATURE)**:
+  - **Module**: `plugins/pnl_diagnostic.py` — comprehensive P&L analysis:
+    - `bootstrap_pnl_test()`: Bootstrap significance testing (replaces binomial — handles variable payouts + bet correlation)
+    - `compute_timing_analysis()`: ROI by hours-before-game timing buckets
+    - `what_if_timing_replay()`: Simulates ROI if bets placed within N hours of game time
+    - `generate_recommendation()`: Auto-pause per sport (PAUSE only when bootstrap CI upper < 0)
+    - `replay_elo_ratings()`: Full Elo backfill from historical game data
+    - `compare_replay_vs_csv()`: Validates replay vs stored ratings divergence
+    - `recalculate_bet_metrics()`: Recomputes elo_prob/edge using replayed ratings
+    - `write_results_to_db()`: Persists results to `diagnostic_results` PostgreSQL table
+    - `run_diagnostic()`: Orchestrates full diagnostic pipeline per sport
+  - **Tests**: 26 new tests in `tests/test_pnl_diagnostic.py` (all passing)
+
+- **Added Diagnostic Constants and Schema (🔧 INFRASTRUCTURE)**:
+  - Added to `plugins/constants.py`: `BUG_ERA_CUTOFF_DATE`, `MIN_BETS_FOR_DIAGNOSTIC`, `BOOTSTRAP_N_ITERATIONS`, `BOOTSTRAP_CONFIDENCE_LEVEL`, `STALE_CLOSING_PRICE_HOURS`, `TIMING_BUCKETS`, `TIMING_BUCKET_LABELS`
+  - Added `diagnostic_results` table to `plugins/database_schema_manager.py` with composite index on (sport, run_date)
+
 ### [2026-03-27] - MLB Season Readiness: Elo Data Cleanup + Kalshi Market Fix
 
 - **Fixed MLB Elo Ratings Contamination (🐛 CRITICAL FIX)**:

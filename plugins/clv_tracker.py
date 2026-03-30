@@ -10,6 +10,9 @@ CLV = Bet Line Probability - Closing Line Probability
 - Negative CLV means the market moved against us (bad)
 
 Consistent positive CLV is the #1 indicator of long-term profitability.
+
+Real closing prices are sourced from the game_odds table — the last pre-market-close
+snapshot of decimal odds from any acceptable bookmaker, converted to implied probability.
 """
 
 import sys
@@ -17,8 +20,371 @@ import os
 
 sys.path.append(os.path.dirname(__file__))
 
+from datetime import datetime, timedelta
 from typing import Dict, List, Optional, Tuple
+
+from plugins.constants import (
+    ACCEPTABLE_BOOKMAKERS,
+    STALE_CLOSING_PRICE_HOURS,
+)
 from plugins.db_manager import default_db
+
+
+def _resolve_outcome_name(bet_on: str, home_team: str, away_team: str) -> str:
+    """Map bet_on value to game_odds outcome_name ('home' or 'away').
+
+    Args:
+        bet_on: Value from placed_bets — 'home', 'away', or a team abbreviation.
+        home_team: Home team identifier from placed_bets.
+        away_team: Away team identifier from placed_bets.
+
+    Returns:
+        'home' or 'away' matching game_odds.outcome_name convention.
+    """
+    bet_on_lower = bet_on.strip().lower() if bet_on else "home"
+    if bet_on_lower == "home":
+        return "home"
+    if bet_on_lower == "away":
+        return "away"
+    # bet_on is a team abbreviation — match against home/away
+    if bet_on.upper() == home_team.upper():
+        return "home"
+    if bet_on.upper() == away_team.upper():
+        return "away"
+    # Default to home if can't resolve
+    return "home"
+
+
+def compute_real_closing_price(
+    bet_id: str,
+    sport: str,
+    home_team: str,
+    away_team: str,
+    bet_on: str,
+    placed_date: str,
+    market_close_time_utc: Optional[datetime] = None,
+) -> Optional[float]:
+    """Compute real closing price from game_odds for a placed bet.
+
+    Joins placed_bets → unified_games (via sport/date/teams) → game_odds to find
+    the last pre-close odds snapshot, then converts decimal odds to implied probability.
+
+    Args:
+        bet_id: Bet identifier (for logging).
+        sport: Sport code (e.g., 'NBA', 'NHL').
+        home_team: Home team from placed_bets.
+        away_team: Away team from placed_bets.
+        bet_on: 'home', 'away', or team abbreviation.
+        placed_date: Date string (YYYY-MM-DD) from placed_bets.
+        market_close_time_utc: When the market closed (for snapshot filtering).
+
+    Returns:
+        Implied probability (0.0–1.0) from closing odds, or None if unavailable.
+    """
+    outcome_name = _resolve_outcome_name(bet_on, home_team, away_team)
+
+    # Step 1: Find game_id from unified_games
+    game_id = _find_game_id(sport, placed_date, home_team, away_team)
+    if not game_id:
+        return None
+
+    # Step 2: Find latest pre-close odds snapshot
+    closing_odds = _find_closing_odds(game_id, outcome_name, market_close_time_utc)
+    if closing_odds is None:
+        return None
+
+    # Step 3: Convert decimal odds to implied probability
+    if closing_odds <= 0:
+        return None
+    implied_prob = 1.0 / closing_odds
+    return min(max(implied_prob, 0.01), 0.99)  # clamp to reasonable range
+
+
+def _find_game_id(
+    sport: str, placed_date: str, home_team: str, away_team: str
+) -> Optional[str]:
+    """Find game_id from unified_games matching a bet's teams and date.
+
+    Args:
+        sport: Sport code (case-insensitive).
+        placed_date: Game date string.
+        home_team: Home team name/abbreviation.
+        away_team: Away team name/abbreviation.
+
+    Returns:
+        game_id string or None if no match.
+    """
+    query = """
+        SELECT game_id FROM unified_games
+        WHERE LOWER(sport) = LOWER(:sport)
+          AND game_date = :placed_date
+          AND (home_team_name = :home_team OR home_team_id = :home_team)
+          AND (away_team_name = :away_team OR away_team_id = :away_team)
+        LIMIT 1
+    """
+    try:
+        result = default_db.execute(
+            query,
+            {
+                "sport": sport,
+                "placed_date": placed_date,
+                "home_team": home_team,
+                "away_team": away_team,
+            },
+        )
+        row = result.fetchone()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
+def _find_closing_odds(
+    game_id: str,
+    outcome_name: str,
+    market_close_time_utc: Optional[datetime] = None,
+) -> Optional[float]:
+    """Find the last pre-close odds price for a game outcome.
+
+    Searches game_odds for the latest snapshot of the specified outcome
+    before market close time. Uses bookmaker priority ordering.
+    NULL last_update timestamps are treated as pre-close (many SBR rows lack them).
+
+    Args:
+        game_id: The unified_games.game_id to look up.
+        outcome_name: 'home' or 'away'.
+        market_close_time_utc: Cutoff time; only snapshots before this are used.
+
+    Returns:
+        Decimal odds (float > 1.0), or None if no snapshot found.
+    """
+    # Build bookmaker priority CASE expression
+    bookmaker_cases = ", ".join(f"'{b}'" for b in ACCEPTABLE_BOOKMAKERS)
+
+    if market_close_time_utc is not None:
+        query = f"""
+            SELECT price, bookmaker, last_update
+            FROM game_odds
+            WHERE game_id = :game_id
+              AND outcome_name = :outcome_name
+              AND (last_update IS NULL OR last_update <= :close_time)
+            ORDER BY
+              last_update DESC NULLS LAST,
+              CASE bookmaker
+                {_bookmaker_priority_sql()}
+              END ASC
+            LIMIT 1
+        """
+        params = {
+            "game_id": game_id,
+            "outcome_name": outcome_name,
+            "close_time": (
+                market_close_time_utc.isoformat()
+                if isinstance(market_close_time_utc, datetime)
+                else str(market_close_time_utc)
+            ),
+        }
+    else:
+        # No close time — just get the latest snapshot
+        query = f"""
+            SELECT price, bookmaker, last_update
+            FROM game_odds
+            WHERE game_id = :game_id
+              AND outcome_name = :outcome_name
+            ORDER BY
+              last_update DESC NULLS LAST,
+              CASE bookmaker
+                {_bookmaker_priority_sql()}
+              END ASC
+            LIMIT 1
+        """
+        params = {"game_id": game_id, "outcome_name": outcome_name}
+
+    try:
+        result = default_db.execute(query, params)
+        row = result.fetchone()
+        if row and row[0] is not None:
+            return float(row[0])
+        return None
+    except Exception:
+        return None
+
+
+def _bookmaker_priority_sql() -> str:
+    """Generate SQL CASE expression for bookmaker priority ordering."""
+    cases = []
+    for i, bookmaker in enumerate(ACCEPTABLE_BOOKMAKERS):
+        cases.append(f"WHEN '{bookmaker}' THEN {i}")
+    cases.append(f"ELSE {len(ACCEPTABLE_BOOKMAKERS)}")
+    return " ".join(cases)
+
+
+def _is_stale_snapshot(
+    last_update: Optional[datetime],
+    market_close_time_utc: Optional[datetime],
+) -> bool:
+    """Check if an odds snapshot is stale (>4hr before market close).
+
+    Args:
+        last_update: Timestamp of the odds snapshot.
+        market_close_time_utc: When the market closed.
+
+    Returns:
+        True if stale, False otherwise. Returns False if timestamps are None.
+    """
+    if last_update is None or market_close_time_utc is None:
+        return False
+    gap = market_close_time_utc - last_update
+    return gap > timedelta(hours=STALE_CLOSING_PRICE_HOURS)
+
+
+def backfill_real_clv() -> Dict[str, int]:
+    """Backfill historical placed_bets with real closing prices from game_odds.
+
+    Finds all settled bets with binary CLV (closing_line_prob IN (0.0, 1.0))
+    and attempts to replace them with real market closing prices.
+
+    Returns:
+        Dict with keys: 'updated', 'null_count', 'stale_count', 'total_processed'.
+    """
+    counts = {"updated": 0, "null_count": 0, "stale_count": 0, "total_processed": 0}
+
+    # Find bets with binary CLV (the bug)
+    query = """
+        SELECT bet_id, sport, home_team, away_team, bet_on,
+               placed_date, market_close_time_utc, bet_line_prob
+        FROM placed_bets
+        WHERE status IN ('won', 'lost')
+          AND (closing_line_prob = 0.0 OR closing_line_prob = 1.0)
+    """
+    try:
+        result = default_db.execute(query)
+        rows = result.fetchall()
+    except Exception as e:
+        print(f"❌ Error querying bets for CLV backfill: {e}")
+        return counts
+
+    print(f"📊 Found {len(rows)} bets with binary CLV to backfill")
+
+    for row in rows:
+        counts["total_processed"] += 1
+        bet_id, sport, home_team, away_team, bet_on = (
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+        )
+        placed_date, market_close_time_utc, bet_line_prob = row[5], row[6], row[7]
+
+        # Parse market_close_time if it's a string
+        if isinstance(market_close_time_utc, str):
+            try:
+                market_close_time_utc = datetime.fromisoformat(
+                    market_close_time_utc.replace("Z", "+00:00")
+                )
+            except (ValueError, AttributeError):
+                market_close_time_utc = None
+
+        # Compute real closing price
+        closing_prob = compute_real_closing_price(
+            bet_id=bet_id,
+            sport=sport,
+            home_team=home_team or "",
+            away_team=away_team or "",
+            bet_on=bet_on or "home",
+            placed_date=str(placed_date) if placed_date else "",
+            market_close_time_utc=market_close_time_utc,
+        )
+
+        if closing_prob is None:
+            counts["null_count"] += 1
+            continue
+
+        # Check for stale snapshot
+        game_id = _find_game_id(
+            sport, str(placed_date), home_team or "", away_team or ""
+        )
+        if game_id and market_close_time_utc:
+            _check_and_count_stale(
+                game_id,
+                bet_on or "home",
+                home_team or "",
+                away_team or "",
+                market_close_time_utc,
+                counts,
+            )
+
+        # Update the bet with real closing price
+        clv = (bet_line_prob - closing_prob) if bet_line_prob is not None else None
+        _update_bet_clv(bet_id, closing_prob, clv)
+        counts["updated"] += 1
+
+    print(
+        f"✅ CLV backfill complete: {counts['updated']} updated, "
+        f"{counts['null_count']} no closing price, {counts['stale_count']} stale"
+    )
+    return counts
+
+
+def _check_and_count_stale(
+    game_id: str,
+    bet_on: str,
+    home_team: str,
+    away_team: str,
+    market_close_time_utc: datetime,
+    counts: Dict[str, int],
+) -> None:
+    """Check if the closing odds snapshot is stale and increment counter."""
+    outcome_name = _resolve_outcome_name(bet_on, home_team, away_team)
+    try:
+        result = default_db.execute(
+            """
+            SELECT last_update FROM game_odds
+            WHERE game_id = :game_id AND outcome_name = :outcome_name
+            ORDER BY last_update DESC NULLS LAST
+            LIMIT 1
+            """,
+            {"game_id": game_id, "outcome_name": outcome_name},
+        )
+        row = result.fetchone()
+        if row and row[0]:
+            last_update = row[0]
+            if isinstance(last_update, str):
+                last_update = datetime.fromisoformat(last_update)
+            if _is_stale_snapshot(last_update, market_close_time_utc):
+                counts["stale_count"] += 1
+    except Exception:
+        pass
+
+
+def _update_bet_clv(bet_id: str, closing_prob: float, clv: Optional[float]) -> None:
+    """Update a single bet's closing_line_prob and CLV."""
+    try:
+        default_db.execute(
+            """
+            UPDATE placed_bets
+            SET closing_line_prob = :closing_prob,
+                clv = :clv,
+                updated_at = CURRENT_TIMESTAMP
+            WHERE bet_id = :bet_id
+            """,
+            {"closing_prob": closing_prob, "clv": clv, "bet_id": bet_id},
+        )
+    except Exception as e:
+        print(f"  ⚠️ Failed to update CLV for {bet_id}: {e}")
+
+
+def update_real_closing_lines() -> int:
+    """Update CLV for recently settled bets that still have binary closing prices.
+
+    Designed to be called from the hourly bet_sync DAG. Only processes bets
+    that are settled and still have binary CLV values (0.0 or 1.0).
+
+    Returns:
+        Number of bets updated.
+    """
+    result = backfill_real_clv()
+    return result.get("updated", 0)
 
 
 class CLVTracker:
@@ -62,16 +428,28 @@ class CLVTracker:
             )
 
     def fetch_closing_lines_from_kalshi(self, days_back: int = 7):
-        """Fetch recent Kalshi markets to get closing lines."""
-        # TODO: Implement using Kalshi API to get market close prices
-        pass
+        """Fetch closing lines from game_odds (Kalshi bookmaker priority).
+
+        Uses real closing prices from game_odds table instead of binary outcomes.
+        Delegates to backfill_real_clv() which handles all bookmakers with priority.
+        """
+        result = backfill_real_clv()
+        print(
+            f"✅ Closing lines updated: {result['updated']} bets, "
+            f"{result['null_count']} missing"
+        )
 
     def fetch_closing_lines_from_sbr(self, days_back: int = 7):
-        """Fetch closing lines from SBR/OddsPortal (TODO: implement)."""
-        # TODO: Implement SBR/OddsPortal scraping for closing lines
-        # This should replace the Odds API method
-        print("⚠️  SBR/OddsPortal integration not yet implemented")
-        pass
+        """Fetch closing lines from game_odds (SBR and all bookmakers).
+
+        Uses real closing prices from game_odds table.
+        Delegates to backfill_real_clv() which handles all bookmakers with priority.
+        """
+        result = backfill_real_clv()
+        print(
+            f"✅ Closing lines updated: {result['updated']} bets, "
+            f"{result['null_count']} missing"
+        )
 
     def analyze_clv(self, days_back: int = 30) -> Dict:
         """

@@ -60,9 +60,7 @@ class BetData(SqlParamsMixin):
 
         Maps 'fees_dollars' dataclass field to 'fees' SQL column.
         """
-        return {
-            "fees_dollars": "fees"
-        }
+        return {"fees_dollars": "fees"}
 
 
 @dataclass
@@ -237,13 +235,15 @@ def _calculate_bet_status_and_profit_data(
 
 def create_portfolio_value_snapshots_table(db: DBManager = default_db) -> None:
     """Create the portfolio_value_snapshots table if it does not exist."""
-    db.execute("""
+    db.execute(
+        """
         CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
             snapshot_hour_utc TEXT PRIMARY KEY,
             balance_dollars REAL,
             portfolio_value_dollars REAL
         )
-    """)
+    """
+    )
 
 
 def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
@@ -486,12 +486,18 @@ def _calculate_bet_probabilities(side: str, price: float) -> Optional[float]:
 def _calculate_closing_probability(market_result: str, side: str) -> Optional[float]:
     """Calculate closing line probability from market result.
 
+    NOTE: This returns a binary placeholder (1.0/0.0) based on the game
+    outcome. Real closing probabilities are computed by the hourly CLV
+    task (``update_closing_lines`` in bet_sync_hourly) which looks up
+    actual market closing prices from the ``game_odds`` table. The
+    placeholder value here will be overwritten once that task runs.
+
     Args:
         market_result: Market result ("yes", "no", or empty)
         side: Bet side ("yes" or "no")
 
     Returns:
-        Optional[float]: Closing probability or None if market not settled
+        Optional[float]: Placeholder closing probability or None if not settled
     """
     if not market_result:
         return None
