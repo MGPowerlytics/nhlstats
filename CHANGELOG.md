@@ -1,3 +1,47 @@
+### [2026-04-14] - Security Hardening, NBA Price Fix, Tennis SDK Migration, DB Dedup
+
+- **C2 FIX: dry_run now reads env var** (`dags/multi_sport_betting_workflow.py`):
+  - `dry_run=False` was hardcoded; now reads `BETTING_DRY_RUN` env var (default `false` = live).
+  - Set `BETTING_DRY_RUN=true` in docker-compose to disable live orders without code changes.
+
+- **H1 FIX: DB-based dedup check** (`plugins/kalshi_betting.py`):
+  - `_has_existing_position()` now queries `placed_bets` table FIRST before Kalshi API.
+  - Prevents duplicate bets across container restarts (file-based lock was lost on restart).
+  - Falls back to Kalshi open positions + resting orders as secondary checks.
+
+- **H2 FIX: Removed stale PEM directory**:
+  - `kalshi_private_key.pem/` (accidental directory) deleted from repo root.
+  - Added `kalshkey`, `odds_api_key`, `*.pem` to `.gitignore`.
+
+- **M1: Absolute daily risk cap** (`plugins/constants.py`):
+  - Added `MAX_DAILY_ABSOLUTE_RISK = 200.0` — hard $200/day cap regardless of bankroll %.
+
+- **M2: Replaced print() with logger** (`plugins/clv_tracker.py`):
+  - All `print()` statements in `fetch_and_store_kalshi_closing_prices()` replaced with `logger.warning/error`.
+  - Added `import logging` + module-level `logger = logging.getLogger(__name__)`.
+
+- **NBA BUG FIX: price_cents=0 for all bets** (`plugins/bet_tracker.py`):
+  - Root cause: `_extract_basic_fill_data()` looked for `yes_price`/`no_price` fields that don't exist in Kalshi v2 fills API (`/portfolio/fills`). These are ORDER fields, not FILL fields.
+  - Fix: fall back to `fill["price"]` (canonical v2 fill field) when side-specific keys absent.
+  - Bonus: `fill_id` now preferred over `trade_id` for bet ID — prevents empty `bet_id` values.
+  - Result: `price_cents` and `cost_dollars` now correctly populated for all new fills.
+  - Tests: 15 new tests in `tests/test_price_cents_fix.py` (all passing)
+
+- **TENNIS: Migrated from TheOddsAPI → Kalshi SDK** (`plugins/kalshi_markets.py`):
+  - `fetch_tennis_markets()` now queries all 4 Kalshi series independently:
+    `KXATPMATCH`, `KXWTAMATCH`, `KXATPCHALLENGERMATCH`, `KXWTACHALLENGERMATCH`
+  - Per-series isolation: one failing series never blocks others.
+  - No more silent failures during tournament gaps (TheOddsAPI returned empty between events).
+  - Logs: `✓ Fetched N tennis markets (ATP: X, WTA: Y, Challengers: Z)`
+  - Tests: 21 new tests in `tests/test_tennis_kalshi_markets.py` (all passing)
+
+- **TENNIS: TennisTickerParser improvements** (`plugins/kalshi_markets.py`):
+  - Added precise primary regex `r"win the (.*?) vs (.*?) :"` matching real Kalshi title format.
+  - Added `extract_outcome_code()` static method — returns 3-char winner code from parts[2].
+  - Added `extract_player_codes()` static method — splits 6-char player pair into (P1, P2).
+  - Added docstrings documenting real ticker format and title format.
+  - All real-world ATP/WTA/Challenger title+ticker combos verified passing.
+
 ### [2026-03-30] - TODO-005/006/007/008/009: Diagnostic Dashboard, Order Book Depth, Timing Heatmap, Kalshi Closing Lines, Fill-Time Analysis
 
 - **TODO-005: Diagnostic Report Dashboard Page (✨ NEW FEATURE)**:
