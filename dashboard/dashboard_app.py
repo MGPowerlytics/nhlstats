@@ -752,6 +752,7 @@ def _render_portfolio_chart(snapshots_df: pd.DataFrame, eastern_tz: ZoneInfo) ->
             x="snapshot_hour_et",
             y="portfolio_value_dollars",
             title="Hourly Portfolio Value (ET)",
+            labels={"portfolio_value_dollars": "Portfolio Value ($)", "snapshot_hour_et": "Time (ET)"},
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -1109,14 +1110,16 @@ def _display_pl_time_series(
 
     with tab1:
         fig = px.line(
-            daily_pl, x="date", y="cumulative_pl", title="Daily Cumulative P&L"
+            daily_pl, x="date", y="cumulative_pl", title="Daily Cumulative P&L",
+            labels={"cumulative_pl": "Cumulative P&L ($)", "date": "Date"},
         )
         fig.add_bar(x=daily_pl["date"], y=daily_pl["profit_dollars"], name="Daily P&L")
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         fig = px.line(
-            weekly_pl, x="week", y="cumulative_pl", title="Weekly Cumulative P&L"
+            weekly_pl, x="week", y="cumulative_pl", title="Weekly Cumulative P&L",
+            labels={"cumulative_pl": "Cumulative P&L ($)", "week": "Week"},
         )
         fig.add_bar(
             x=weekly_pl["week"], y=weekly_pl["profit_dollars"], name="Weekly P&L"
@@ -1125,7 +1128,8 @@ def _display_pl_time_series(
 
     with tab3:
         fig = px.line(
-            monthly_pl, x="month", y="cumulative_pl", title="Monthly Cumulative P&L"
+            monthly_pl, x="month", y="cumulative_pl", title="Monthly Cumulative P&L",
+            labels={"cumulative_pl": "Cumulative P&L ($)", "month": "Month"},
         )
         fig.add_bar(
             x=monthly_pl["month"], y=monthly_pl["profit_dollars"], name="Monthly P&L"
@@ -1372,6 +1376,7 @@ def _display_clv_by_sport(clv_data: Dict[str, Any]) -> None:
                 "title": "Average CLV by Sport",
                 "color": "avg_clv",
                 "color_continuous_scale": "RdYlGn",
+                "labels": {"avg_clv": "Average CLV (%)", "sport": "Sport"},
             },
             title="CLV Performance by Sport",
             add_hline=0,
@@ -1609,7 +1614,7 @@ def _render_ev_by_sport_chart(sport_ev: pd.DataFrame) -> None:
         y=["actual_roi", "avg_ev"],
         title="Actual ROI vs Predicted EV by Sport",
         barmode="group",
-        labels={"value": "Return %", "variable": "Metric"},
+        labels={"value": "Return %", "variable": "Metric", "actual_roi": "Actual ROI", "avg_ev": "Avg Predicted EV"},
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1718,7 +1723,7 @@ def _display_ev_calibration_by_bucket(ev_with_data: pd.DataFrame) -> None:
         y=["actual_roi", "avg_ev"],
         title="Actual vs Predicted Return by EV Bucket",
         barmode="group",
-        labels={"value": "Return %", "bucket": "EV Bucket"},
+        labels={"value": "Return %", "bucket": "EV Bucket", "actual_roi": "Actual ROI", "avg_ev": "Avg Predicted EV"},
     )
     st.plotly_chart(fig, use_container_width=True)
 
