@@ -1,4 +1,271 @@
-### [2026-04-17] - schema-implement-migrations: Materialise new stats/audit tables
+## [Unreleased] — Kalshi Reconciliation + Historical Stats Backfill
+
+### Summary
+
+Shipped the complete **Kalshi bet-reconciliation + historical team-game-stats
+backfill** feature (plan `2026-04-17-recon-stats-backfill`, waves 1–4).
+The system now auto-corrects `placed_bets` discrepancies against Kalshi's
+source-of-truth on every daily DAG run and maintains an immutable audit log of
+every field change. In parallel, game-by-game box-score and advanced stats for
+all 9 leagues (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, Tennis) are
+ingested daily and available for Elo feature engineering from 2021 onward.
+All data sources are **free and open** (no paid API contracts). A race-
+prevention window ensures the daily reconciliation task cannot overlap with the
+hourly bet-sync. 249 new tests ship alongside the feature; all existing tests
+continue to pass.
+
+---
+
+### New Tables (10)
+
+| Table | Purpose |
+|-------|---------|
+| `team_game_stats` | Core cross-sport per-game team row (PK: `game_id, team`) |
+| `nba_team_game_stats_ext` | NBA advanced box-score (eFG%, TS%, pace, …) |
+| `nhl_team_game_stats_ext` | NHL shots, special teams, faceoffs |
+| `mlb_team_game_stats_ext` | MLB batting/pitching aggregates, wOBA |
+| `nfl_team_game_stats_ext` | NFL passing, rushing, situational metrics, EPA |
+| `soccer_team_game_stats_ext` | EPL + Ligue1 possession, xG, set-piece stats |
+| `ncaab_team_game_stats_ext` | NCAAB advanced box-score |
+| `wncaab_team_game_stats_ext` | WNCAAB advanced box-score |
+| `tennis_player_match_stats` | Player-level ATP/WTA match stats |
+| `bet_reconciliation_audit` | Immutable append-only audit log for placed_bets corrections |
+
+### New Modules
+
+- **`plugins/stats/`** — 7 `BoxScoreFetcher` subclasses (NBA, NHL, MLB, NFL, Soccer, CBB, Tennis) plus `base.py` and `advanced_stats.py`
+- **`plugins/bet_reconciliation.py`** — Core reconciliation logic: `fetch_kalshi_state`, `diff_bet`, `reconcile_bet`, `reconcile_all`, `insert_missing_bet`; race-prevention via `cutoff_minutes=15`
+- **`plugins/bet_audit.py`** — Low-level `insert_audit_row` / `get_audit_history` helpers
+
+### New DAG
+
+- **`dags/historical_stats_daily.py`** — Daily stats ingestion (cron `0 8 * * *`); 9 sport tasks + validation; pool-rate-limited; `retries=2, retry_exponential_backoff=True`
+
+### New Scripts
+
+- **`scripts/backfill_team_game_stats.py`** — One-shot historical backfill 2021→present; `--sport`, `--start`, `--end`, `--dry-run`, `--resume`
+- **`scripts/reconcile_bets_historical.py`** — Ad-hoc / catch-up bet reconciliation CLI; `--since`, `--dry-run`, `--output-json`
+
+### New Documentation
+
+- `docs/TEAM_GAME_STATS_SPEC.md` — Canonical column contracts for all 10 new tables
+- `docs/AIRFLOW_SETUP.md` — Stats DAG pool setup (7 pools with CLI one-liner)
+- `docs/OPERATIONS_RUNBOOK.md` — Full runbook: bet reconciliation, stats backfill, pool setup, troubleshooting, escalation
+- `docs/database_schema.md` — Updated with all 10 new tables (columns, PKs, FKs, indexes, DAG producers)
+
+### Test Coverage
+
+249 new tests across:
+- `tests/test_bet_audit.py` (13)
+- `tests/test_bet_reconciliation.py` (14 → 22 including race-condition tests)
+- `tests/test_reconciliation_race.py` (8)
+- `tests/test_stats_fetchers_nba_nhl.py` (9)
+- `tests/test_stats_fetchers_mlb_nfl.py` (12)
+- `tests/test_backfill_script.py` (30)
+- `tests/test_data_validation_stats.py` (30)
+- `tests/test_historical_stats_dag.py` (11)
+- Plus wave-1 scaffold and soccer/CBB/tennis tests
+
+### PostgreSQL-Only Compliance
+
+All 10 new tables are created via `plugins/database_schema_manager.py` using
+`CREATE TABLE IF NOT EXISTS` with standard PostgreSQL DDL. No DuckDB code paths
+exist in any new or modified module.
+
+### Free-Sources Compliance
+
+**Verified 2026-04-22:** `grep` for `sportradar`, `sportsdataio`, `rapidapi`,
+`paid`, `subscription` across `plugins/stats/` and `scripts/` returned zero
+matches. All data sources are free and openly available:
+
+| Sport | Source | License / Terms |
+|-------|--------|----------------|
+| NBA | `nba_api` PyPI package | Public NBA Stats API |
+| NHL | NHL Web API (api-web.nhle.com) | Public NHL API |
+| MLB | MLB Stats API (statsapi.mlb.com) | Public MLB API |
+| NFL | `nfl_data_py` (GitHub) | MIT / CC BY-SA |
+| EPL/Ligue1 | football-data.co.uk CSVs + FBRef | Free non-commercial |
+| NCAAB/WNCAAB | ESPN scoreboard/summary API | Public ESPN API |
+| Tennis | Jeff Sackmann Tennis Abstract | CC BY 4.0 |
+
+No paid, subscription, or rate-keyed external services are used.
+
+---
+
+### [2026-04-21] - Reconciliation Race-Condition Prevention (wave-3)
+
+- **Strategy A implemented**: added `cutoff_minutes: int = 15` parameter to
+  `plugins/bet_reconciliation.py::reconcile_all`.  Bets whose `created_at`
+  falls within the last N minutes are excluded from the reconciliation pass
+  via a SQL `WHERE (created_at IS NULL OR created_at <= :cutoff_ts)` clause.
+  This prevents simultaneous writes between the daily `multi_sport_betting_workflow`
+  (`reconcile_placed_bets` task at ~10:00 AM UTC) and the hourly
+  `bet_sync_hourly` DAG which also fires at the top of each hour.
+- **DAG task updated**: `_run_reconcile_placed_bets` in
+  `dags/multi_sport_betting_workflow.py` now passes `cutoff_minutes=15`
+  explicitly.
+- **Summary dict enriched**: `reconcile_all` now returns `excluded_by_cutoff`
+  (int count of excluded bets) and `cutoff_ts` (ISO-8601 UTC string or None).
+- **New tests**: `tests/test_reconciliation_race.py` — 8 tests proving the
+  lookback window is applied, the correct SQL filter is used, `cutoff_minutes=0`
+  disables the window, the default is 15 minutes, and all summary keys are
+  present.  All 22 reconciliation tests pass.
+- **Runbook updated**: `docs/OPERATIONS_RUNBOOK.md` — new §7 documents the
+  race-prevention strategy, trade-offs, how to disable the window, and how to
+  monitor excluded bets in logs and the audit table.
+
+### [2026-04-21] - Wave-3 Data Validation: team_game_stats Coverage
+
+- **Extended `plugins/data_validation.py`** with wave-3 stats validation functions:
+  - `validate_team_game_stats(sport, season, db)` – five-check validation:
+    1. Row counts for the sport/season in `team_game_stats`
+    2. Coverage: `COUNT(DISTINCT ts.game_id) / COUNT(DISTINCT ug.game_id)` (warn <95%, fail <80%)
+    3. Non-null checks for sport-specific advanced metrics (NBA: `efg_pct/ts_pct/pace`, NHL: `corsi_for/corsi_against`, MLB: `woba/era`, NFL: `epa_per_play`, Soccer: `shots/corners`, CBB: `efg_pct/ts_pct`, Tennis: `aces/double_faults`)
+    4. FK integrity: no orphan rows in `team_game_stats` without a matching `unified_games` row
+    5. Season boundary date-range filtering per sport
+  - `validate_all_sports_stats(db)` – convenience function that runs all sports
+  - `_season_date_range(sport, season)` – returns ISO date range per sport:
+    - Soccer (EPL/Ligue1): Aug→May cross-year season (e.g. `2023-2024`)
+    - Tennis: calendar year (e.g. `2024`)
+    - MLB: Mar→Oct single year
+    - NFL: Sep→Feb cross-year
+    - NBA/NHL/NCAAB/WNCAAB: Oct→Jun cross-year
+  - Updated `main()` to accept `--stats [--sport S] [--season X]` CLI flag via `argparse`
+- **Added `tests/test_data_validation_stats.py`** – 30 tests covering all acceptance criteria; all DB interactions mocked (no live PostgreSQL required)
+
+### [2026-04-21] - historical-stats-dag-impl Wave 3: Daily Stats DAG End-to-End
+
+- **Implemented `dags/historical_stats_daily.py`** – replaced all `NotImplementedError` stubs with full production logic:
+  - `_yesterday_from_context(context)` – derives target date from Airflow `ds` key (data-interval-start, which equals "yesterday" for an 08:00 UTC cron), with logical_date/execution_date fallbacks for local execution.
+  - `_query_games_for_date(sport, game_date)` – queries `unified_games WHERE sport = :sport AND game_date = :gdate` via `DBManager.fetch_df`.
+  - `_run_sport_fetch(fetcher, sport, game_date)` – shared ingestion loop: iterates game_ids, calls `fetcher.fetch_game_stats(game_id)` + `fetcher.upsert_rows(rows)`, tracks upserted/skipped/failed counts, logs summary; raises `RuntimeError` only when every game in the batch fails.
+  - Nine sport callables (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, Tennis) — each lazy-imports its fetcher so a missing optional dep (`nba_api`, `nfl_data_py`) logs a warning and exits success rather than failing the DAG.
+  - `_validate_stats_ingestion` – queries `unified_games` counts per sport for yesterday and logs an informational coverage report.
+  - Schedule changed from `@daily` → `'0 8 * * *'` (08:00 UTC, after overnight games are final everywhere).
+  - All 9 sport tasks now carry `retries=2, retry_delay=5min, retry_exponential_backoff=True, max_retry_delay=30min`.
+  - Pool assignments unchanged: `stats_nba_pool`, `stats_nhl_pool`, `stats_mlb_pool`, `stats_nfl_pool`, `stats_fbref_pool` (epl+ligue1), `stats_cbb_pool` (ncaab+wncaab), `stats_tennis_pool`.
+
+- **Added `tests/test_historical_stats_dag.py`** – 11 smoke tests, all passing:
+  - `test_dag_parses_without_errors` – DagBag reports zero import errors
+  - `test_dag_loaded` – DAG present in DagBag
+  - `test_all_sport_task_ids_present` – all 9 sport task IDs found
+  - `test_validate_task_present` – downstream validate task present
+  - `test_total_task_count` – exactly 10 tasks
+  - `test_sport_task_pools` – each task has correct pool
+  - `test_dag_schedule` – `0 8 * * *` (Airflow 3.x timetable.summary / 2.x schedule_interval compatible)
+  - `test_dag_catchup_disabled` – `catchup=False`
+  - `test_dag_max_active_runs` – `max_active_runs=1`
+  - `test_sport_tasks_retry_config` – retries=2, exponential_backoff, 5min/30min bounds
+  - `test_direct_module_import` – `from dags import historical_stats_daily` succeeds
+
+### [2026-04-21] - Backfill Script Implemented (Wave 3)
+
+- **Implemented `scripts/backfill_team_game_stats.py`** – replaced `NotImplementedError` scaffold with full one-shot backfill:
+  - **argparse flags**: `--sport` (nba|nhl|mlb|nfl|epl|ligue1|ncaab|wncaab|tennis|all), `--start`, `--end`, `--dry-run`, `--resume`, `--verbose`
+  - **Fetcher wiring**: maps each sport key to the correct `BoxScoreFetcher` subclass; soccer and CBB receive `sport=` constructor arg
+  - **Resumability**: `data/stats_backfill_progress.json` tracks per-sport last-completed date; `--resume` advances effective start date and skips games already present in `team_game_stats` by PK
+  - **Rate limiting**: honours `fetcher.RATE_LIMIT_SECONDS` via `_rate_limit()`; exponential backoff (base 2 s, 3 retries) on 429/5xx errors
+  - **Dry-run**: prints intended upserts, makes no network calls or DB writes
+  - **Summary**: per-sport counts of processed / inserted / updated / skipped / failed games
+  - **Defaults**: start=2021-01-01, end=yesterday UTC
+
+- **Added `tests/test_backfill_script.py`** – 30 unit tests, all passing:
+  - `TestArgparseHelp` (4 tests) – `--help` exits 0 and lists all required flags
+  - `TestDryRun` (3 tests) – no DB writes, no progress file update, correct print output
+  - `TestProgressFile` (5 tests) – round-trip, missing file, corrupt file, mkdir, resume advances start
+  - `TestBuildFetcher` (10 tests) – correct class per sport, SPORT attribute, ValueError on unknown
+  - `TestFetchWithBackoff` (4 tests) – success path, 429 retry, max-retry give-up, non-retryable no-retry
+
+### [2026-04-20] - NBA + NHL Box Score Fetchers Implemented
+
+- **Implemented `plugins/stats/nba_box_score.py`** – replaced all `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – calls `BoxScoreTraditionalV2` + `BoxScoreAdvancedV2` via `nba_api`, merges on `TEAM_ID`, derives home/away from `game_summary.HOME_TEAM_ID`; eFG% and TS% computed via `advanced_stats` when advanced endpoint returns `NaN`; rate-limited at ~3 req/s
+  - `fetch_date_range(start, end)` – uses `LeagueGameFinder` to enumerate completed game IDs; deduplicates (each game appears once per team in the finder output)
+  - `upsert_rows(rows)` – checks `unified_games` FK before writing; `ON CONFLICT (game_id, team) DO UPDATE` to `team_game_stats` and `nba_team_game_stats_ext`; logs warning and skips missing games
+
+- **Implemented `plugins/stats/nhl_box_score.py`** – replaced all `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – GETs `api-web.nhle.com/v1/gamecenter/{id}/boxscore`, parses `teamGameStats` array (sog, hits, blockedShots, pim, faceoffWinningPctg, powerPlay); faceoff% normalised from API percentage to decimal; partial Corsi proxy: `ext.shots = sog + opp_blocks`; rate-limited at 1 req/3 s
+  - `fetch_date_range(start, end)` – daily requests to `/v1/schedule/YYYY-MM-DD`; skips preseason (gameType=1) and non-final games
+  - `upsert_rows(rows)` – same FK-check-then-upsert pattern as NBA; writes to `nhl_team_game_stats_ext`
+
+- **Added `tests/test_stats_fetchers_nba_nhl.py`** – 9 tests, all passing:
+  - `test_nba_parse_boxscore_extracts_both_teams` – verifies home/away rows, scores, metadata
+  - `test_nba_computes_efg_and_ts` – NaN from advanced endpoint forces local formula computation
+  - `test_nba_upsert_uses_on_conflict` – SQL calls contain `ON CONFLICT`
+  - `test_nba_skips_game_not_in_unified_games` – empty fetch_df → 0 upserts + warning logged
+  - `test_nhl_parse_boxscore_extracts_corsi_proxy` – `shots = sog + opp_blocks`; PP/PK fields verified
+  - `test_nhl_rate_limit_called` – `_rate_limit` called at least once per fetch
+  - `test_nhl_skips_game_not_in_unified_games` – same FK-skip pattern
+  - `test_nhl_upsert_uses_on_conflict` – SQL includes `ON CONFLICT`
+  - `test_nhl_faceoff_pct_normalised` – 56.67% → 0.5667 decimal
+
+### [2026-04-19] - Wave 2 Soccer + CBB + Tennis Box Score Fetchers + Coverage Validation
+
+- **Implemented `plugins/stats/soccer_box_score.py`** – replaced all `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – parses `{league_code}_{YYYYMMDD}_{HA}_{AA}` game_id, loads football-data.co.uk season CSV via `FootballDataCoUkGames`, returns two team dicts (home + away) with shots, corners, fouls, cards in `ext`; optional FBRef enrichment wrapped in try/except (best-effort, 3 s delay)
+  - `fetch_date_range(start, end)` – determines overlapping season codes, downloads CSVs, filters by date range
+  - `upsert_rows(rows)` – skips game_ids absent from `unified_games`; ON-CONFLICT-DO-UPDATE to `team_game_stats` + `soccer_team_game_stats_ext`; supports EPL (E0) and Ligue1 (F1)
+  - Season label derived from match date (Aug–Dec → e.g. "2023-24"; Jan–Jul → e.g. "2023-24")
+
+- **Implemented `plugins/stats/cbb_box_score.py`** – replaced all `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – calls ESPN summary API (`site.api.espn.com/.../summary?event=`), parses `boxscore.teams[].statistics`, computes eFG%, TS%, pace, ORtg, DRtg via `advanced_stats`; rate limit 2 req/s
+  - `fetch_date_range(start, end)` – iterates day-by-day via ESPN scoreboard endpoint, fetches each event
+  - `upsert_rows(rows)` – skips missing game_ids; writes to `team_game_stats` + `ncaab_team_game_stats_ext` or `wncaab_team_game_stats_ext` based on `self.SPORT`
+
+- **Implemented `plugins/stats/tennis_box_score.py`** – replaced all `NotImplementedError` stubs:
+  - `ensure_repos_cloned()` – `git clone` to `data/tennis/{atp,wta}` on first run; `git pull` (best-effort) on subsequent runs
+  - `fetch_game_stats(game_id)` – parses `{tour}_{tourney_id}_{match_num}` format, loads Sackmann CSV for year, returns [winner_dict, loser_dict]
+  - `fetch_date_range(start, end)` – loads CSVs for year range, filters by `tourney_date` (YYYYMMDD int)
+  - `_parse_score(score_str, winner)` – parses "6-4 7-5 6-3" format including tiebreaks and retirement suffixes
+  - `upsert_rows(rows)` – writes to `tennis_player_match_stats` with ON CONFLICT (game_id, player_name) DO UPDATE; skips missing unified_games entries
+
+- **Added `validate_unified_games_coverage_for_stats()` to `plugins/data_validation.py`**:
+  - Queries `unified_games` grouped by `sport + season`, compares to expected counts (NBA:1230, NHL:1312, MLB:2430, NFL:272, EPL:380, Ligue1:380, NCAAB:5500, WNCAAB:4000, Tennis_ATP/WTA:3000)
+  - Status thresholds: ≥90% → `ok`; ≥70% → `warn`; <70% → `fail`
+  - Returns `{sport: {season: {actual, expected, coverage_pct, status}}}`; DB errors caught and returned as `{"error": ...}`
+
+- **Created `scripts/check_stats_coverage.py`** – operator CLI:
+  - `--sports`, `--seasons`, `--format` (table|json) flags
+  - Table output with coverage % and status symbols (✅/⚠️/❌)
+  - Exit codes: 0=all ok, 1=warnings, 2=failures
+
+- **Added `tests/test_stats_fetchers_soccer_cbb_tennis.py`** – 32 fully offline tests covering parsing, game_id logic, skip-missing-game behavior for all three fetchers
+- **Added `tests/test_unified_games_coverage.py`** – 12 tests covering coverage calculation, status thresholds, filtering, error handling (all mocked)
+
+### [2026-04-17] - Bet Reconciliation Pipeline (plan 2026-04-17-recon-stats-backfill tasks 1-4)
+
+- **Added `plugins/bet_audit.py`** – low-level audit helpers:
+  - `insert_audit_row(db, bet_id, field_changed, old_value, new_value, source, reason=None, run_id=None)` – parameterized INSERT into `bet_reconciliation_audit`; converts `None` correctly, never interpolates user data into SQL
+  - `get_audit_history(db, bet_id=None, since=None) → list[dict]` – parameterized SELECT with optional `bet_id` / `since` filters; returns list of dicts
+- **Implemented `plugins/bet_reconciliation.py`** – replaced all `NotImplementedError` stubs:
+  - `fetch_kalshi_state(client=None)` – loads fills via `load_fills_from_kalshi`, enriches with `get_market_details`; returns dict keyed by `bet_id`
+  - `diff_bet(local, remote)` – compares only `RECONCILABLE_FIELDS`; returns list of `{field, old, new}` dicts; skips both-`None` fields
+  - `reconcile_bet(bet_id, local, remote, db)` – UPDATE + audit INSERTs in one atomic transaction (SQLAlchemy `engine.begin()` for real DB; `db.execute()` fallback for test mocks); propagates exceptions for full rollback
+  - `insert_missing_bet(fill, db)` – idempotent INSERT with `source='kalshi_discovered'`; returns `False` on `IntegrityError` (duplicate key)
+  - `reconcile_all(db=None, client=None, since_date=None)` – orchestrates full pipeline; UUID `run_id` tagged on all audit rows; returns `{checked, discrepancies, corrected, missing_locally_inserted, missing_on_kalshi, audit_rows_written, run_id}`
+- **Added `tests/test_bet_audit.py`** – 13 unit tests (all mocked, no DB required)
+- **Updated `tests/test_bet_reconciliation.py`** – relaxed summary-key assertion to use `issubset` to accommodate new `audit_rows_written` / `run_id` keys
+- **Added `reconcile_placed_bets` task to `dags/multi_sport_betting_workflow.py`**:
+  - `task_id='reconcile_placed_bets'`, `retries=2`; positioned after `update_clv_data`, before `send_daily_summary`
+- **Updated `tests/test_dag_smoke_multi_sport.py`** – 3 new assertions: task exists, is positioned correctly, has `retries=2`
+- **Created `scripts/reconcile_bets_historical.py`** – CLI with `--since`, `--dry-run`, `--output-json`, `--verbose`; queries `MIN(placed_time_utc)` as default start date; idempotent and safe to re-run
+- **Created `docs/OPERATIONS_RUNBOOK.md`** – covers historical backfill, DAG task, audit log queries, troubleshooting, and DB maintenance
+
+### [2026-04-18] - Wave 2 MLB + NFL Box Score Fetchers
+
+- **Implemented `plugins/stats/mlb_box_score.py`** – replaced `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – calls `statsapi.mlb.com/api/v1.1/game/{pk}/feed/live` for game metadata (date, teams, linescore) and `statsapi.mlb.com/api/v1/game/{pk}/boxscore` for batting/pitching aggregates; extracts runs, hits, doubles, triples, HR, BB, HBP, SF, AB, K, LOB, OBP, SLG; derives wOBA via `compute_baseball_woba` (FanGraphs 2023 weights); computes ERA; skips non-final games and games absent from `unified_games`
+  - `fetch_date_range(start, end)` – queries `/api/v1/schedule?sportId=1` for `gamePk` values then iterates with 0.5 s rate limit (2 req/s)
+  - `upsert_rows(rows)` – ON-CONFLICT-DO-UPDATE to `team_game_stats` + `mlb_team_game_stats_ext`
+- **Implemented `plugins/stats/nfl_box_score.py`** – replaced `NotImplementedError` stubs:
+  - `fetch_game_stats(game_id)` – loads `nfl_data_py.import_schedules` + `import_pbp_data` (cached per season); aggregates passing yards/TDs/INTs, rushing yards/TDs, turnovers, third-down conversion rate, first downs, penalties, sacks, and EPA metrics via `compute_nfl_epa_aggregate`; skips games absent from `unified_games`
+  - `fetch_date_range(start, end)` – determines overlapping seasons, bulk-loads once per season (cached in `_schedule_cache` / `_pbp_cache`), filters by gameday
+  - `upsert_rows(rows)` – ON-CONFLICT-DO-UPDATE to `team_game_stats` + `nfl_team_game_stats_ext`
+- **Added `tests/test_stats_fetchers_mlb_nfl.py`** – 12 fully offline unit tests (all HTTP and nfl_data_py calls mocked):
+  - `test_mlb_parse_boxscore_extracts_both_teams`, `test_mlb_woba_derived`, `test_mlb_era_computed`, `test_mlb_skips_game_not_in_unified_games`, `test_mlb_upsert_rows_calls_db`, `test_mlb_upsert_empty_rows_returns_zero`
+  - `test_nfl_aggregates_pbp_to_team_game`, `test_nfl_epa_computed`, `test_nfl_skips_game_not_in_unified_games`, `test_nfl_upsert_rows_calls_db`, `test_nfl_upsert_empty_rows_returns_zero`, `test_nfl_season_parsing`
+
+
 
 - **Ran `DatabaseSchemaManager.initialize_schema()`** against production PostgreSQL; all 10 new tables created idempotently:
   - `team_game_stats` (core; PK `(game_id, team)`; FK → `unified_games`)
