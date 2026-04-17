@@ -38,7 +38,8 @@ python-dateutil
 setuptools
 wheel
 pip
-nfl_data_py
+nba_api>=1.4.0
+nfl_data_py>=0.3.0
 # Transitive dependencies required by kalshi-python and nfl_data_py
 lazy_imports
 appdirs

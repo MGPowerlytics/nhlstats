@@ -111,8 +111,8 @@ class TestMLBEloRatingDeep:
         return MLBEloRating()
 
     def test_init_defaults(self, mlb_elo):
-        assert mlb_elo.k_factor == 20
-        assert mlb_elo.home_advantage == 50
+        assert mlb_elo.k_factor == 10  # Updated from 20
+        assert mlb_elo.home_advantage == 75  # Updated from 50
 
     def test_init_custom_params(self):
         from plugins.elo import MLBEloRating

@@ -17,7 +17,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Callable, Optional, Tuple, Union, List, Dict
 
 from plugins.base_games import UnifiedGameInfo
 from plugins.the_odds_api import TheOddsAPI
@@ -316,80 +316,6 @@ class KalshiAPI:
         except Exception as e:
             logger.warning(f"⚠️  Could not get order book for {ticker}: {e}")
 
-    def get_order_book_depth(
-        self, ticker: str, bet_size: float = 10.0
-    ) -> Dict[str, Any]:
-        """Fetch full order book depth for a Kalshi market.
-
-        Unlike _add_order_book_data() which only extracts top-of-book,
-        this returns all price levels with quantities for market impact analysis.
-
-        Unlike _add_order_book_data(), this method does NOT have an early-exit
-        guard — it always fetches the full order book from the API.
-
-        Args:
-            ticker: Kalshi market ticker symbol.
-            bet_size: Dollar size to compute market impact for. Defaults to 10.0.
-
-        Returns:
-            Dict with keys:
-                'yes_levels': List of {'price': float, 'quantity': float}
-                    sorted by price desc
-                'no_levels': List of {'price': float, 'quantity': float}
-                    sorted by price desc
-                'yes_top_of_book': float (best yes ask price, 0-1)
-                'no_top_of_book': float (best no ask price, 0-1)
-                'total_yes_depth_usd': float (sum of price*quantity for yes levels)
-                'total_no_depth_usd': float (sum of price*quantity for no levels)
-                'market_impact_pct': float (bet_size / total_yes_depth_usd * 100)
-            Returns empty dict if API unavailable.
-        """
-        try:
-            response = self.markets_api.get_market_orderbook_with_http_info(
-                ticker=ticker
-            )
-            raw = json.loads(response.raw_data)
-            orderbook = raw.get("orderbook_fp") or raw.get("orderbook") or {}
-
-            yes_raw = orderbook.get("yes_dollars") or orderbook.get("yes") or []
-            no_raw = orderbook.get("no_dollars") or orderbook.get("no") or []
-
-            def _parse_levels(raw_levels: list) -> List[Dict[str, float]]:
-                levels = []
-                for entry in raw_levels:
-                    try:
-                        price = float(entry[0])
-                        quantity = float(entry[1])
-                        levels.append({"price": price, "quantity": quantity})
-                    except (IndexError, ValueError, TypeError):
-                        continue
-                # Sort descending by price (raw is ascending; best ask is last)
-                return sorted(levels, key=lambda x: x["price"], reverse=True)
-
-            yes_levels = _parse_levels(yes_raw)
-            no_levels = _parse_levels(no_raw)
-
-            yes_top = yes_levels[0]["price"] if yes_levels else 0.0
-            no_top = no_levels[0]["price"] if no_levels else 0.0
-
-            total_yes = sum(lvl["price"] * lvl["quantity"] for lvl in yes_levels)
-            total_no = sum(lvl["price"] * lvl["quantity"] for lvl in no_levels)
-
-            impact_pct = (bet_size / total_yes * 100) if total_yes > 0 else 0.0
-
-            return {
-                "yes_levels": yes_levels,
-                "no_levels": no_levels,
-                "yes_top_of_book": yes_top,
-                "no_top_of_book": no_top,
-                "total_yes_depth_usd": total_yes,
-                "total_no_depth_usd": total_no,
-                "market_impact_pct": impact_pct,
-            }
-        except Exception as e:
-            logger.warning(f"⚠️  Could not get order book depth for {ticker}: {e}")
-            return {}
-
     def _handle_market_error(self, ticker: str, error: Exception) -> None:
         """Handle errors from market API calls.
 
@@ -457,39 +383,6 @@ class StandardTickerParser(TickerParser):
                     home_team = teams_str[self.TEAM_CODE_LENGTH :]
                     return home_team, away_team, game_date
 
-                # Variable-length team codes (e.g., NCAAB mixes 3- and 4-char codes).
-                # Use the outcome code from parts[2] to split teams_str unambiguously:
-                #   teams_str = AWAY + HOME  (away team appears first)
-                # If outcome_code is a prefix → away team; if suffix → home team.
-                if len(parts) > 2:
-                    outcome_code = parts[2]
-                    n = len(outcome_code)
-                    if n > 0:
-                        if teams_str.startswith(outcome_code):
-                            away_team = outcome_code
-                            home_team = teams_str[n:]
-                            if home_team:
-                                return home_team, away_team, game_date
-                        elif teams_str.endswith(outcome_code):
-                            home_team = outcome_code
-                            away_team = teams_str[:-n]
-                            if away_team:
-                                return home_team, away_team, game_date
-
-        # Fallback: extract teams from " at " title format (e.g. "Oklahoma at Colorado Winner?")
-        clean_title = title.rstrip("?").strip()
-        if " at " in clean_title:
-            at_parts = clean_title.split(" at ", 1)
-            if len(at_parts) == 2:
-                away_name = at_parts[0].strip()
-                home_part = at_parts[1].strip()
-                # Strip trailing descriptors like "Winner" or "Champion"
-                home_name = re.split(r"\s+(?:Winner|Champion|Winner\?)", home_part)[
-                    0
-                ].strip()
-                if away_name and home_name:
-                    return home_name, away_name, game_date
-
         # Fallback: try to extract teams from title
         if " vs " in title:
             # Simple fallback – caller may handle further resolution
@@ -518,35 +411,16 @@ class StandardTickerParser(TickerParser):
 
 
 class TennisTickerParser(TickerParser):
-    """Parses tennis tickers (ATP, WTA, Challenger).
+    """Parses tennis tickers (ATP, WTA, Challenger)."""
 
-    Ticker format: {SERIES}-{YYMMMDD}{P1CODE}{P2CODE}-{OUTCOMESCODE}
-    Example: KXATPMATCH-26MAR31SKAUGO-UGO
-      - Date part (YYMMMDD) is tournament START date, not match date.
-      - Player codes are always exactly 3+3 chars after the date.
-      - Outcome code (parts[2]) = 3-char winner code matching one of P1/P2.
-
-    Title format: "Will {FULL_NAME} win the {P1_LAST} vs {P2_LAST} : {ROUND} match?"
-    """
-
-    # Primary: " : " colon variant (all real active markets as of 2026-04)
-    # Fallback: " match" variant for older/finalized markets
+    # Regex for extracting player names from title
     PLAYER_REGEXES = [
-        r"win the (.*?) vs (.*?) :",
         r"win the (.*?) vs (.*?) (?:match|:)",
         r"win the (.*?) vs (.*?) match",
     ]
 
     def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
-        """Parse a tennis ticker+title into (player1, player2, game_date).
-
-        Args:
-            ticker: Kalshi market ticker, e.g. ``KXATPMATCH-26MAR31SKAUGO-UGO``.
-            title: Market title, e.g. ``Will X win the A vs B : R32 match?``.
-
-        Returns:
-            Tuple of (home_player, away_player, game_date_str) or None if unparseable.
-        """
+        # Extract date from ticker (format: SERIES-YYMMMDD???-OUTCOME)
         parts = ticker.split("-")
         game_date = None
         if len(parts) >= 2:
@@ -556,12 +430,11 @@ class TennisTickerParser(TickerParser):
                 y_str, m_str, d_str = match.groups()
                 try:
                     dt = datetime.strptime(f"{y_str}{m_str}{d_str}", "%y%b%d")
-                    # Note: this is tournament start date; actual match date is
-                    # overwritten from close_time in _save_markets_to_db.
                     game_date = dt.strftime("%Y-%m-%d")
                 except ValueError:
                     pass
 
+        # Extract player names from title
         home_team = away_team = None
         for pattern in self.PLAYER_REGEXES:
             match = re.search(pattern, title)
@@ -576,39 +449,6 @@ class TennisTickerParser(TickerParser):
             return None
 
         return home_team, away_team, game_date
-
-    @staticmethod
-    def extract_outcome_code(ticker: str) -> Optional[str]:
-        """Return the 3-char winner code from parts[2] of a tennis ticker.
-
-        Args:
-            ticker: Full Kalshi ticker string.
-
-        Returns:
-            3-char outcome code, or None if not present.
-        """
-        parts = ticker.split("-")
-        return parts[2] if len(parts) >= 3 else None
-
-    @staticmethod
-    def extract_player_codes(ticker: str) -> Optional[Tuple[str, str]]:
-        """Extract (player1_code, player2_code) from the 6-char segment in parts[1].
-
-        Args:
-            ticker: Full Kalshi ticker string.
-
-        Returns:
-            Tuple of two 3-char player codes, or None if format not recognised.
-        """
-        parts = ticker.split("-")
-        if len(parts) < 2:
-            return None
-        middle = parts[1]
-        m = re.match(r"^\d{2}[A-Z]{3}\d{2}([A-Z]{6})$", middle)
-        if m:
-            code_pair = m.group(1)
-            return code_pair[:3], code_pair[3:]
-        return None
 
 
 def _get_parser(sport: str) -> TickerParser:
@@ -1276,57 +1116,32 @@ fetch_nfl_markets = _create_sport_market_fetcher(
 
 
 def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
-    """Fetch tennis prediction markets from Kalshi SDK.
+    """Fetch tennis markets from TheOddsAPI."""
+    logger.info("💰 Fetching TENNIS prediction markets from TheOddsAPI...")
 
-    Queries all tennis series: KXATPMATCH, KXWTAMATCH,
-    KXATPCHALLENGERMATCH, KXWTACHALLENGERMATCH.
+    try:
+        api = TheOddsAPI()
+        # Fetch markets (this returns list of games with odds)
+        markets = api.fetch_markets("tennis")
 
-    Args:
-        date_str: Optional date filter (unused, kept for interface compat).
+        # Save to database immediately so they are available for odds comparison
+        if markets:
+            count = api.save_to_db(markets)
+            logger.info(f"✓ Saved {count} tennis odds records to database")
 
-    Returns:
-        List of market dicts saved to database.
-    """
-    logger.info("💰 Fetching TENNIS prediction markets from Kalshi SDK...")
-
-    if not KALSHI_AVAILABLE:
-        logger.error("✗ Cannot fetch TENNIS markets: kalshi_python not installed")
+        return markets
+    except Exception as e:
+        logger.error(f"✗ Failed to fetch tennis markets: {e}")
         return []
 
-    api = _init_kalshi_api("tennis")
-    if not api:
-        return []
 
-    series_tickers = SPORT_SERIES["tennis"]
-    limit = SPORT_LIMITS.get("tennis", 200)
-
-    # Fetch each series separately so one failure never blocks the others
-    series_results: Dict[str, list] = {ticker: [] for ticker in series_tickers}
-    for series_ticker in series_tickers:
-        series_results[series_ticker] = _process_series_ticker(
-            api, series_ticker, limit
-        )
-
-    atp = len(series_results.get("KXATPMATCH", []))
-    wta = len(series_results.get("KXWTAMATCH", []))
-    challengers = len(series_results.get("KXATPCHALLENGERMATCH", [])) + len(
-        series_results.get("KXWTACHALLENGERMATCH", [])
-    )
-    all_markets = [m for markets in series_results.values() for m in markets]
-
-    total = len(all_markets)
-    logger.info(
-        f"✓ Fetched {total} tennis markets "
-        f"(ATP: {atp}, WTA: {wta}, Challengers: {challengers})"
-    )
-
-    _save_and_log_markets("tennis", all_markets)
-    return all_markets
+def fetch_cba_markets(date_str: Optional[str] = None) -> list:
+    """Fetch CBA (Chinese Basketball Association) markets (Placeholder)."""
+    logger.info("💰 Fetching CBA prediction markets (Placeholder)...")
+    return []
 
 
-fetch_cba_markets = _create_sport_market_fetcher(
-    "cba", "Fetch CBA (Chinese Basketball Association) markets from Kalshi."
-)
-fetch_unrivaled_markets = _create_sport_market_fetcher(
-    "unrivaled", "Fetch Unrivaled (3x3 women's basketball) markets from Kalshi."
-)
+def fetch_unrivaled_markets(date_str: Optional[str] = None) -> list:
+    """Fetch Unrivaled (3x3 women's basketball) markets (Placeholder)."""
+    logger.info("💰 Fetching Unrivaled prediction markets (Placeholder)...")
+    return []

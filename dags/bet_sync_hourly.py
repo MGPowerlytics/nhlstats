@@ -72,39 +72,7 @@ def update_closing_lines():
         return 0
 
 
-def capture_kalshi_closing_prices_task():
-    """Fetch and store Kalshi market prices for games closing within 30 minutes.
-
-    Looks up placed_bets whose market_close_time_utc falls within
-    [now - 30min, now + 30min], fetches the live Kalshi order-book price for
-    each market, and stores it in game_odds with bookmaker='Kalshi_close'.
-    This enables true CLV measurement against Kalshi's own closing prices.
-
-    Returns:
-        int: Total rows stored, or 0 on failure (errors are non-blocking).
-    """
-    import sys
-
-    sys.path.append(str(Path(__file__).resolve().parents[1] / "plugins"))
-
-    from clv_tracker import fetch_and_store_kalshi_closing_prices
-    from constants import KALSHI_CLOSING_WINDOW_MINUTES
-
-    try:
-        result = fetch_and_store_kalshi_closing_prices(
-            lookahead_minutes=KALSHI_CLOSING_WINDOW_MINUTES
-        )
-        print(
-            f"✅ Kalshi closing prices: {result['fetched']} fetched, "
-            f"{result['stored']} stored, {result['errors']} errors"
-        )
-        return result.get("stored", 0)
-    except Exception as e:
-        # Kalshi closing price capture must NOT block the rest of the DAG
-        print(f"⚠️ capture_kalshi_closing_prices failed (non-blocking): {e}")
-        return 0
-
-
+# Default arguments for the DAG
 default_args = {
     "owner": "airflow",
     "depends_on_past": False,
@@ -139,13 +107,5 @@ with DAG(
         retry_delay=timedelta(minutes=2),
     )
 
-    capture_closing_task = PythonOperator(
-        task_id="capture_kalshi_closing_prices",
-        python_callable=capture_kalshi_closing_prices_task,
-        retries=1,
-        retry_delay=timedelta(minutes=2),
-    )
-
     # CLV update runs after bet sync — depends on fresh bet data
-    # Kalshi closing price capture runs after CLV update
-    sync_task >> clv_task >> capture_closing_task
+    sync_task >> clv_task

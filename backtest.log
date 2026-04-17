@@ -1,0 +1,28 @@
+📥 Loading MLB game data from CSV...
+✓ Loaded 11144 games
+⚙️  Computing Elo ratings...
+✓ Computed Elo ratings for 11144 games
+📊 Running backtest...
+🔧 Applying enhancement models...
+
+================================================================================
+MLB PROBABILITY BACKTEST RESULTS
+================================================================================
+Date: 2026-04-09 14:39:08
+Data Source: CSV export from database
+--------------------------------------------------------------------------------
+Model                     Log Loss   Brier      Accuracy   EV ($)     ROI (%)    Games
+--------------------------------------------------------------------------------
+Pure Elo                  0.7101     0.2570     0.5447     35.21      0.32       11101
+Glicko-2 Blend            0.7175     0.2601     0.5426     32.25      0.29       11101
+Team Factors              0.7643     0.2709     0.5480     40.03      0.36       11101
+BetMGM Blend 60%          0.7081     0.2561     0.5436     34.29      0.31       11101
+BetMGM Blend 70%          0.7077     0.2560     0.5452     35.84      0.32       11101
+BetMGM Blend 80%          0.7080     0.2561     0.5444     35.98      0.32       11101
+Recency Weighting         0.7137     0.2585     0.5438     33.54      0.30       11101
+Situation Adjustments     0.7102     0.2571     0.5449     35.22      0.32       11101
+================================================================================
+
+💾 Results saved to: backtest_results.csv
+
+🏆 Best Model: Team Factors (ROI: 0.36%)

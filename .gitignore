@@ -38,11 +38,3 @@ Thumbs.db
 .env
 .env
 .env
-
-# Kalshi + API credentials - NEVER commit these
-kalshkey
-odds_api_key
-kalshi_private_key.pem
-*.pem
-*_key
-*_secret

@@ -102,7 +102,7 @@ class TestEloTemporalIntegrity(unittest.TestCase):
 
     def test_mlb_predict_before_update(self):
         """MLB: Verify temporal integrity."""
-        elo = MLBEloRating(k_factor=20, home_advantage=50)
+        elo = MLBEloRating(k_factor=10, home_advantage=75)  # Updated parameters
 
         prob1 = elo.predict("Yankees", "Red Sox")
         elo.update("Yankees", "Red Sox", home_score=5, away_score=3)

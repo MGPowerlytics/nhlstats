@@ -15,23 +15,23 @@ class MLBEloRating(BaseEloRating):
     MLB-specific Elo rating system.
 
     Features:
-    - Standard Elo with K=20, home advantage=50
+    - Standard Elo with K=10, home advantage=75 (updated from K=20, HA=50)
     - Lower home advantage than other sports
     - Game history tracking
     """
 
     def __init__(
         self,
-        k_factor: float = 20.0,
-        home_advantage: float = 50.0,
+        k_factor: float = 10.0,  # Updated from 20.0
+        home_advantage: float = 75.0,  # Updated from 50.0
         initial_rating: float = 1500.0,
     ) -> None:
         """
         Initialize MLB Elo rating system.
 
         Args:
-            k_factor: K-factor for rating updates (default 20.0)
-            home_advantage: Home advantage in Elo points (default 50.0)
+            k_factor: K-factor for rating updates (default 10.0)
+            home_advantage: Home advantage in Elo points (default 75.0)
             initial_rating: Initial rating for new teams (default 1500.0)
         """
         super().__init__(
@@ -168,3 +168,33 @@ def calculate_current_elo_ratings(output_path=None):
         print(f"Saved MLB Elo ratings to {output_path}")
 
     return elo
+
+
+def create_team_factors_table():
+    """Create team_factors table if it doesn't exist."""
+    query = """
+    CREATE TABLE IF NOT EXISTS team_factors (
+        factor_id SERIAL PRIMARY KEY,
+        team_id VARCHAR NOT NULL,
+        game_date DATE NOT NULL,
+        season INTEGER,
+        team_name VARCHAR,
+        venue VARCHAR,
+        runs_per_game DECIMAL(5,3),
+        obp DECIMAL(5,3),
+        slg DECIMAL(5,3),
+        ops DECIMAL(5,3),
+        wOBA DECIMAL(5,3),
+        wRC_plus INTEGER,
+        era DECIMAL(5,3),
+        fip DECIMAL(5,3),
+        whip DECIMAL(5,3),
+        strikeouts_per_nine DECIMAL(5,2),
+        walks_per_nine DECIMAL(5,2),
+        defensive_runs_saved INTEGER,
+        ultimate_zone_rating DECIMAL(5,2),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(team_id, game_date)
+    );
+    """
+    default_db.execute(query)

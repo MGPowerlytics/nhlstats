@@ -1139,9 +1139,9 @@ def _add_boxscore_coverage_check(
             name="Boxscore Coverage",
             passed=boxscore_pct >= NBA_BOXSCORE_COVERAGE_THRESHOLD,
             message=f"{boxscore_pct:.1f}% of games have boxscores (minimum: {NBA_BOXSCORE_COVERAGE_THRESHOLD}%)",
-            severity="error"
-            if boxscore_pct < NBA_BOXSCORE_COVERAGE_THRESHOLD
-            else "info",
+            severity=(
+                "error" if boxscore_pct < NBA_BOXSCORE_COVERAGE_THRESHOLD else "info"
+            ),
         )
     )
 
@@ -1196,9 +1196,11 @@ def _add_missing_boxscores_check(
             "Missing Boxscores",
             len(missing_boxscores) < NBA_MISSING_BOXSCORES_THRESHOLD,
             f"{len(missing_boxscores)} games missing boxscores (maximum allowed: {NBA_MISSING_BOXSCORES_THRESHOLD})",
-            "warning"
-            if len(missing_boxscores) >= NBA_MISSING_BOXSCORES_THRESHOLD
-            else "info",
+            (
+                "warning"
+                if len(missing_boxscores) >= NBA_MISSING_BOXSCORES_THRESHOLD
+                else "info"
+            ),
         )
 
 
@@ -1406,7 +1408,55 @@ def _print_final_summary(
 
 
 def main() -> int:
-    """Run all data validations."""
+    """Run all data validations.
+
+    Supports an optional ``--stats`` flag to run team_game_stats coverage
+    validation instead of the default sport-level checks::
+
+        python -m plugins.data_validation --stats
+        python -m plugins.data_validation --stats --sport NBA --season 2023-2024
+    """
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Multi-sport data validation")
+    parser.add_argument(
+        "--stats",
+        action="store_true",
+        help="Run team_game_stats coverage validation",
+    )
+    parser.add_argument(
+        "--sport",
+        type=str,
+        default=None,
+        help="Single sport to validate (used with --stats)",
+    )
+    parser.add_argument(
+        "--season",
+        type=str,
+        default=None,
+        help="Season string to validate (used with --stats, e.g. '2023-2024')",
+    )
+    args, _unknown = parser.parse_known_args()
+
+    if args.stats:
+        print("=" * REPORT_SEPARATOR_WIDTH)
+        print("🔍 TEAM GAME STATS COVERAGE VALIDATION")
+        print(f"📅 Validation Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
+        print("=" * REPORT_SEPARATOR_WIDTH)
+
+        if args.sport:
+            report = validate_team_game_stats(args.sport, args.season)
+            report.print_report()
+            return 0 if not report.errors else 1
+        else:
+            all_reports = validate_all_sports_stats()
+            any_errors = False
+            for sport_key, rpt in all_reports.items():
+                rpt.print_report()
+                if rpt.errors:
+                    any_errors = True
+            return 1 if any_errors else 0
+
     print("=" * REPORT_SEPARATOR_WIDTH)
     print("🔍 MULTI-SPORT DATA VALIDATION")
     print(f"📅 Validation Date: {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -1439,3 +1489,436 @@ def main() -> int:
 
 if __name__ == "__main__":
     exit(main())
+
+
+# ---------------------------------------------------------------------------
+# Unified-games coverage validation
+# ---------------------------------------------------------------------------
+
+# Expected game counts per sport per full regular season.
+# These are rough targets used to detect obviously incomplete data ingestion.
+EXPECTED_GAME_COUNTS: Dict[str, int] = {
+    "NBA": 1230,
+    "NHL": 1312,
+    "MLB": 2430,
+    "NFL": 272,
+    "EPL": 380,
+    "Ligue1": 380,
+    "NCAAB": 5500,
+    "WNCAAB": 4000,
+    "Tennis_ATP": 3000,
+    "Tennis_WTA": 3000,
+}
+
+# Thresholds for coverage status
+_COVERAGE_OK_THRESHOLD: float = 0.90  # >= 90% → ok
+_COVERAGE_WARN_THRESHOLD: float = 0.70  # 70-90% → warn; < 70% → fail
+
+
+def validate_unified_games_coverage_for_stats(
+    sports: Optional[List[str]] = None,
+    seasons: Optional[List[int]] = None,
+    db: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Query unified_games and report coverage vs expected game counts.
+
+    Compares actual game counts in ``unified_games`` (per sport + season) to
+    rough expected values defined in :data:`EXPECTED_GAME_COUNTS`.
+
+    Args:
+        sports: Optional filter list of sport names (e.g. ``["NBA", "NHL"]``).
+            If ``None``, all sports are included.
+        seasons: Optional filter list of season integers (e.g. ``[2023, 2024]``).
+            If ``None``, all seasons are included.
+        db: Optional :class:`~plugins.db_manager.DBManager` instance.
+            Defaults to :func:`~plugins.db_manager.default_db`.
+
+    Returns:
+        Nested dict ``{sport: {season: {"actual": N, "expected": M,
+        "coverage_pct": 0.XX, "status": "ok|warn|fail"}}}``.
+        On DB error, returns ``{"error": str(exc)}``.
+
+    Example:
+        >>> report = validate_unified_games_coverage_for_stats(sports=["NBA"])
+        >>> report["NBA"][2024]["status"]
+        'ok'
+    """
+    from plugins.db_manager import DBManager
+
+    if db is None:
+        try:
+            db = default_db()
+        except Exception:
+            db = DBManager()
+
+    try:
+        result = db.execute(
+            """
+            SELECT sport, season, COUNT(*) AS actual
+            FROM unified_games
+            WHERE season IS NOT NULL
+            GROUP BY sport, season
+            ORDER BY sport, season
+            """
+        )
+        rows = result.fetchall()
+    except Exception as exc:
+        return {"error": str(exc)}
+
+    report: Dict[str, Any] = {}
+
+    for sport, season, actual in rows:
+        # Apply filters
+        if sports and sport not in sports:
+            continue
+        season_int = int(season) if season is not None else None
+        if seasons and season_int not in seasons:
+            continue
+
+        expected = EXPECTED_GAME_COUNTS.get(sport, 0)
+        if expected > 0:
+            coverage_pct = actual / expected
+        else:
+            coverage_pct = 1.0  # unknown sport — assume ok
+
+        if coverage_pct >= _COVERAGE_OK_THRESHOLD:
+            status = "ok"
+        elif coverage_pct >= _COVERAGE_WARN_THRESHOLD:
+            status = "warn"
+        else:
+            status = "fail"
+
+        if sport not in report:
+            report[sport] = {}
+        report[sport][season_int] = {
+            "actual": actual,
+            "expected": expected,
+            "coverage_pct": round(coverage_pct, 4),
+            "status": status,
+        }
+
+    return report
+
+
+# ---------------------------------------------------------------------------
+# Team-game stats validation (wave-3)
+# ---------------------------------------------------------------------------
+
+# Key advanced metrics that must not be NULL, keyed by sport (upper-case).
+_STATS_NON_NULL_FIELDS: Dict[str, List[str]] = {
+    "NBA": ["efg_pct", "ts_pct", "pace"],
+    "NHL": ["corsi_for", "corsi_against"],
+    "MLB": ["woba", "era"],
+    "NFL": ["epa_per_play"],
+    "EPL": ["shots", "corners"],
+    "LIGUE1": ["shots", "corners"],
+    "NCAAB": ["efg_pct", "ts_pct"],
+    "WNCAAB": ["efg_pct", "ts_pct"],
+    "TENNIS": ["aces", "double_faults"],
+}
+
+# Coverage thresholds for team_game_stats vs unified_games
+_STATS_COVERAGE_OK: float = 0.95  # ≥ 95% → ok
+_STATS_COVERAGE_WARN: float = 0.80  # 80–95% → warn; < 80% → fail
+
+
+def _season_date_range(sport: str, season: str) -> Tuple[str, str]:
+    """Return (start_date, end_date) ISO strings for the given sport/season.
+
+    Args:
+        sport: Upper-case sport name (e.g. ``"NBA"``, ``"EPL"``, ``"TENNIS"``).
+        season: Season string, format varies by sport.
+
+    Returns:
+        Tuple ``(start_date, end_date)`` as ``'YYYY-MM-DD'`` strings.
+
+    Raises:
+        ValueError: If the season string format is unrecognised for the sport.
+    """
+    sport_upper = sport.upper()
+
+    # Soccer (EPL, Ligue1): "2023-2024" → Aug 2023 – May 2024
+    if sport_upper in ("EPL", "LIGUE1"):
+        parts = season.split("-")
+        if len(parts) != 2:
+            raise ValueError(f"Soccer season must be 'YYYY-YYYY', got: {season!r}")
+        start_year, end_year = int(parts[0]), int(parts[1])
+        return (f"{start_year}-08-01", f"{end_year}-05-31")
+
+    # Tennis: calendar year "2024" → Jan–Dec 2024
+    if sport_upper in ("TENNIS", "TENNIS_ATP", "TENNIS_WTA"):
+        year = int(season)
+        return (f"{year}-01-01", f"{year}-12-31")
+
+    # MLB: year string "2024" → Mar–Oct 2024
+    if sport_upper == "MLB":
+        year = int(season)
+        return (f"{year}-03-01", f"{year}-10-31")
+
+    # NFL: "2023" → Sep 2023 – Feb 2024
+    if sport_upper == "NFL":
+        year = int(season)
+        return (f"{year}-09-01", f"{year + 1}-02-28")
+
+    # NBA, NHL, NCAAB, WNCAAB: "2023-2024" → Oct 2023 – Jun 2024
+    if sport_upper in ("NBA", "NHL", "NCAAB", "WNCAAB"):
+        parts = season.split("-")
+        if len(parts) != 2:
+            raise ValueError(f"Season for {sport} must be 'YYYY-YYYY', got: {season!r}")
+        start_year, end_year = int(parts[0]), int(parts[1])
+        return (f"{start_year}-10-01", f"{end_year}-06-30")
+
+    raise ValueError(f"Unknown sport for season boundary: {sport!r}")
+
+
+def validate_team_game_stats(
+    sport: str,
+    season: Optional[str] = None,
+    db: Optional[Any] = None,
+) -> DataValidationReport:
+    """Validate coverage and quality of ``team_game_stats`` for one sport.
+
+    Runs five categories of checks:
+
+    1. **Row counts** – total rows, breakdown by season/date.
+    2. **Coverage** – ``COUNT(DISTINCT ts.game_id) / COUNT(DISTINCT ug.game_id)``
+       from ``unified_games``.  Target ≥ 95% (warn below 95%, fail below 80%).
+    3. **Non-null advanced metrics** – sport-specific columns must have no NULLs.
+    4. **FK integrity** – no ``team_game_stats`` rows without a matching
+       ``unified_games`` row.
+    5. **Season boundaries** – only games within the expected date window are
+       counted when *season* is supplied.
+
+    Args:
+        sport: Sport name (case-insensitive, e.g. ``"NBA"``, ``"epl"``).
+        season: Optional season string (format varies by sport).  When given,
+            only rows within that season's date window are validated.
+        db: Optional :class:`~plugins.db_manager.DBManager` instance.
+            Defaults to :func:`~plugins.db_manager.default_db`.
+
+    Returns:
+        :class:`DataValidationReport` with all check results populated.
+    """
+    from plugins.db_manager import DBManager
+
+    sport_upper = sport.upper()
+    report = DataValidationReport(sport=sport_upper)
+
+    if db is None:
+        try:
+            db = default_db()
+        except Exception:
+            db = DBManager()
+
+    # Build optional date-range filter
+    date_filter_sql = ""
+    date_params: Dict[str, Any] = {"sport": sport_upper}
+    if season:
+        try:
+            start_date, end_date = _season_date_range(sport_upper, season)
+            date_filter_sql = (
+                " AND ug.game_date >= :start_date AND ug.game_date <= :end_date"
+            )
+            date_params["start_date"] = start_date
+            date_params["end_date"] = end_date
+            report.stats["season"] = season
+            report.stats["season_start"] = start_date
+            report.stats["season_end"] = end_date
+        except ValueError as exc:
+            report.add_check(
+                "season_boundary",
+                passed=False,
+                message=str(exc),
+                severity="error",
+            )
+            return report
+
+    # ------------------------------------------------------------------
+    # 1. Row counts
+    # ------------------------------------------------------------------
+    try:
+        row_count_sql = (
+            "SELECT COUNT(*) FROM team_game_stats ts"
+            " JOIN unified_games ug ON ts.game_id = ug.game_id"
+            " WHERE ug.sport = :sport" + date_filter_sql
+        )
+        result = db.execute(row_count_sql, date_params)
+        total_rows = result.fetchone()[0]
+        report.stats["total_rows"] = total_rows
+        report.add_check(
+            "row_count",
+            passed=total_rows > 0,
+            message=f"{total_rows} rows in team_game_stats for {sport_upper}",
+            severity="warning" if total_rows == 0 else "info",
+        )
+    except Exception as exc:
+        report.add_check(
+            "row_count",
+            passed=False,
+            message=f"Query failed: {exc}",
+            severity="error",
+        )
+        return report
+
+    # ------------------------------------------------------------------
+    # 2. Coverage: distinct game_ids in stats vs unified_games
+    # ------------------------------------------------------------------
+    try:
+        coverage_sql = (
+            "SELECT"
+            "  COUNT(DISTINCT ts.game_id) AS stats_games,"
+            "  COUNT(DISTINCT ug.game_id) AS total_games"
+            " FROM unified_games ug"
+            " LEFT JOIN team_game_stats ts ON ts.game_id = ug.game_id"
+            " WHERE ug.sport = :sport" + date_filter_sql
+        )
+        result = db.execute(coverage_sql, date_params)
+        row = result.fetchone()
+        stats_games, total_games = row[0], row[1]
+        report.stats["stats_games"] = stats_games
+        report.stats["total_games"] = total_games
+
+        if total_games == 0:
+            coverage_pct = 0.0
+        else:
+            coverage_pct = stats_games / total_games
+        report.stats["coverage_pct"] = round(coverage_pct, 4)
+
+        if coverage_pct >= _STATS_COVERAGE_OK:
+            report.add_check(
+                "stats_coverage",
+                passed=True,
+                message=(
+                    f"Coverage {coverage_pct:.1%} ({stats_games}/{total_games} games)"
+                ),
+                severity="info",
+            )
+        elif coverage_pct >= _STATS_COVERAGE_WARN:
+            report.add_check(
+                "stats_coverage",
+                passed=False,
+                message=(
+                    f"Coverage {coverage_pct:.1%} is below 95% target "
+                    f"({stats_games}/{total_games} games)"
+                ),
+                severity="warning",
+            )
+        else:
+            report.add_check(
+                "stats_coverage",
+                passed=False,
+                message=(
+                    f"Coverage {coverage_pct:.1%} is below 80% minimum "
+                    f"({stats_games}/{total_games} games)"
+                ),
+                severity="error",
+            )
+    except Exception as exc:
+        report.add_check(
+            "stats_coverage",
+            passed=False,
+            message=f"Coverage query failed: {exc}",
+            severity="error",
+        )
+
+    # ------------------------------------------------------------------
+    # 3. Non-null advanced metrics
+    # ------------------------------------------------------------------
+    null_fields = _STATS_NON_NULL_FIELDS.get(sport_upper, [])
+    for field_name in null_fields:
+        try:
+            null_sql = (
+                "SELECT COUNT(*) FROM team_game_stats ts"
+                " JOIN unified_games ug ON ts.game_id = ug.game_id"
+                f" WHERE ug.sport = :sport AND ts.{field_name} IS NULL"
+                + date_filter_sql
+            )
+            result = db.execute(null_sql, date_params)
+            null_count = result.fetchone()[0]
+            report.add_check(
+                f"non_null_{field_name}",
+                passed=null_count == 0,
+                message=(
+                    f"{field_name}: {null_count} NULL rows"
+                    if null_count > 0
+                    else f"{field_name}: no NULLs"
+                ),
+                severity="warning" if null_count > 0 else "info",
+            )
+        except Exception as exc:
+            report.add_check(
+                f"non_null_{field_name}",
+                passed=False,
+                message=f"NULL check for {field_name} failed: {exc}",
+                severity="error",
+            )
+
+    # ------------------------------------------------------------------
+    # 4. FK integrity: team_game_stats rows without a unified_games match
+    # ------------------------------------------------------------------
+    try:
+        fk_sql = (
+            "SELECT COUNT(*) FROM team_game_stats ts"
+            " LEFT JOIN unified_games ug ON ts.game_id = ug.game_id"
+            " WHERE ug.game_id IS NULL"
+        )
+        result = db.execute(fk_sql, {})
+        orphan_count = result.fetchone()[0]
+        report.stats["orphan_rows"] = orphan_count
+        report.add_check(
+            "fk_integrity",
+            passed=orphan_count == 0,
+            message=(
+                f"{orphan_count} team_game_stats rows without matching unified_games row"
+            ),
+            severity="error" if orphan_count > 0 else "info",
+        )
+    except Exception as exc:
+        report.add_check(
+            "fk_integrity",
+            passed=False,
+            message=f"FK integrity query failed: {exc}",
+            severity="error",
+        )
+
+    return report
+
+
+# All sports validated by validate_all_sports_stats()
+_ALL_STATS_SPORTS: List[str] = [
+    "NBA",
+    "NHL",
+    "MLB",
+    "NFL",
+    "EPL",
+    "Ligue1",
+    "NCAAB",
+    "WNCAAB",
+    "Tennis",
+]
+
+
+def validate_all_sports_stats(
+    db: Optional[Any] = None,
+) -> Dict[str, DataValidationReport]:
+    """Run :func:`validate_team_game_stats` for every supported sport.
+
+    Args:
+        db: Optional :class:`~plugins.db_manager.DBManager` instance shared
+            across all sport queries.  Defaults to a new instance.
+
+    Returns:
+        Dict mapping sport name → :class:`DataValidationReport`.
+    """
+    from plugins.db_manager import DBManager
+
+    if db is None:
+        try:
+            db = default_db()
+        except Exception:
+            db = DBManager()
+
+    results: Dict[str, DataValidationReport] = {}
+    for sport in _ALL_STATS_SPORTS:
+        results[sport] = validate_team_game_stats(sport, season=None, db=db)
+    return results

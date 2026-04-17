@@ -1,0 +1,847 @@
+plan_id: 2026-04-17-recon-stats-backfill
+variant: a
+objective: >
+  Add (1) a daily Kalshi placed_bets reconciliation task with auto-correction + immutable audit logging,
+  and (2) a full historical + daily incremental ingestion pipeline for team-level box score and derived
+  advanced stats across 9 sports (plus tennis player-match stats), backed by new Postgres tables,
+  a one-shot resumable backfill script (2021-present), and comprehensive tests/docs/validation.
+
+plan_metrics:
+  total_tasks: 40
+  wave_1_task_count: 18
+  total_dependencies: 71
+  risk_score: 6
+
+tasks:
+  # -------------------------
+  # Wave 1 (max parallelism): schema/test scaffolds + module/DAG skeletons
+  # -------------------------
+  - id: schema-column-spec
+    title: Define stats + audit column contracts
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with: []
+    files:
+      - plugins/database_schema_manager.py
+      - docs/database_schema.md
+    description: |
+      Define the canonical column set and constraints for:
+        - team_game_stats (core, all sports; PK (game_id, team); FK to unified_games.game_id)
+        - Extension tables: nba_team_game_stats_ext, nhl_team_game_stats_ext, mlb_team_game_stats_ext,
+          nfl_team_game_stats_ext, soccer_team_game_stats_ext (EPL+Ligue1), cbb_team_game_stats_ext (NCAAB+WNCAAB)
+        - tennis_player_match_stats (player-level, PK (match_id, player))
+        - bet_reconciliation_audit (immutable append-only audit rows for any placed_bets corrections)
+
+      Include:
+        - required vs optional columns
+        - normalized units (e.g., possessions, minutes, seconds)
+        - index plan (query patterns: by sport/date/season; joins on game_id)
+        - reconciliation field coverage for placed_bets (status, fill price, fees, payout, settlement ts, etc.)
+
+      Output is implemented as code comments + doc updates to guide subsequent tasks.
+    acceptance:
+      - docs/database_schema.md contains a clear table-by-table column contract and index plan.
+      - plugins/database_schema_manager.py has TODO markers and placeholder table definitions matching the contract.
+
+  - id: test-stub-team-game-stats-schema
+    title: Add schema tests (team_game_stats + extensions)
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with: []
+    files:
+      - tests/test_team_game_stats_schema.py
+    description: |
+      Create a focused unit test module that validates the schema manager declares:
+        - team_game_stats with PK (game_id, team) and FK to unified_games
+        - all 6 extension tables with PK (game_id, team) and FK to team_game_stats
+        - tennis_player_match_stats and bet_reconciliation_audit
+
+      The test should use the project’s schema creation pathway (database_schema_manager + DBManager)
+      to create tables in a test database and then assert constraints/indexes exist.
+    acceptance:
+      - pytest -q tests/test_team_game_stats_schema.py passes once schema is implemented.
+      - Tests fail meaningfully if PK/FK constraints are missing.
+
+  - id: schema-scaffold-team-game-stats
+    title: Scaffold team_game_stats table in schema manager
+    wave: 1
+    agent: gem-implementer
+    dependencies: [schema-column-spec]
+    conflicts_with: [schema-scaffold-ext-tables, schema-scaffold-tennis-and-audit, schema-implement-migrations]
+    files:
+      - plugins/database_schema_manager.py
+    description: |
+      Add a new schema definition for team_game_stats in plugins/database_schema_manager.py.
+
+      Requirements:
+        - PK: (game_id, team)
+        - FK: game_id -> unified_games(game_id)
+        - Core columns: sport, season, game_date, team, opponent, is_home, points_for/against (or runs/goals),
+          plus shared boxscore totals that are broadly applicable.
+        - Add indexes supporting common filters: (sport, game_date), (sport, season), (team, game_date).
+
+      Keep this as a scaffold: exact column list is completed in wave 2.
+    acceptance:
+      - Schema manager includes a syntactically valid table definition for team_game_stats.
+
+  - id: schema-scaffold-ext-tables
+    title: Scaffold 6 per-sport extension tables in schema manager
+    wave: 1
+    agent: gem-implementer
+    dependencies: [schema-column-spec]
+    conflicts_with: [schema-scaffold-team-game-stats, schema-scaffold-tennis-and-audit, schema-implement-migrations]
+    files:
+      - plugins/database_schema_manager.py
+    description: |
+      Add placeholder schema definitions for:
+        - nba_team_game_stats_ext
+        - nhl_team_game_stats_ext
+        - mlb_team_game_stats_ext
+        - nfl_team_game_stats_ext
+        - soccer_team_game_stats_ext (EPL + Ligue1)
+        - cbb_team_game_stats_ext (NCAAB + WNCAAB)
+
+      Each extension table:
+        - PK: (game_id, team)
+        - FK: (game_id, team) -> team_game_stats(game_id, team)
+        - sport-specific fields should be nullable initially; filled in wave 2.
+    acceptance:
+      - Schema manager contains all 6 extension definitions with correct PK/FK shape.
+
+  - id: schema-scaffold-tennis-and-audit
+    title: Scaffold tennis_player_match_stats + bet_reconciliation_audit tables
+    wave: 1
+    agent: gem-implementer
+    dependencies: [schema-column-spec]
+    conflicts_with: [schema-scaffold-team-game-stats, schema-scaffold-ext-tables, schema-implement-migrations]
+    files:
+      - plugins/database_schema_manager.py
+    description: |
+      Add placeholder schema definitions for:
+        - tennis_player_match_stats: player-level match rows (ATP/WTA), PK (match_id, player)
+        - bet_reconciliation_audit: append-only audit log capturing each corrected field in placed_bets
+
+      bet_reconciliation_audit should include at minimum:
+        - audit_id (PK), bet_id, reconciled_at, source (kalshi), field_name,
+          old_value, new_value, discrepancy_type, run_id, notes.
+    acceptance:
+      - Schema manager contains syntactically valid definitions for both tables.
+
+  - id: stats-package-scaffold
+    title: Create plugins/stats package + shared interfaces
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with: [stats-advanced-derivations]
+    files:
+      - plugins/stats/__init__.py
+      - plugins/stats/types.py
+      - plugins/stats/http.py
+    description: |
+      Create a new plugins/stats package.
+
+      Add:
+        - types.py: typed dataclasses / TypedDict for canonical boxscore payloads and upsert records
+        - http.py: a small rate-limited HTTP helper (requests-based) supporting per-host sleep and retry
+
+      Keep wave 1 implementation minimal; real logic comes later.
+    acceptance:
+      - Importing plugins.stats succeeds in the Airflow container environment.
+
+  - id: stats-advanced-derivations-scaffold
+    title: Scaffold shared advanced stats derivations module
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-advanced-derivations]
+    files:
+      - plugins/stats/advanced_stats.py
+    description: |
+      Create plugins/stats/advanced_stats.py with function stubs to compute derived metrics from basic boxscore:
+        - basketball: eFG%, TS%, ORtg/DRtg, pace (where inputs exist)
+        - hockey: shooting%, save%, PDO-style composites (if inputs exist)
+        - baseball: OBP/SLG/OPS (if inputs exist)
+        - football: yards/play, success-rate proxies (as feasible from pbp aggregation)
+        - soccer: xG may be out-of-scope; implement basic (shots, SOT, possession proxies) + derived rates
+
+      Ensure all functions accept a typed input record and return a dict of derived fields.
+    acceptance:
+      - Module imports with no side effects and has docstrings + type hints.
+
+  - id: stats-fetcher-nba-scaffold
+    title: Scaffold NBA box score fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-nba-impl]
+    files:
+      - plugins/stats/nba_box_score.py
+    description: |
+      Create plugins/stats/nba_box_score.py with:
+        - a fetch_box_score(game_id) stub (nba_api)
+        - a normalize_to_team_rows(payload) stub producing home/away rows
+        - explicit rate-limit constants (3 req/s)
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-nhl-scaffold
+    title: Scaffold NHL box score fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-nhl-impl]
+    files:
+      - plugins/stats/nhl_box_score.py
+    description: |
+      Create plugins/stats/nhl_box_score.py with stubs using api-web.nhle.com/v1/gamecenter/{id}/boxscore.
+      Include conservative rate limiting (~1 request / 3 seconds) in the HTTP helper integration.
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-mlb-scaffold
+    title: Scaffold MLB box score fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-mlb-impl]
+    files:
+      - plugins/stats/mlb_box_score.py
+    description: |
+      Create plugins/stats/mlb_box_score.py with stubs using MLB Stats API:
+        - /api/v1.1/game/{pk}/feed/live (or /boxscore)
+        - normalize to team rows
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-nfl-scaffold
+    title: Scaffold NFL team stats fetcher (pbp aggregation)
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-nfl-impl]
+    files:
+      - plugins/stats/nfl_box_score.py
+    description: |
+      Create plugins/stats/nfl_box_score.py with stubs using nfl_data_py:
+        - functions to load schedules + pbp for date range
+        - aggregation helper that produces team-game rows
+
+      Ensure it can run offline from cached nfl_data_py datasets when possible.
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-soccer-scaffold
+    title: Scaffold soccer (EPL/Ligue1) match stats fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-soccer-impl]
+    files:
+      - plugins/stats/soccer_box_score.py
+    description: |
+      Create plugins/stats/soccer_box_score.py with stubs supporting:
+        - football-data.co.uk CSV ingestion for basics
+        - optional FBRef scrape path for advanced (rate-limited ~1 req/3s)
+
+      Keep FBRef scraping behind a feature flag / function boundary for testability.
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-cbb-scaffold
+    title: Scaffold college basketball (NCAAB/WNCAAB) fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-cbb-impl]
+    files:
+      - plugins/stats/cbb_box_score.py
+    description: |
+      Create plugins/stats/cbb_box_score.py with stubs for:
+        - Massey schedule IDs mapping (if needed)
+        - ESPN API box score fetch + normalize
+
+      This module should support both NCAAB and WNCAAB via a sport parameter.
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: stats-fetcher-tennis-scaffold
+    title: Scaffold tennis player-match stats fetcher
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [stats-fetcher-tennis-impl]
+    files:
+      - plugins/stats/tennis_match_stats.py
+    description: |
+      Create plugins/stats/tennis_match_stats.py with stubs to load Jeff Sackmann tennis_atp / tennis_wta CSVs
+      and normalize into player-level match rows compatible with tennis_player_match_stats.
+    acceptance:
+      - Module imports and exposes expected functions/classes.
+
+  - id: bet-reconciliation-scaffold
+    title: Scaffold bet reconciliation module + interfaces
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with: [bet-reconciliation-impl, bet-reconciliation-dag-integration]
+    files:
+      - plugins/bet_reconciliation.py
+    description: |
+      Create plugins/bet_reconciliation.py with:
+        - reconcile_placed_bets(db: DBManager, start_ts, end_ts, dry_run=False) stub
+        - Kalshi API client wrapper functions: fetch_fills_paginated(), fetch_positions(), fetch_balance(), fetch_market(ticker)
+        - discrepancy model (dataclass) and audit-row builder stub
+
+      Include PRD error codes (RECON_001/002) in raised exceptions/logs.
+    acceptance:
+      - Module imports and core functions are present with type hints + Google-style docstrings.
+
+  - id: test-stub-bet-reconciliation
+    title: Add reconciliation unit test stubs
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with: []
+    files:
+      - tests/test_bet_reconciliation.py
+    description: |
+      Create tests for reconciliation behavior using mocked Kalshi API responses:
+        - No discrepancies => no updates, no audit rows
+        - Discrepancy => placed_bets updated and corresponding bet_reconciliation_audit rows inserted
+        - Kalshi bet missing locally => emits RECON_002 handling path
+        - API unreachable => RECON_001 error path
+
+      Keep mocks local (unittest.mock) and avoid adding new dependencies.
+    acceptance:
+      - Tests clearly define expected behavior and will pass after implementation.
+
+  - id: backfill-script-scaffold
+    title: Scaffold stats backfill CLI script
+    wave: 1
+    agent: gem-implementer
+    dependencies: [stats-package-scaffold]
+    conflicts_with: [backfill-script-impl]
+    files:
+      - scripts/backfill_team_game_stats.py
+    description: |
+      Create scripts/backfill_team_game_stats.py with argparse flags:
+        --sport, --start, --end, --dry-run
+
+      Add placeholders for:
+        - resumability (skip already-present rows; optional progress logging)
+        - rate limiting per sport source
+        - idempotent DB upserts via DBManager
+
+      Ensure it is safe to run repeatedly.
+    acceptance:
+      - Running "python scripts/backfill_team_game_stats.py --help" shows required args and exits 0.
+
+  - id: historical-stats-dag-scaffold
+    title: Scaffold daily historical_stats_daily DAG
+    wave: 1
+    agent: gem-devops
+    dependencies: []
+    conflicts_with: [historical-stats-dag-impl]
+    files:
+      - dags/historical_stats_daily.py
+    description: |
+      Create dags/historical_stats_daily.py that mirrors the SPORTS_CONFIG pattern:
+        - one task group per sport for prior-day ingestion
+        - catchup=False
+        - safe retries for STATS_001/002 patterns
+
+      In wave 1, include placeholders and clear task IDs, but minimal logic.
+    acceptance:
+      - Airflow can import the DAG module without raising exceptions.
+
+  # -------------------------
+  # Wave 2: implement schema + reconciliation + fetchers + derivations (depends on wave 1 scaffolds)
+  # -------------------------
+  - id: schema-implement-migrations
+    title: Implement full stats + audit schema (constraints, indexes)
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - schema-scaffold-team-game-stats
+      - schema-scaffold-ext-tables
+      - schema-scaffold-tennis-and-audit
+      - test-stub-team-game-stats-schema
+    conflicts_with:
+      - schema-scaffold-team-game-stats
+      - schema-scaffold-ext-tables
+      - schema-scaffold-tennis-and-audit
+    files:
+      - plugins/database_schema_manager.py
+      - docs/database_schema.md
+    description: |
+      Convert the scaffolds into final DDL:
+        - finalize column lists per the contract
+        - enforce PK/FK constraints
+        - add NOT NULL where appropriate
+        - add indexes for join + filter patterns
+
+      Ensure schema creation is idempotent and compatible with existing Postgres state.
+    acceptance:
+      - pytest -q tests/test_team_game_stats_schema.py passes.
+      - psql introspection shows PK/FK/indexes as designed.
+
+  - id: bet-audit-db-helpers
+    title: Add DB helper methods for audit inserts and bet updates
+    wave: 2
+    agent: gem-implementer
+    dependencies: [schema-implement-migrations]
+    conflicts_with: []
+    files:
+      - plugins/db_manager.py
+      - plugins/bet_tracker.py
+    description: |
+      Extend DBManager helpers (or add a small helper in bet_reconciliation) to support:
+        - upserting placed_bets corrected fields (by bet_id)
+        - inserting bet_reconciliation_audit rows in a transaction with the correction
+
+      Ensure updates are atomic per bet and avoid partial audit/correction.
+    acceptance:
+      - Unit tests can update a placed_bets row and observe corresponding audit rows inserted.
+
+  - id: bet-reconciliation-impl
+    title: Implement reconciliation diff + auto-correction + audit logging
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - bet-reconciliation-scaffold
+      - bet-audit-db-helpers
+      - test-stub-bet-reconciliation
+    conflicts_with: [bet-reconciliation-scaffold]
+    files:
+      - plugins/bet_reconciliation.py
+      - tests/test_bet_reconciliation.py
+    description: |
+      Implement reconcile_placed_bets():
+        - Fetch Kalshi portfolio fills (paginated) for the target window
+        - Map Kalshi records to placed_bets columns (status, fill price, fees, payout, settled_at, etc.)
+        - Diff each comparable field; for mismatches, perform UPDATE placed_bets + INSERT audit rows
+        - Handle "exists in Kalshi but missing locally" as RECON_002: insert an audit row with notes
+          and optionally insert a placed_bets row if safe (decide explicitly; default: audit-only).
+        - Handle API failures as RECON_001 with retries and clear log output.
+
+      Ensure the reconciliation is idempotent (running twice produces no new audit rows when no changes).
+    acceptance:
+      - pytest -q tests/test_bet_reconciliation.py passes.
+      - Re-running reconciliation on an unchanged mocked dataset produces 0 additional audit inserts.
+
+  - id: bet-reconciliation-dag-integration
+    title: Add reconcile_placed_bets task to multi_sport_betting_workflow
+    wave: 2
+    agent: gem-devops
+    dependencies: [bet-reconciliation-impl]
+    conflicts_with: []
+    files:
+      - dags/multi_sport_betting_workflow.py
+    description: |
+      Integrate a new daily task "reconcile_placed_bets" into dags/multi_sport_betting_workflow.py:
+        - schedule: daily within existing DAG run
+        - use DBManager for DB operations
+        - window selection: reconcile previous day by default, plus a configurable lookback
+        - retries/backoff for RECON_001
+        - ensure it runs after any tasks that write placed_bets (e.g., bet sync), if present
+
+      Do not create a separate reconciliation DAG (PRD decision).
+    acceptance:
+      - Airflow parses the DAG and displays the new task.
+      - Task logs show reconciliation window bounds and counts (bets checked, corrected, audited).
+
+  - id: bet-reconciliation-historical-backfill
+    title: Implement reconciliation backfill (2026-01-22 to now)
+    wave: 2
+    agent: gem-implementer
+    dependencies: [bet-reconciliation-impl]
+    conflicts_with: []
+    files:
+      - plugins/bet_reconciliation.py
+      - scripts/backfill_bet_reconciliation.py
+    description: |
+      Add a backfill pathway for reconciliation:
+        - Create scripts/backfill_bet_reconciliation.py that runs reconcile_placed_bets across time windows
+          from 2026-01-22 to current date.
+        - Use paging windows (e.g., 7 days) with resumability (skip windows already fully audited).
+        - Keep updates idempotent and safe.
+
+      This satisfies PRD requirement: "Backfill reconciliation from first Kalshi bet to current".
+    acceptance:
+      - Script supports --start/--end/--dry-run and completes without duplicating audit rows.
+
+  - id: stats-advanced-derivations
+    title: Implement advanced stats derivation functions
+    wave: 2
+    agent: gem-implementer
+    dependencies: [stats-advanced-derivations-scaffold]
+    conflicts_with: [stats-advanced-derivations-scaffold]
+    files:
+      - plugins/stats/advanced_stats.py
+    description: |
+      Implement derived stat computations with robust null-handling:
+        - only compute when required inputs are present
+        - avoid division-by-zero and emit None when not computable
+        - keep formulas consistent across sports
+
+      Add a small internal test table of sample inputs/outputs (unit tests can validate).
+    acceptance:
+      - Derived metrics (eFG%, TS%, pace, ORtg/DRtg where applicable) produce expected values on known inputs.
+
+  - id: stats-fetcher-nba-impl
+    title: Implement NBA fetcher using nba_api
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-nba-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-nba-scaffold]
+    files:
+      - plugins/stats/nba_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement NBA fetch:
+        - Use nba_api BoxScoreTraditionalV2 / AdvancedV2 as needed
+        - Normalize to two team rows per game (home/away)
+        - Map into team_game_stats core + nba_team_game_stats_ext
+        - Enforce nba_api rate limits (3 req/s) via shared HTTP/rate limiter
+
+      Add/extend tests in tests/test_stats_fetchers.py using mocked nba_api responses.
+    acceptance:
+      - Fetcher returns deterministic normalized rows for a mocked payload.
+
+  - id: stats-fetcher-nhl-impl
+    title: Implement NHL fetcher using NHL Web API
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-nhl-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-nhl-scaffold]
+    files:
+      - plugins/stats/nhl_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement NHL fetch:
+        - GET api-web.nhle.com/v1/gamecenter/{id}/boxscore
+        - Normalize to home/away team rows
+        - Map to team_game_stats core + nhl_team_game_stats_ext
+        - Rate limit conservatively (~1 request / 3 seconds)
+
+      Include handling for missing unified_games row as STATS_002.
+    acceptance:
+      - Fetcher normalizes mocked payload and produces required core fields.
+
+  - id: stats-fetcher-mlb-impl
+    title: Implement MLB fetcher using MLB Stats API
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-mlb-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-mlb-scaffold]
+    files:
+      - plugins/stats/mlb_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement MLB fetch:
+        - Use Stats API feed/live or boxscore endpoint
+        - Normalize to home/away team rows
+        - Map to team_game_stats core + mlb_team_game_stats_ext
+
+      Add tests with mocked HTTP JSON.
+    acceptance:
+      - Fetcher outputs two team rows with consistent run totals for/against.
+
+  - id: stats-fetcher-nfl-impl
+    title: Implement NFL fetcher using nfl_data_py + aggregation
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-nfl-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-nfl-scaffold]
+    files:
+      - plugins/stats/nfl_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement NFL fetch:
+        - Use nfl_data_py to load schedule + pbp
+        - Aggregate pbp to team-game totals
+        - Map to team_game_stats core + nfl_team_game_stats_ext
+
+      Ensure deterministic aggregation in tests via small fixture frames.
+    acceptance:
+      - Aggregation produces consistent outputs for a small synthetic pbp dataset.
+
+  - id: stats-fetcher-soccer-impl
+    title: Implement soccer fetcher (EPL/Ligue1)
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-soccer-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-soccer-scaffold]
+    files:
+      - plugins/stats/soccer_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement soccer fetch:
+        - Basic ingestion via football-data.co.uk CSV (parse + normalize)
+        - Optional FBRef scrape adapter for advanced columns (behind function boundary + rate limiter)
+        - Map to team_game_stats core + soccer_team_game_stats_ext
+
+      Ensure EPL and Ligue1 are supported via league parameter.
+    acceptance:
+      - CSV ingestion path produces two team rows per match with correct home/away assignment.
+
+  - id: stats-fetcher-cbb-impl
+    title: Implement college basketball fetcher (NCAAB/WNCAAB)
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-cbb-scaffold
+      - schema-implement-migrations
+      - stats-advanced-derivations
+    conflicts_with: [stats-fetcher-cbb-scaffold]
+    files:
+      - plugins/stats/cbb_box_score.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement NCAAB/WNCAAB fetch:
+        - ESPN API boxscore fetch and normalization
+        - Map to team_game_stats core + cbb_team_game_stats_ext
+
+      Add mock-based unit tests.
+    acceptance:
+      - Fetcher supports sport='ncaab' and sport='wncaab' with the same normalization contract.
+
+  - id: stats-fetcher-tennis-impl
+    title: Implement tennis match stats loader
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-tennis-scaffold
+      - schema-implement-migrations
+    conflicts_with: [stats-fetcher-tennis-scaffold]
+    files:
+      - plugins/stats/tennis_match_stats.py
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement tennis:
+        - Load and normalize Jeff Sackmann tennis_atp / tennis_wta CSVs
+        - Produce two player rows per match for tennis_player_match_stats
+        - Include tour discriminator (ATP/WTA) and stable match_id strategy
+
+      Add unit tests for normalization and match_id consistency.
+    acceptance:
+      - Same match yields stable match_id across runs.
+      - Player rows include winner/loser indicators and key stats when present.
+
+  - id: test-stats-fetchers
+    title: Add consolidated stats fetcher contract tests
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - stats-fetcher-nba-impl
+      - stats-fetcher-nhl-impl
+      - stats-fetcher-mlb-impl
+      - stats-fetcher-nfl-impl
+      - stats-fetcher-soccer-impl
+      - stats-fetcher-cbb-impl
+      - stats-fetcher-tennis-impl
+    conflicts_with: []
+    files:
+      - tests/test_stats_fetchers.py
+    description: |
+      Implement tests/test_stats_fetchers.py to validate each fetcher:
+        - produces expected row shape
+        - handles missing/partial inputs gracefully
+        - enforces rate limiter usage via mocking
+
+      Keep tests fast by using mocked HTTP and small data fixtures.
+    acceptance:
+      - pytest -q tests/test_stats_fetchers.py passes.
+
+  # -------------------------
+  # Wave 3: backfill + daily DAG implementation + validation
+  # -------------------------
+  - id: backfill-script-impl
+    title: Implement resumable backfill for team_game_stats (2021-present)
+    wave: 3
+    agent: gem-implementer
+    dependencies:
+      - backfill-script-scaffold
+      - schema-implement-migrations
+      - test-stats-fetchers
+    conflicts_with: [backfill-script-scaffold]
+    files:
+      - scripts/backfill_team_game_stats.py
+    description: |
+      Implement the one-shot backfill:
+        - Query unified_games for the sport/date window
+        - For each game, fetch box score (sport fetcher), derive advanced stats, upsert into:
+            team_game_stats + sport extension OR tennis_player_match_stats
+        - Resumability: skip rows already present (by PK) and continue
+        - Rate limiting per sport/source, with exponential backoff on 429/5xx (STATS_001)
+        - --dry-run prints intended inserts/updates without writing
+
+      Output should summarize counts (games processed, inserted, updated, skipped, failed).
+    acceptance:
+      - Script can run a 1-day window end-to-end in dry-run mode without errors.
+      - Re-running the same window performs mostly skips (idempotent).
+
+  - id: historical-stats-dag-impl
+    title: Implement historical_stats_daily DAG end-to-end
+    wave: 3
+    agent: gem-devops
+    dependencies:
+      - historical-stats-dag-scaffold
+      - schema-implement-migrations
+      - test-stats-fetchers
+      - stats-advanced-derivations
+    conflicts_with: [historical-stats-dag-scaffold]
+    files:
+      - dags/historical_stats_daily.py
+    description: |
+      Implement the daily DAG that ingests prior-day stats for each sport:
+        - Determine "yesterday" in UTC and query unified_games per sport
+        - Fetch + normalize stats via plugins/stats/*
+        - Derive advanced stats
+        - Upsert into the appropriate tables using DBManager
+
+      Operational details:
+        - Use Airflow pools to protect rate-limited sources (STATS_001)
+        - Retries with backoff on transient API failures
+        - Task-level logging includes processed/inserted/updated counts
+    acceptance:
+      - Airflow shows the DAG and tasks per sport.
+      - A DAG run against a mocked/small dataset upserts expected rows.
+
+  - id: data-validation-stats
+    title: Extend data validation for stats completeness and null checks
+    wave: 3
+    agent: gem-implementer
+    dependencies: [schema-implement-migrations]
+    conflicts_with: []
+    files:
+      - plugins/data_validation.py
+    description: |
+      Extend plugins/data_validation.py with a new validation routine that checks:
+        - team_game_stats row counts by sport/season/date range
+        - percent coverage vs unified_games (>=95% target per PRD)
+        - non-null coverage for key computed advanced metrics where computable
+        - FK integrity (no stats rows without unified_games)
+
+      Ensure it runs quickly by sampling or limiting windows when invoked in CI.
+    acceptance:
+      - Validation reports clearly identify missing coverage by sport/season.
+
+  - id: dag-multi-sport-dependency-order
+    title: Ensure reconciliation order relative to bet sync
+    wave: 3
+    agent: gem-devops
+    dependencies: [bet-reconciliation-dag-integration]
+    conflicts_with: []
+    files:
+      - dags/bet_sync_hourly.py
+      - dags/multi_sport_betting_workflow.py
+    description: |
+      Confirm the daily reconciliation task does not race with the hourly bet sync:
+        - If multi_sport_betting_workflow also writes placed_bets, set explicit dependencies
+        - If only bet_sync_hourly writes, ensure reconciliation is scheduled at a safe time window
+          or uses a reconciliation window that excludes "in-flight" hour.
+
+      Update DAG ordering/configuration to avoid flapping discrepancies.
+    acceptance:
+      - Documentation/logging indicates the chosen reconciliation window strategy.
+
+  # -------------------------
+  # Wave 4: full test pass + docs + changelog + contributor guidance
+  # -------------------------
+  - id: run-full-test-suite
+    title: Run full pytest suite and address regressions
+    wave: 4
+    agent: gem-implementer
+    dependencies:
+      - schema-implement-migrations
+      - bet-reconciliation-impl
+      - backfill-script-impl
+      - historical-stats-dag-impl
+      - data-validation-stats
+    conflicts_with: []
+    files:
+      - tests/
+    description: |
+      Run the existing test runner (pytest) across the repository.
+      Fix any regressions introduced by new modules (imports, DAG parsing, schema creation).
+
+      Maintain >=85% coverage on new code paths via the new tests.
+    acceptance:
+      - pytest passes for the entire suite.
+
+  - id: docs-update-database-schema
+    title: Update docs/database_schema.md for new tables
+    wave: 4
+    agent: gem-documentation-writer
+    dependencies: [schema-implement-migrations]
+    conflicts_with: []
+    files:
+      - docs/database_schema.md
+    description: |
+      Update docs/database_schema.md with:
+        - team_game_stats and all extension tables
+        - tennis_player_match_stats
+        - bet_reconciliation_audit
+
+      Include column descriptions, keys, indexes, and which DAG/script populates each table.
+    acceptance:
+      - Documentation accurately reflects the implemented schema and data producers.
+
+  - id: docs-update-agents
+    title: Create/Update AGENTS.md with runbooks for backfill + reconciliation
+    wave: 4
+    agent: gem-documentation-writer
+    dependencies:
+      - backfill-script-impl
+      - bet-reconciliation-historical-backfill
+      - historical-stats-dag-impl
+    conflicts_with: []
+    files:
+      - AGENTS.md
+    description: |
+      Create AGENTS.md (missing in repo) documenting operational runbooks:
+        - Running scripts/backfill_team_game_stats.py safely (dry-run, rate-limit, resuming)
+        - Running scripts/backfill_bet_reconciliation.py
+        - Verifying daily DAG outputs
+        - Common failure modes and how to diagnose (STATS_001/002, RECON_001/002)
+
+      Keep it concise and actionable.
+    acceptance:
+      - AGENTS.md exists and includes exact commands to run backfills + validations.
+
+  - id: changelog-entry
+    title: Add CHANGELOG entries for reconciliation + stats ingestion
+    wave: 4
+    agent: gem-documentation-writer
+    dependencies:
+      - bet-reconciliation-dag-integration
+      - historical-stats-dag-impl
+      - schema-implement-migrations
+    conflicts_with: []
+    files:
+      - CHANGELOG.md
+    description: |
+      Add a dated CHANGELOG entry describing:
+        - new bet reconciliation task and audit table
+        - new team game stats schema + backfill script + daily DAG
+        - any notable operational parameters (rate limits, pools)
+    acceptance:
+      - CHANGELOG.md contains a clear entry under the correct date/version section.

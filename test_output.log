@@ -1,0 +1,11 @@
+Traceback (most recent call last):
+  File "/mnt/data2/nhlstats/test_runner.py", line 12, in <module>
+    sys.exit(main())
+             ^^^^^^
+  File "/mnt/data2/nhlstats/scripts/backtest_from_results.py", line 3, in main
+    parser = argparse.ArgumentParser(description="MLB Backtesting from Game Results")
+             ^^^^^^^^
+NameError: name 'argparse' is not defined. Did you forget to import 'argparse'
+Imported main successfully
+DEBUG: Starting backtest script
+Error: name 'argparse' is not defined

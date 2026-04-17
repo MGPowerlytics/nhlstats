@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 from plugins.db_manager import DBManager, default_db
 from plugins.sql_params_mixin import SqlParamsMixin
@@ -109,45 +110,70 @@ class StatusData:
     profit: Optional[float]
 
 
+def _parse_int_like(value: object) -> int:
+    """Parse integer-like values from Kalshi API payloads."""
+    if value in (None, ""):
+        return 0
+    try:
+        return int(round(float(str(value).strip())))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_price_cents(fill: Dict, side: str) -> int:
+    """Extract price in cents from legacy or current Kalshi fill payloads."""
+    legacy_key = "yes_price" if side == "yes" else "no_price"
+    legacy_value = fill.get(legacy_key)
+    if legacy_value not in (None, ""):
+        return _parse_int_like(legacy_value)
+
+    dollars_key = "yes_price_dollars" if side == "yes" else "no_price_dollars"
+    dollars_value = fill.get(dollars_key)
+    if dollars_value in (None, ""):
+        return 0
+
+    try:
+        return int(round(float(str(dollars_value).strip()) * 100))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _parse_fee_dollars(value: object) -> float:
+    """Extract fee dollars from legacy cent values or current dollar strings."""
+    if value in (None, ""):
+        return 0.0
+
+    text = str(value).strip()
+    try:
+        amount = float(text)
+    except (TypeError, ValueError):
+        return 0.0
+
+    if "." in text:
+        return amount
+
+    return amount / 100
+
+
 def _extract_basic_fill_data(fill: Dict) -> FillData:
     """Extract basic fill data from Kalshi API response.
 
     Args:
-        fill: Fill data from Kalshi API. The Kalshi v2 fills API
-            (``/trade-api/v2/portfolio/fills``) returns a single ``price``
-            field per fill rather than separate ``yes_price``/``no_price``
-            fields (those exist on *orders*, not fills). Legacy payloads that
-            do carry ``yes_price``/``no_price`` are handled via the fallback.
+        fill: Fill data from Kalshi API
 
     Returns:
         FillData object with extracted data
-
-    Note:
-        ROOT CAUSE FIX (price_cents=0 bug): The old code called
-        ``fill.get("yes_price", 0)`` which always returned 0 because
-        ``yes_price`` is absent from v2 fill payloads, causing every
-        ``price_cents`` in ``placed_bets`` to be stored as 0.
-        Fix: prefer ``yes_price``/``no_price`` for backward compatibility,
-        but fall back to the canonical ``price`` field that v2 fills return.
     """
     ticker = fill.get("ticker", "")
-    # Prefer fill_id (Kalshi v2 API) with fallback to legacy trade_id.
-    trade_id = fill.get("fill_id", fill.get("trade_id", ""))
+    trade_id = fill.get("trade_id", "")
     bet_id = f"{ticker}_{trade_id}"
     sport = _detect_sport_from_ticker(ticker)
 
     side = fill.get("side", "")
-    count = fill.get("count", 0)
-    # ROOT CAUSE FIX: Kalshi v2 fills API returns a single ``price`` field.
-    # ``yes_price``/``no_price`` are absent from fill payloads (they appear on
-    # orders only).  Prefer the side-specific keys for backward compatibility,
-    # then fall back to the generic ``price`` that v2 always supplies.
-    if side == "yes":
-        price = fill.get("yes_price", fill.get("price", 0))
-    else:
-        price = fill.get("no_price", fill.get("price", 0))
+    count = _parse_int_like(fill.get("count", fill.get("count_fp", 0)))
+    price = _parse_price_cents(fill, side)
     cost = count * price / 100
-    fees = float(fill.get("fee_cost", 0)) / 100
+    fees = _parse_fee_dollars(fill.get("fee_cost", 0))
 
     created_time = fill.get("created_time", "")
     placed_time_utc = _parse_iso_utc(created_time)
@@ -329,9 +355,29 @@ def load_fills_from_kalshi(client: KalshiBetting, days_back: int = 30) -> List[D
         Exception: If the API call fails for any reason (network, authentication, etc.)
     """
     try:
-        response = client._get("/trade-api/v2/portfolio/fills?limit=500")
-        fills = response.get("fills", [])
-        print(f"✓ Loaded {len(fills)} fills from Kalshi")
+        fills: List[Dict] = []
+        cursor: Optional[str] = None
+        seen_cursors = set()
+        page_count = 0
+
+        while True:
+            path = "/trade-api/v2/portfolio/fills?limit=500"
+            if cursor:
+                if cursor in seen_cursors:
+                    raise RuntimeError("Kalshi fills pagination returned a repeated cursor")
+                seen_cursors.add(cursor)
+                path = f"{path}&cursor={quote(cursor, safe='')}"
+
+            response = client._get(path)
+            page_fills = response.get("fills", [])
+            fills.extend(page_fills)
+            page_count += 1
+
+            cursor = response.get("cursor")
+            if not cursor or not page_fills:
+                break
+
+        print(f"✓ Loaded {len(fills)} fills from Kalshi across {page_count} page(s)")
         return fills
     except Exception as e:
         print(f"❌ Error loading fills: {e}")
@@ -636,11 +682,14 @@ UPSERT_BET_QUERY = """
         :bet_line_prob, :closing_line_prob, :clv
     )
     ON CONFLICT (bet_id) DO UPDATE SET
+        contracts = EXCLUDED.contracts,
+        price_cents = EXCLUDED.price_cents,
+        cost_dollars = EXCLUDED.cost_dollars,
         status = EXCLUDED.status,
         settled_date = EXCLUDED.settled_date,
         payout_dollars = EXCLUDED.payout_dollars,
         profit_dollars = EXCLUDED.profit_dollars,
-        fees_dollars = COALESCE(placed_bets.fees_dollars, EXCLUDED.fees_dollars),
+        fees_dollars = EXCLUDED.fees_dollars,
         placed_time_utc = COALESCE(placed_bets.placed_time_utc, EXCLUDED.placed_time_utc),
         market_title = COALESCE(placed_bets.market_title, EXCLUDED.market_title),
         market_close_time_utc = COALESCE(placed_bets.market_close_time_utc, EXCLUDED.market_close_time_utc),

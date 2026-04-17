@@ -1,0 +1,549 @@
+plan_id: 2026-04-17-recon-stats-backfill
+variant: b
+variant_description: >
+  Minimal-dependency, safety-first variant. Coarser tasks, TDD skeletons written
+  before implementation, schema consolidated into a single migration task.
+  Favors reviewability: fewer hand-off points, each wave is independently
+  verifiable before the next begins.
+created: "2026-04-17"
+prd_ref: docs/prd.yaml
+status: proposed
+
+deliverables:
+  - plugins/reconciliation/bet_reconciler.py
+  - tests/test_bet_reconciler.py
+  - plugins/stats/__init__.py
+  - plugins/stats/nba_box_score.py
+  - plugins/stats/nhl_box_score.py
+  - plugins/stats/mlb_box_score.py
+  - plugins/stats/nfl_box_score.py
+  - plugins/stats/epl_box_score.py
+  - plugins/stats/ligue1_box_score.py
+  - plugins/stats/ncaab_box_score.py
+  - plugins/stats/wncaab_box_score.py
+  - plugins/stats/tennis_match_stats.py
+  - tests/test_stats_nba.py
+  - tests/test_stats_nhl.py
+  - tests/test_stats_mlb.py
+  - tests/test_stats_nfl.py
+  - tests/test_stats_soccer.py       # covers EPL + Ligue1
+  - tests/test_stats_ncaab.py        # covers NCAAB + WNCAAB
+  - tests/test_stats_tennis.py
+  - scripts/backfill_team_game_stats.py
+  - dags/historical_stats_daily.py
+  - scripts/validate_recon_stats.py
+
+waves:
+  - wave: 1
+    name: "Foundation – PRD internalization, TDD skeletons, single schema migration"
+    goal: >
+      Establish shared understanding of the PRD, write failing test skeletons for
+      every new module, and apply one consolidated DB migration so downstream tasks
+      have stable tables to target.
+    tasks:
+      - id: W1-T1
+        name: prd_review_and_tdd_skeletons
+        description: >
+          Read prd.yaml in full. Confirm acceptance criteria are understood.
+          Create all test skeleton files (pytest, all tests marked xfail or
+          NotImplemented) for reconciliation and all 9 sport stats fetchers.
+          No implementation code yet – only class/function stubs with docstrings
+          and assertion placeholders. Serves as the contract every later task
+          must satisfy.
+        inputs:
+          - docs/prd.yaml
+          - docs/database_schema.md
+          - plugins/kalshi_betting.py
+          - plugins/bet_tracker.py
+        outputs:
+          - tests/test_bet_reconciler.py          # stubs only
+          - tests/test_stats_nba.py               # stubs only
+          - tests/test_stats_nhl.py               # stubs only
+          - tests/test_stats_mlb.py               # stubs only
+          - tests/test_stats_nfl.py               # stubs only
+          - tests/test_stats_soccer.py            # stubs only
+          - tests/test_stats_ncaab.py             # stubs only
+          - tests/test_stats_tennis.py            # stubs only
+        acceptance:
+          - pytest collects all stub tests with xfail/skip markers – zero errors
+          - File header in each test stub references the PRD acceptance criterion it covers
+        estimated_hours: 3
+        dependencies: []
+        risk: low
+
+      - id: W1-T2
+        name: schema_migration_all_tables
+        description: >
+          Write and apply a single Alembic (or raw psql) migration that creates
+          all new tables in one transaction:
+            1. bet_reconciliation_audit – immutable audit log
+               (audit_id SERIAL PK, bet_id FK→placed_bets, field_name, old_value,
+                new_value, reconciled_at TIMESTAMPTZ, source TEXT)
+            2. team_game_stats – unified core table
+               (game_id VARCHAR, team VARCHAR, sport VARCHAR, game_date DATE,
+                PK(game_id,team), FK game_id→unified_games,
+                plus all common columns: pts, opp_pts, fg_pct, fg3_pct,
+                ft_pct, reb, ast, stl, blk, tov, pace, efg_pct, ts_pct,
+                ortg, drtg, net_rtg; nullable columns allowed for unsupported sports)
+            3. nba_team_game_stats_ext   (PK(game_id,team) FK→team_game_stats)
+            4. nhl_team_game_stats_ext
+            5. mlb_team_game_stats_ext
+            6. nfl_team_game_stats_ext
+            7. soccer_team_game_stats_ext  (shared by EPL + Ligue1)
+            8. ncaab_team_game_stats_ext   (shared by NCAAB + WNCAAB)
+            9. tennis_player_match_stats   (player-level; game_id FK→unified_games)
+          Add all required indexes (sport+game_date, team, game_date desc).
+          Migration is idempotent (CREATE TABLE IF NOT EXISTS or Alembic revision).
+        inputs:
+          - plugins/database_schema_manager.py
+          - docs/database_schema.md
+        outputs:
+          - plugins/database_schema_manager.py   # updated with new table definitions
+          - scripts/migrate_recon_stats_tables.py # standalone migration script
+        acceptance:
+          - psql \d shows all 9 new tables
+          - All FK constraints verified with psql \d+ output snippet in PR description
+          - Migration is re-runnable without error (idempotent)
+        estimated_hours: 4
+        dependencies: []
+        risk: medium
+        risk_notes: >
+          One fat migration is riskier than incremental if schema design is wrong;
+          mitigated by reviewing PRD decisions section and running against staging DB.
+
+  - wave: 2
+    name: "Reconciliation module + stats module scaffold"
+    goal: >
+      Implement the bet reconciler (making W1-T1 reconciliation tests pass) and
+      scaffold the stats plugin package with shared utilities that all sport
+      fetchers will inherit.
+    tasks:
+      - id: W2-T1
+        name: bet_reconciler_module
+        description: >
+          Implement plugins/reconciliation/bet_reconciler.py:
+            - BetReconciler class with reconcile(run_date) method
+            - Fetches open/settled positions from Kalshi API (reuse kalshi_betting.py)
+            - Diffs each Kalshi position against placed_bets row by row:
+              fields checked: status, fill_price, fees, payout, settlement_timestamp
+            - For any discrepancy: UPDATE placed_bets with Kalshi value, then
+              INSERT into bet_reconciliation_audit (one row per changed field)
+            - Error handling: RECON_001 (API unreachable) → log + raise; task retries
+              RECON_002 (bet in Kalshi not in placed_bets) → INSERT stub + audit row
+            - Backfill mode: accepts start_date/end_date for one-shot historical run
+          Make all tests/test_bet_reconciler.py tests pass (remove xfail markers).
+        inputs:
+          - tests/test_bet_reconciler.py
+          - plugins/kalshi_betting.py
+          - plugins/db_manager.py
+          - plugins/bet_tracker.py
+        outputs:
+          - plugins/reconciliation/__init__.py
+          - plugins/reconciliation/bet_reconciler.py
+        acceptance:
+          - pytest tests/test_bet_reconciler.py → all green, no xfail
+          - reconcile() with mocked Kalshi returns discrepancy audit rows correctly
+          - reconcile() with no discrepancies writes zero audit rows
+          - RECON_001 / RECON_002 error codes raised in correct scenarios
+        estimated_hours: 6
+        dependencies: [W1-T1, W1-T2]
+        risk: medium
+        risk_notes: Kalshi API shape must be validated against live/mock response.
+
+      - id: W2-T2
+        name: stats_module_scaffold
+        description: >
+          Create plugins/stats/ package with shared base utilities:
+            - plugins/stats/__init__.py – exports all fetcher classes
+            - plugins/stats/base_stats_fetcher.py – BaseStatsFetcher abstract class
+              with: fetch(game_date) → list[dict], upsert(records) → int,
+              compute_advanced(row) → dict (default no-op, overridden per sport),
+              _upsert_team_game_stats(records) shared helper using db_manager
+            - plugins/stats/stats_dataclasses.py – TeamGameStats, ExtRow dataclasses
+            - Error codes STATS_001 / STATS_002 as module-level constants
+          No sport-specific code yet.
+        inputs:
+          - plugins/db_manager.py
+          - plugins/elo/base_elo_rating.py   # reference pattern for base class
+        outputs:
+          - plugins/stats/__init__.py
+          - plugins/stats/base_stats_fetcher.py
+          - plugins/stats/stats_dataclasses.py
+        acceptance:
+          - python -c "from plugins.stats import BaseStatsFetcher" succeeds
+          - dataclasses pass basic field validation unit test
+        estimated_hours: 3
+        dependencies: [W1-T2]
+        risk: low
+
+  - wave: 3
+    name: "Per-sport stats fetchers (TDD, one task per sport group)"
+    goal: >
+      Implement each sport's box score fetcher so its test file goes fully green.
+      Sports are grouped to reduce task count while keeping blast radius contained.
+    tasks:
+      - id: W3-T1
+        name: nba_stats_fetcher
+        description: >
+          Implement plugins/stats/nba_box_score.py (NBABoxScoreFetcher):
+            - Data source: nba_api (nba_api.stats.endpoints.boxscoretraditionalv2,
+              boxscoreadvancedv2)
+            - fetch(game_date) queries NBA API for all games on that date
+            - Populates team_game_stats core columns + nba_team_game_stats_ext
+              (offensive_rebounds, defensive_rebounds, plus_minus, etc.)
+            - compute_advanced(): derives eFG%, TS%, ortg, drtg, pace from box raw
+            - Upserts via _upsert_team_game_stats (ON CONFLICT DO UPDATE)
+            - Rate-limit handling: exponential backoff, raises STATS_001 on failure
+          Make all tests/test_stats_nba.py tests pass.
+        inputs:
+          - tests/test_stats_nba.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/nba_box_score.py
+        acceptance:
+          - pytest tests/test_stats_nba.py → all green
+          - fetch() with mocked nba_api returns correct TeamGameStats objects
+          - advanced stats computed correctly for known fixture values
+          - upsert is idempotent (run twice → same row count)
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: low
+
+      - id: W3-T2
+        name: nhl_stats_fetcher
+        description: >
+          Implement plugins/stats/nhl_box_score.py (NHLBoxScoreFetcher):
+            - Data source: NHL Web API v1 (api-web.nhle.com/v1/gamecenter/{gameId}/boxscore)
+            - Reuse existing plugins/nhl_game_events.py for game ID resolution
+            - Core stats: goals, shots, hits, pim, faceoff_pct, pp_goals, pp_opp
+            - Ext table (nhl_team_game_stats_ext): shot_attempts, save_pct,
+              corsi_for_pct, fenwick_for_pct (derived from shots/attempts)
+            - advanced: shot_quality_proxy = goals / max(shots, 1)
+          Make all tests/test_stats_nhl.py tests pass.
+        inputs:
+          - tests/test_stats_nhl.py
+          - plugins/nhl_game_events.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/nhl_box_score.py
+        acceptance:
+          - pytest tests/test_stats_nhl.py → all green
+          - NHL API endpoint mocked; correct field mapping validated
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: low
+
+      - id: W3-T3
+        name: mlb_stats_fetcher
+        description: >
+          Implement plugins/stats/mlb_box_score.py (MLBBoxScoreFetcher):
+            - Data source: MLB Stats API (statsapi.mlb.com/api/v1/game/{gamePk}/boxscore)
+            - Reuse plugins/mlb_games.py for game PK lookup
+            - Core stats: runs, hits, errors, left_on_base, batting_avg (computed)
+            - Ext table (mlb_team_game_stats_ext): era_proxy, whip_proxy, k9_proxy,
+              bb_pct, k_pct, hr, rbi, obp, slg, ops (derived where possible)
+            - advanced: OPS+_proxy relative to league mean stored in ext
+          Make all tests/test_stats_mlb.py tests pass.
+        inputs:
+          - tests/test_stats_mlb.py
+          - plugins/mlb_games.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/mlb_box_score.py
+        acceptance:
+          - pytest tests/test_stats_mlb.py → all green
+          - OPS and OPS+_proxy computed correctly for known fixture
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: low
+
+      - id: W3-T4
+        name: nfl_stats_fetcher
+        description: >
+          Implement plugins/stats/nfl_box_score.py (NFLBoxScoreFetcher):
+            - Data source: nfl_data_py (nfl_data_py.import_pbp_data, import_weekly_data)
+            - Aggregates play-by-play to team-game level
+            - Core stats: points, total_yards, passing_yards, rushing_yards,
+              turnovers, penalties, time_of_possession_secs
+            - Ext table (nfl_team_game_stats_ext): epa_per_play, success_rate,
+              third_down_pct, red_zone_pct, fourth_down_pct
+            - Handles bye weeks (no game → skip gracefully)
+          Make all tests/test_stats_nfl.py tests pass.
+        inputs:
+          - tests/test_stats_nfl.py
+          - plugins/nfl_games.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/nfl_box_score.py
+        acceptance:
+          - pytest tests/test_stats_nfl.py → all green
+          - Bye-week date returns empty list without error
+          - EPA per play computed correctly for known fixture
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: medium
+        risk_notes: nfl_data_py PBP data can be large; test with small date range fixture.
+
+      - id: W3-T5
+        name: soccer_stats_fetcher
+        description: >
+          Implement plugins/stats/epl_box_score.py and plugins/stats/ligue1_box_score.py;
+          both inherit from SoccerBoxScoreFetcher in plugins/stats/soccer_box_score.py:
+            - Data source: FBRef via pandas read_html scrape
+              (fbref.com/en/comps/{league_id}/{season}/schedule)
+            - Core stats: goals, xg, shots, shots_on_target, possession_pct,
+              passes_pct, tackles, interceptions, clearances
+            - Ext table (soccer_team_game_stats_ext): xg_diff, xga, sot_pct,
+              pass_accuracy, ppda_proxy (if available from FBRef)
+            - Polite scraping: 3-second delay between requests; raises STATS_001
+              if consecutive failures > 3
+            - EPL league_id=9, Ligue1 league_id=13
+          Make all tests/test_stats_soccer.py tests pass.
+        inputs:
+          - tests/test_stats_soccer.py
+          - plugins/epl_games.py
+          - plugins/ligue1_games.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/soccer_box_score.py
+          - plugins/stats/epl_box_score.py
+          - plugins/stats/ligue1_box_score.py
+        acceptance:
+          - pytest tests/test_stats_soccer.py → all green
+          - FBRef HTML mocked; both EPL and Ligue1 instantiation tested
+          - Rate-limit logic tested with consecutive-failure fixture
+        estimated_hours: 6
+        dependencies: [W2-T2]
+        risk: medium
+        risk_notes: FBRef HTML structure can change; pin test fixtures to a saved HTML snapshot.
+
+      - id: W3-T6
+        name: ncaab_wncaab_stats_fetcher
+        description: >
+          Implement plugins/stats/ncaab_box_score.py (NCAABBoxScoreFetcher)
+          and plugins/stats/wncaab_box_score.py (WNCAABBoxScoreFetcher);
+          both inherit from CollegeBasketballStatsFetcher:
+            - Data source: sports-reference.com/cbb scrape (pandas read_html)
+            - Core stats: same as NBA (pts, reb, ast, stl, blk, tov, fg_pct,
+              fg3_pct, ft_pct)
+            - Ext table (ncaab_team_game_stats_ext): conf_game FLAG, neutral_site FLAG,
+              kenpom_rank_proxy (NULL – reserved for future enrichment)
+            - Polite scraping with 4-second delay
+          Make all tests/test_stats_ncaab.py tests pass.
+        inputs:
+          - tests/test_stats_ncaab.py
+          - plugins/ncaab_games.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/college_basketball_box_score.py
+          - plugins/stats/ncaab_box_score.py
+          - plugins/stats/wncaab_box_score.py
+        acceptance:
+          - pytest tests/test_stats_ncaab.py → all green
+          - WNCAAB and NCAAB share base class; tested independently
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: low
+
+      - id: W3-T7
+        name: tennis_stats_fetcher
+        description: >
+          Implement plugins/stats/tennis_match_stats.py (TennisMatchStatsFetcher):
+            - Data source: Jeff Sackmann GitHub CSVs
+              (raw.githubusercontent.com/JeffSackmann/tennis_atp/master/atp_{year}.csv
+               and .../tennis_wta/master/wta_{year}.csv)
+            - Target table: tennis_player_match_stats (player-level, not team-level)
+              Columns: game_id FK→unified_games, player_id, opponent_id, surface,
+              tourney_level, round, w_svpt, w_1stIn, w_1stWon, w_2ndWon, w_bpFaced,
+              w_bpSaved, aces, df, minutes, sets_won, sets_lost, games_won, games_lost,
+              winner_flag BOOL
+            - fetch() downloads CSV for given year (cached locally in data/tennis_csv/)
+              and filters to match_date; raises STATS_002 if game_id not in unified_games
+            - Handles ATP and WTA in one fetcher using player_gender param
+          Make all tests/test_stats_tennis.py tests pass.
+        inputs:
+          - tests/test_stats_tennis.py
+          - plugins/tennis_games.py
+          - plugins/stats/base_stats_fetcher.py
+        outputs:
+          - plugins/stats/tennis_match_stats.py
+        acceptance:
+          - pytest tests/test_stats_tennis.py → all green
+          - CSV download mocked; ATP and WTA paths both tested
+          - STATS_002 raised correctly when game_id missing from unified_games
+        estimated_hours: 5
+        dependencies: [W2-T2]
+        risk: low
+
+  - wave: 4
+    name: "Backfill script, daily DAG, reconciliation DAG integration"
+    goal: >
+      Wire all fetchers into runnable entry points: one-shot backfill script,
+      incremental daily DAG, and reconciliation task inside the existing
+      multi_sport_betting_workflow DAG.
+    tasks:
+      - id: W4-T1
+        name: backfill_script
+        description: >
+          Implement scripts/backfill_team_game_stats.py:
+            - CLI: --sport (all|nba|nhl|mlb|nfl|epl|ligue1|ncaab|wncaab|tennis)
+                   --start (default 2021-01-01) --end (default today)
+                   --dry-run (print row counts, no DB writes)
+            - Iterates date range day by day; instantiates correct fetcher per sport
+            - Progress bar via tqdm; logs to logs/backfill_{sport}_{date}.log
+            - On STATS_001: logs warning, skips date, continues (does NOT abort entire run)
+            - On STATS_002: logs error, skips game, increments skip_count counter
+            - Prints summary: total_games, inserted, updated, skipped per sport
+            - Idempotent: safe to re-run for overlapping date ranges
+        inputs:
+          - plugins/stats/__init__.py   # all fetchers available
+          - plugins/db_manager.py
+        outputs:
+          - scripts/backfill_team_game_stats.py
+        acceptance:
+          - python scripts/backfill_team_game_stats.py --sport nba --start 2024-01-01 --end 2024-01-07 --dry-run exits 0
+          - --dry-run prints row counts without writing to DB
+          - --sport all loops all 9 sports
+        estimated_hours: 4
+        dependencies: [W3-T1, W3-T2, W3-T3, W3-T4, W3-T5, W3-T6, W3-T7]
+        risk: low
+
+      - id: W4-T2
+        name: historical_stats_daily_dag
+        description: >
+          Create dags/historical_stats_daily.py:
+            - DAG ID: historical_stats_daily, schedule: "30 6 * * *" (6:30 AM daily)
+            - max_active_runs: 1, catchup: False
+            - One task per sport (9 tasks): fetch_{sport}_stats
+              Each task: instantiates fetcher, calls fetch(yesterday), upserts rows
+            - All 9 tasks run in parallel (no inter-sport dependencies)
+            - On failure: task retries=2, retry_delay=5min; alerts via existing
+              email/SMS mechanism if still failing
+            - task_id naming: fetch_{sport}_stats (snake_case sport names)
+        inputs:
+          - plugins/stats/__init__.py
+          - dags/multi_sport_betting_workflow.py   # reference for DAG boilerplate
+        outputs:
+          - dags/historical_stats_daily.py
+        acceptance:
+          - pytest tests/test_dag_parsing.py collects new DAG without error
+          - DAG appears in Airflow UI after docker compose restart
+          - All 9 tasks present, max_active_runs=1 verified in DAG properties
+        estimated_hours: 3
+        dependencies: [W3-T1, W3-T2, W3-T3, W3-T4, W3-T5, W3-T6, W3-T7]
+        risk: low
+
+      - id: W4-T3
+        name: reconciliation_dag_integration
+        description: >
+          Add reconcile_placed_bets task to dags/multi_sport_betting_workflow.py:
+            - Task ID: reconcile_placed_bets
+            - Calls BetReconciler().reconcile(run_date=context["ds"])
+            - Placed after all {sport}_place_bets tasks (or portfolio_optimized_betting)
+              and before send_daily_summary
+            - retries=3, retry_delay=10min (Kalshi API may be briefly unavailable)
+            - On RECON_001 after retries: task fails, pipeline continues (trigger_rule=ALL_DONE)
+              so daily summary still runs
+        inputs:
+          - dags/multi_sport_betting_workflow.py
+          - plugins/reconciliation/bet_reconciler.py
+        outputs:
+          - dags/multi_sport_betting_workflow.py   # modified
+        acceptance:
+          - pytest tests/test_dag_parsing.py still passes
+          - reconcile_placed_bets task visible in DAG graph
+          - trigger_rule=ALL_DONE confirmed in task definition
+          - Existing tests/test_dags_integrity.py still green
+        estimated_hours: 2
+        dependencies: [W2-T1]
+        risk: low
+
+  - wave: 5
+    name: "Validation, documentation, changelog"
+    goal: >
+      Verify end-to-end correctness, ensure coverage ≥85%, update all docs.
+    tasks:
+      - id: W5-T1
+        name: data_validation_and_coverage
+        description: >
+          Implement scripts/validate_recon_stats.py:
+            - For each sport: query team_game_stats row count per season 2021-present,
+              compare to expected game counts (hardcoded per league), flag if <95% present
+            - Query bet_reconciliation_audit for any rows; verify state machine transitions
+              are fully logged (no orphaned auto_corrected without audit_logged)
+            - Query tennis_player_match_stats vs unified_games to find any orphan game_ids
+            - Print pass/fail per check
+          Run full pytest suite, confirm coverage ≥85% on new modules.
+          Fix any coverage gaps in reconciliation or stats modules.
+        inputs:
+          - plugins/reconciliation/bet_reconciler.py
+          - plugins/stats/  (all fetchers)
+          - tests/  (all test files)
+        outputs:
+          - scripts/validate_recon_stats.py
+          - Any coverage fixes needed in new modules
+        acceptance:
+          - python scripts/validate_recon_stats.py exits 0 after backfill run
+          - pytest --cov=plugins/reconciliation --cov=plugins/stats reports ≥85%
+          - All acceptance criteria in prd.yaml verified and checked off
+        estimated_hours: 4
+        dependencies: [W4-T1, W4-T2, W4-T3]
+        risk: low
+
+      - id: W5-T2
+        name: docs_and_changelog
+        description: >
+          Update project documentation:
+            1. docs/database_schema.md: add all 9 new tables with column descriptions,
+               PKs, FKs, indexes, and DAG producers
+            2. CHANGELOG.md: add entry for this plan with summary of all deliverables,
+               data sources, and migration notes
+            3. docs/prd.yaml: update status from "draft" to "implemented"
+        inputs:
+          - docs/database_schema.md
+          - CHANGELOG.md
+          - docs/prd.yaml
+          - All new files created in waves 1-4
+        outputs:
+          - docs/database_schema.md   # updated
+          - CHANGELOG.md              # updated
+          - docs/prd.yaml             # status updated
+        acceptance:
+          - database_schema.md contains sections for all 9 new tables
+          - CHANGELOG.md entry exists under correct date heading
+        estimated_hours: 2
+        dependencies: [W5-T1]
+        risk: low
+
+plan_metrics:
+  total_tasks: 18
+  estimated_total_hours: 67
+  waves: 5
+  variant: b
+  design_principles:
+    - TDD-first: all test skeletons written before any implementation (W1-T1)
+    - Single consolidated schema migration reduces coordination risk (W1-T2)
+    - Coarse sport tasks (one per sport/group) maximize reviewability
+    - Soccer and college basketball grouped to stay at target task count
+    - Reconciliation wired as additive task – no existing task modified destructively
+    - Backfill script skips bad dates gracefully (no full-abort on API errors)
+    - All new DAG tasks validated by existing test_dag_parsing.py harness
+  risk_summary:
+    high: 0
+    medium: 3   # W1-T2 (fat migration), W3-T4 (nfl PBP size), W3-T5 (FBRef scrape)
+    low: 15
+  dependency_graph_summary: >
+    W1 tasks have no dependencies; W2 depends on W1; W3 all depend on W2-T2 only
+    (parallel sport fetchers); W4-T1 and W4-T2 depend on all W3 tasks; W4-T3
+    depends only on W2-T1; W5 depends on all W4.
+  coverage_target: ">=85% on plugins/reconciliation/ and plugins/stats/"
+  test_files_created: 8
+  new_db_tables: 9
+  data_sources:
+    - nba_api (PyPI)
+    - NHL Web API v1 (api-web.nhle.com)
+    - MLB Stats API (statsapi.mlb.com)
+    - nfl_data_py (PyPI)
+    - FBRef HTML scrape (EPL + Ligue1)
+    - sports-reference.com/cbb scrape (NCAAB + WNCAAB)
+    - Jeff Sackmann GitHub CSVs (Tennis ATP + WTA)

@@ -1,3 +1,4 @@
+from plugins.team_factors import fetch_team_factors
 """
 Multi-Sport Betting Workflow DAG
 Unified workflow for NBA, NHL, MLB, and NFL betting opportunities using Elo ratings.
@@ -266,7 +267,39 @@ SPORTS_CONFIG = {
         "elo_threshold": 0.72,  # Optimized from 0.67 - focus on decile 10 (65.3% win rate, lift 1.23+)
         "market_confidence_cutoff": 0.58,  # Higher cutoff for high-variance MLB
         "series_ticker": "KXMLBGAME",
-        "team_mapping": {},  # Will be populated from database
+        "team_mapping": {
+            "ARI": "Arizona Diamondbacks",
+            "ATH": "Athletics",
+            "ATL": "Atlanta Braves",
+            "BAL": "Baltimore Orioles",
+            "BOS": "Boston Red Sox",
+            "CHC": "Chicago Cubs",
+            "CWS": "Chicago White Sox",
+            "CIN": "Cincinnati Reds",
+            "CLE": "Cleveland Guardians",
+            "COL": "Colorado Rockies",
+            "DET": "Detroit Tigers",
+            "HOU": "Houston Astros",
+            "KC": "Kansas City Royals",
+            "LAA": "Los Angeles Angels",
+            "LAD": "Los Angeles Dodgers",
+            "MIA": "Miami Marlins",
+            "MIL": "Milwaukee Brewers",
+            "MIN": "Minnesota Twins",
+            "NYM": "New York Mets",
+            "NYY": "New York Yankees",
+            "OAK": "Athletics",
+            "PHI": "Philadelphia Phillies",
+            "PIT": "Pittsburgh Pirates",
+            "SD": "San Diego Padres",
+            "SEA": "Seattle Mariners",
+            "SF": "San Francisco Giants",
+            "STL": "St. Louis Cardinals",
+            "TB": "Tampa Bay Rays",
+            "TEX": "Texas Rangers",
+            "TOR": "Toronto Blue Jays",
+            "WSH": "Washington Nationals",
+        },
     },
     "nfl": {
         "elo_module": "elo",
@@ -1359,12 +1392,10 @@ def _initialize_portfolio_manager(
         excluded_segments=excluded_segments,
     )
 
-    # Allow dry-run override via env var — set BETTING_DRY_RUN=true to disable live orders
-    dry_run = os.environ.get("BETTING_DRY_RUN", "false").lower() == "true"
     return PortfolioBettingManager(
         kalshi_client=kalshi_client,
         config=config,
-        dry_run=dry_run,
+        dry_run=False,  # LIVE BETTING
     )
 
 
@@ -1719,6 +1750,19 @@ for sport in ALL_SPORTS:
         dag=dag,
     )
 
+    # Fetch team factors for MLB only
+    if sport == 'mlb':
+        fetch_team_factors = PythonOperator(
+            task_id=f"{sport}_fetch_team_factors",
+            python_callable=fetch_team_factors,
+            op_kwargs={'sport': sport},
+            dag=dag,
+        )
+        markets_task >> fetch_team_factors
+        fetch_team_factors >> bets_task
+    else:
+        markets_task >> bets_task
+
     load_bets_task = PythonOperator(
         task_id=f"{sport}_load_bets_db",
         python_callable=load_bets_to_db,
@@ -1797,6 +1841,30 @@ clv_update_task = PythonOperator(
 # CLV update runs after portfolio betting
 portfolio_betting_task >> clv_update_task
 
+# Add reconcile_placed_bets task – runs after CLV update, before daily summary
+def _run_reconcile_placed_bets(**_kwargs: Any) -> dict:
+    """Airflow callable: reconcile local placed_bets against Kalshi state.
+
+    Uses a 15-minute cutoff window to avoid racing with the hourly
+    ``bet_sync_hourly`` DAG, which can run simultaneously at the top of each
+    hour.  Bets whose ``created_at`` is within the last 15 minutes are left
+    for the next reconciliation cycle.
+    """
+    from bet_reconciliation import reconcile_all
+
+    return reconcile_all(cutoff_minutes=15)
+
+
+reconcile_bets_task = PythonOperator(
+    task_id="reconcile_placed_bets",
+    python_callable=_run_reconcile_placed_bets,
+    retries=2,
+    dag=dag,
+)
+
+# Reconcile runs after CLV update
+clv_update_task >> reconcile_bets_task
+
 # Add daily summary task (runs at the end)
 daily_summary_task = PythonOperator(
     task_id="send_daily_summary",
@@ -1804,5 +1872,5 @@ daily_summary_task = PythonOperator(
     dag=dag,
 )
 
-# Daily summary runs after CLV update
-clv_update_task >> daily_summary_task
+# Daily summary runs after reconciliation
+reconcile_bets_task >> daily_summary_task

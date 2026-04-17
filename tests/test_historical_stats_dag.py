@@ -1,0 +1,193 @@
+"""Smoke tests for the historical_stats_daily DAG.
+
+Tests:
+    (a) DAG parses without import errors.
+    (b) All 9 sport tasks are present with correct task IDs.
+    (c) Each sport task has the correct pool assigned.
+    (d) Schedule and basic DAG properties are correct.
+    (e) Retry / backoff config is applied to each sport task.
+"""
+
+from __future__ import annotations
+
+from datetime import timedelta
+
+import pytest
+from airflow.models import DagBag
+
+# ---------------------------------------------------------------------------
+# Fixtures
+# ---------------------------------------------------------------------------
+
+DAG_ID = "historical_stats_daily"
+DAG_FOLDER = "dags"
+
+_SPORT_TASKS = [
+    "fetch_stats_nba",
+    "fetch_stats_nhl",
+    "fetch_stats_mlb",
+    "fetch_stats_nfl",
+    "fetch_stats_epl",
+    "fetch_stats_ligue1",
+    "fetch_stats_ncaab",
+    "fetch_stats_wncaab",
+    "fetch_stats_tennis",
+]
+
+_EXPECTED_POOLS = {
+    "fetch_stats_nba": "stats_nba_pool",
+    "fetch_stats_nhl": "stats_nhl_pool",
+    "fetch_stats_mlb": "stats_mlb_pool",
+    "fetch_stats_nfl": "stats_nfl_pool",
+    "fetch_stats_epl": "stats_fbref_pool",
+    "fetch_stats_ligue1": "stats_fbref_pool",
+    "fetch_stats_ncaab": "stats_cbb_pool",
+    "fetch_stats_wncaab": "stats_cbb_pool",
+    "fetch_stats_tennis": "stats_tennis_pool",
+}
+
+
+@pytest.fixture(scope="module")
+def dag_bag() -> DagBag:
+    """Load DAGs from the dags/ folder."""
+    return DagBag(dag_folder=DAG_FOLDER, include_examples=False)
+
+
+@pytest.fixture(scope="module")
+def dag(dag_bag: DagBag):
+    """Return the historical_stats_daily DAG object."""
+    return dag_bag.dags.get(DAG_ID)
+
+
+# ---------------------------------------------------------------------------
+# (a) DAG parses without errors
+# ---------------------------------------------------------------------------
+
+
+def test_dag_parses_without_errors(dag_bag: DagBag) -> None:
+    """The DagBag must report zero import errors for historical_stats_daily."""
+    errors = dag_bag.import_errors
+    assert DAG_ID not in {
+        k.replace("dags/", "").replace(".py", "") for k in errors
+    }, f"Import errors detected: {errors}"
+    assert len(errors) == 0 or all(
+        DAG_ID not in str(k) for k in errors
+    ), f"historical_stats_daily has import errors: {errors}"
+
+
+def test_dag_loaded(dag) -> None:
+    """The DAG object must be present in the DagBag."""
+    assert dag is not None, f"DAG '{DAG_ID}' not found in DagBag"
+
+
+# ---------------------------------------------------------------------------
+# (b) All 9 sport tasks present with correct task_ids
+# ---------------------------------------------------------------------------
+
+
+def test_all_sport_task_ids_present(dag) -> None:
+    """All 9 sport fetch tasks must be present in the DAG."""
+    assert dag is not None
+    task_ids = set(dag.task_ids)
+    for task_id in _SPORT_TASKS:
+        assert (
+            task_id in task_ids
+        ), f"Expected task '{task_id}' not found. Present: {sorted(task_ids)}"
+
+
+def test_validate_task_present(dag) -> None:
+    """The downstream validate_stats_ingestion task must exist."""
+    assert dag is not None
+    assert "validate_stats_ingestion" in dag.task_ids
+
+
+def test_total_task_count(dag) -> None:
+    """DAG must have exactly 10 tasks (9 sport + 1 validation)."""
+    assert dag is not None
+    assert (
+        len(dag.task_ids) == 10
+    ), f"Expected 10 tasks, got {len(dag.task_ids)}: {sorted(dag.task_ids)}"
+
+
+# ---------------------------------------------------------------------------
+# (c) Each sport task has the correct pool assigned
+# ---------------------------------------------------------------------------
+
+
+def test_sport_task_pools(dag) -> None:
+    """Each sport task must be assigned to its designated pool."""
+    assert dag is not None
+    for task_id, expected_pool in _EXPECTED_POOLS.items():
+        task = dag.get_task(task_id)
+        assert task.pool == expected_pool, (
+            f"Task '{task_id}': expected pool '{expected_pool}', " f"got '{task.pool}'"
+        )
+
+
+# ---------------------------------------------------------------------------
+# (d) Schedule and basic DAG properties
+# ---------------------------------------------------------------------------
+
+
+def test_dag_schedule(dag) -> None:
+    """DAG schedule must be '0 8 * * *' (08:00 UTC daily).
+
+    Airflow 3.x exposes the schedule via ``dag.timetable.summary``; Airflow 2.x
+    uses ``dag.schedule_interval``.  We check both for compatibility.
+    """
+    assert dag is not None
+    # Airflow 3.x: timetable.summary returns the canonical cron expression.
+    schedule = getattr(dag.timetable, "summary", None) or getattr(
+        dag, "schedule_interval", None
+    )
+    assert schedule == "0 8 * * *", f"Expected schedule '0 8 * * *', got '{schedule}'"
+
+
+def test_dag_catchup_disabled(dag) -> None:
+    """Catchup must be False to avoid backfilling historical runs."""
+    assert dag is not None
+    assert dag.catchup is False
+
+
+def test_dag_max_active_runs(dag) -> None:
+    """max_active_runs must be 1 to prevent parallel ingestion races."""
+    assert dag is not None
+    assert dag.max_active_runs == 1
+
+
+# ---------------------------------------------------------------------------
+# (e) Retry / backoff config on each sport task
+# ---------------------------------------------------------------------------
+
+
+def test_sport_tasks_retry_config(dag) -> None:
+    """Each sport task must have retries=2 and exponential backoff enabled."""
+    assert dag is not None
+    for task_id in _SPORT_TASKS:
+        task = dag.get_task(task_id)
+        assert (
+            task.retries == 2
+        ), f"Task '{task_id}': expected retries=2, got {task.retries}"
+        assert (
+            task.retry_exponential_backoff is True
+        ), f"Task '{task_id}': expected retry_exponential_backoff=True"
+        assert task.retry_delay == timedelta(
+            minutes=5
+        ), f"Task '{task_id}': expected retry_delay=5min, got {task.retry_delay}"
+        assert task.max_retry_delay == timedelta(minutes=30), (
+            f"Task '{task_id}': expected max_retry_delay=30min, "
+            f"got {task.max_retry_delay}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# (f) DAG import sanity — direct module import
+# ---------------------------------------------------------------------------
+
+
+def test_direct_module_import() -> None:
+    """``from dags import historical_stats_daily`` must succeed with no errors."""
+    import importlib
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+    assert hasattr(mod, "dag"), "Module must expose a 'dag' object"

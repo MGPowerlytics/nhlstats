@@ -660,6 +660,35 @@ class TestDAGTaskFlow:
         assert "betting" in dag.tags
         assert "elo" in dag.tags
 
+    def test_dag_has_reconcile_placed_bets_task(self):
+        """DAG must contain a reconcile_placed_bets PythonOperator task."""
+        from multi_sport_betting_workflow import dag
+
+        task_ids = [t.task_id for t in dag.tasks]
+        assert "reconcile_placed_bets" in task_ids
+
+    def test_reconcile_placed_bets_is_after_clv_before_summary(self):
+        """reconcile_placed_bets must sit between update_clv_data and send_daily_summary."""
+        from multi_sport_betting_workflow import dag
+
+        reconcile_task = dag.get_task("reconcile_placed_bets")
+        upstream_ids = {t.task_id for t in reconcile_task.upstream_list}
+        downstream_ids = {t.task_id for t in reconcile_task.downstream_list}
+
+        assert "update_clv_data" in upstream_ids, (
+            "reconcile_placed_bets should run after update_clv_data"
+        )
+        assert "send_daily_summary" in downstream_ids, (
+            "reconcile_placed_bets should run before send_daily_summary"
+        )
+
+    def test_reconcile_placed_bets_has_retries(self):
+        """reconcile_placed_bets should be configured with retries=2."""
+        from multi_sport_betting_workflow import dag
+
+        task = dag.get_task("reconcile_placed_bets")
+        assert task.retries == 2
+
 
 # ============================================================================
 # Error Handling Tests

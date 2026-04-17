@@ -1,0 +1,299 @@
+plan_id: 2026-04-17-recon-stats-backfill
+variant: c
+strategy: balanced
+source_prd: docs/prd.yaml
+last_updated: 2026-04-17
+planning_principles:
+  - Moderate parallelism with strict wave boundaries
+  - Risk-aware execution with isolated rate-limited scrapers (FBRef)
+  - Idempotent data writes and restart-safe backfill
+  - Validation gates between waves
+assumptions:
+  - PostgreSQL is the only production datastore
+  - unified_games has sufficient game identity coverage for 2021-present joins
+  - Existing Kalshi auth and DB manager plumbing is reusable
+  - Airflow worker pools can support moderate parallel fetch waves
+
+waves:
+  - wave_id: wave_1
+    name: Schemas and reconciliation scaffolding
+    objective: Establish DB schema, migration safety, and reusable scaffolding before feature logic
+    parallelism: moderate
+    tasks:
+      - task_id: W1-T1
+        title: Baseline schema gap audit vs PRD
+        deliverables:
+          - Gap matrix for placed_bets, unified_games, and target stats tables
+          - Confirmed PK/FK/index requirements list
+        depends_on: []
+        risk: low
+        estimate_hours: 2
+      - task_id: W1-T2
+        title: Add bet_reconciliation_audit migration
+        deliverables:
+          - Migration creating immutable bet_reconciliation_audit table
+          - Indexes on bet_id, reconciled_at, changed_field
+        depends_on: [W1-T1]
+        risk: low
+        estimate_hours: 2
+      - task_id: W1-T3
+        title: Add team_game_stats core + per-sport extension schemas
+        deliverables:
+          - Core table with PK (game_id, team)
+          - Extension tables including soccer_team_game_stats_ext and tennis_player_match_stats
+          - FK constraints to unified_games where applicable
+        depends_on: [W1-T1]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W1-T4
+        title: Build reconciliation module scaffolding
+        deliverables:
+          - plugins/reconciliation package with typed interfaces
+          - Error taxonomy mapping RECON_001/RECON_002
+          - Structured logging + metrics hooks
+        depends_on: []
+        risk: low
+        estimate_hours: 3
+      - task_id: W1-T5
+        title: Build stats ingestion scaffolding and shared upsert utilities
+        deliverables:
+          - plugins/stats base fetcher protocol
+          - Shared upsert helpers with conflict targets and batch sizing
+          - Retry wrapper for rate-limited APIs
+        depends_on: [W1-T3]
+        risk: medium
+        estimate_hours: 3
+
+  - wave_id: wave_2
+    name: Reconciliation implementation and per-sport stat fetchers
+    objective: Implement core reconciliation behavior and sport-specific data collectors
+    parallelism: moderate
+    tasks:
+      - task_id: W2-T1
+        title: Implement Kalshi snapshot ingestion + normalization
+        deliverables:
+          - Fetch fills/positions/balance snapshot
+          - Normalized reconciliation model keyed to placed_bets records
+        depends_on: [W1-T4]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T2
+        title: Implement discrepancy diff engine + auto-correction
+        deliverables:
+          - Field-by-field diff for status, fill_price, fees, payout, settled_at
+          - Transactional updates to placed_bets
+        depends_on: [W2-T1]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T3
+        title: Implement immutable audit row writer
+        deliverables:
+          - One audit row per changed field
+          - Correlation IDs for reconciliation run traceability
+        depends_on: [W1-T2, W2-T2]
+        risk: low
+        estimate_hours: 3
+      - task_id: W2-T4
+        title: Add reconciliation unit tests
+        deliverables:
+          - Tests for no-op sync, mismatch correction, missing local bet handling
+          - Error handling tests for Kalshi downtime
+        depends_on: [W2-T3]
+        risk: low
+        estimate_hours: 3
+      - task_id: W2-T5
+        title: Implement NBA box-score + advanced metrics fetcher
+        deliverables:
+          - nba_api ingestion into core + nba extension table
+          - Derived eFG%, TS%, pace, ORtg/DRtg where computable
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T6
+        title: Implement NHL box-score + advanced metrics fetcher
+        deliverables:
+          - NHL Web API ingestion and derived metrics pipeline
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T7
+        title: Implement MLB box-score + advanced metrics fetcher
+        deliverables:
+          - MLB Stats API ingestion and baseball-specific derived metrics
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T8
+        title: Implement NFL game stats fetcher
+        deliverables:
+          - nfl_data_py ingestion and normalization to team_game_stats schema
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T9
+        title: Implement NCAAB and WNCAAB stats fetchers
+        deliverables:
+          - Two NCAA basketball fetchers sharing college transform utilities
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 5
+      - task_id: W2-T10
+        title: Implement tennis player match stats fetcher
+        deliverables:
+          - Jeff Sackmann dataset ingestion into tennis_player_match_stats
+          - Name normalization and tournament-level keys
+        depends_on: [W1-T5]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W2-T11
+        title: Implement EPL stats fetcher via FBRef (isolated)
+        isolation: isolated_rate_limited
+        deliverables:
+          - FBRef scraper with conservative throttling and backoff
+          - EPL writes to core + soccer extension table
+        depends_on: [W1-T5]
+        risk: high
+        estimate_hours: 5
+      - task_id: W2-T12
+        title: Implement Ligue1 stats fetcher via FBRef (isolated)
+        isolation: isolated_rate_limited
+        deliverables:
+          - FBRef scraper reusing shared parser with separate rate budget
+          - Ligue1 writes to core + soccer extension table
+        depends_on: [W1-T5]
+        risk: high
+        estimate_hours: 5
+
+  - wave_id: wave_3
+    name: Integration and orchestration
+    objective: Wire tasks into Airflow, provide backfill entrypoint, and verify cross-component integration
+    parallelism: controlled
+    tasks:
+      - task_id: W3-T1
+        title: Wire reconcile_placed_bets into multi_sport_betting_workflow
+        deliverables:
+          - Daily reconciliation task placement and dependencies
+          - Alerting/timeout/retry policy for reconciliation
+        depends_on: [W2-T4]
+        risk: medium
+        estimate_hours: 3
+      - task_id: W3-T2
+        title: Create historical_stats_daily DAG with per-sport wave groups
+        deliverables:
+          - Daily incremental DAG covering all 9 sports
+          - FBRef fetchers assigned isolated pools/concurrency limits
+        depends_on: [W2-T5, W2-T6, W2-T7, W2-T8, W2-T9, W2-T10, W2-T11, W2-T12]
+        risk: medium
+        estimate_hours: 4
+      - task_id: W3-T3
+        title: Build scripts/backfill_team_game_stats.py
+        deliverables:
+          - CLI flags: --sport --start --end --chunk-days --resume
+          - Idempotent upsert mode and progress checkpointing
+        depends_on: [W2-T5, W2-T6, W2-T7, W2-T8, W2-T9, W2-T10, W2-T11, W2-T12]
+        risk: medium
+        estimate_hours: 5
+      - task_id: W3-T4
+        title: Add integration tests (DAG-task-db contract)
+        deliverables:
+          - Tests for DAG wiring and expected table writes
+          - Dry-run backfill integration test on bounded date window
+        depends_on: [W3-T1, W3-T2, W3-T3]
+        risk: medium
+        estimate_hours: 4
+
+  - wave_id: wave_4
+    name: Backfill execution and validation
+    objective: Execute long-running historical ingest safely and validate acceptance criteria
+    parallelism: moderate_with_isolation
+    tasks:
+      - task_id: W4-T1
+        title: Pre-backfill readiness gate
+        deliverables:
+          - Baseline row counts by sport/season
+          - Rate-limit config verification and pool checks
+          - Rollback/checkpoint plan for interrupted runs
+        depends_on: [W3-T4]
+        risk: low
+        estimate_hours: 2
+      - task_id: W4-T2
+        title: Execute 2021-current team stats backfill
+        deliverables:
+          - Wave execution: non-FBRef sports in parallel, FBRef sports isolated
+          - Persisted run logs and resume checkpoints
+        depends_on: [W4-T1]
+        risk: high
+        estimate_hours: 10
+      - task_id: W4-T3
+        title: Validate coverage and reconciliation outcomes
+        deliverables:
+          - ">=95% coverage check per sport/season"
+          - Advanced metric non-null checks for computable rows
+          - Reconciliation audit integrity checks
+        depends_on: [W4-T2]
+        risk: medium
+        estimate_hours: 4
+
+  - wave_id: wave_5
+    name: Documentation and release notes
+    objective: Finalize operational clarity and traceability for deployment
+    parallelism: low
+    tasks:
+      - task_id: W5-T1
+        title: Update operational and schema documentation
+        deliverables:
+          - docs/database_schema.md updates for new tables/indexes
+          - Runbook notes for reconciliation and historical_stats_daily
+        depends_on: [W4-T3]
+        risk: low
+        estimate_hours: 2
+      - task_id: W5-T2
+        title: Add CHANGELOG entry and release validation summary
+        deliverables:
+          - CHANGELOG.md entry with shipped components and risks
+          - Final test/backfill validation summary for handoff
+        depends_on: [W5-T1]
+        risk: low
+        estimate_hours: 1
+
+plan_metrics:
+  total_tasks: 26
+  total_estimated_hours: 100
+  wave_task_counts:
+    wave_1: 5
+    wave_2: 12
+    wave_3: 4
+    wave_4: 3
+    wave_5: 2
+  max_parallel_tasks_by_wave:
+    wave_1: 3
+    wave_2: 8
+    wave_3: 2
+    wave_4: 4
+    wave_5: 1
+  isolated_tasks:
+    - W2-T11
+    - W2-T12
+  critical_path:
+    - W1-T1
+    - W1-T3
+    - W1-T5
+    - W2-T11
+    - W3-T2
+    - W3-T3
+    - W3-T4
+    - W4-T1
+    - W4-T2
+    - W4-T3
+    - W5-T1
+    - W5-T2
+  risk_summary:
+    high_risk_tasks: [W2-T11, W2-T12, W4-T2]
+    primary_risks:
+      - FBRef throttling/HTML drift
+      - Long-running backfill interruptions
+      - Cross-source schema normalization mismatches
+    mitigations:
+      - Isolated Airflow pools + strict retry/backoff policy for FBRef
+      - Checkpoint/resume semantics in backfill script
+      - Validation gates at wave boundaries with coverage thresholds

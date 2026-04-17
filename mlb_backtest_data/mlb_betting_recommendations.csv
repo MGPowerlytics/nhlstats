@@ -1,0 +1,1 @@
+bet_id,sport,recommendation_date,home_team,away_team,bet_on,elo_prob,market_prob,edge,confidence,ticker,yes_ask,no_ask,created_at,expected_value,kelly_fraction,home_rating,away_rating,home_team_name,away_team_name,home_score,away_score

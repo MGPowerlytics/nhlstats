@@ -8,7 +8,6 @@ CRITICAL VALIDATIONS:
 4. Order cost = contracts × price (not just contracts)
 """
 
-import logging
 import uuid
 import base64
 import requests
@@ -21,8 +20,6 @@ from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from constants import DEFAULT_KALSHI_BET_SIZE
 from cryptography.hazmat.primitives.asymmetric import padding
-
-logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -750,52 +747,26 @@ class KalshiBetting:
 
         reservation = self._deduper.reserve(market)
         if not reservation.reserved:
-            logger.warning("Skipping: %s locally locked", market.ticker)
+            print(f"   ⚠️  Skipping: {market.ticker} locally locked")
             return None
         return reservation
 
     def _has_existing_position(self, market: MarketSide) -> bool:
-        """Check if we already have an open position OR resting order on this match.
-
-        Checks three sources in order:
-          1. DB placed_bets — survives container restarts (H1 fix)
-          2. Kalshi open positions API
-          3. Kalshi resting orders API
-        """
+        """Check if we already have an open position OR resting order on this match."""
         match_prefix = self.get_match_prefix(market.ticker)
 
-        # 1. DB check — primary dedup guard (survives container restarts)
-        try:
-            from db_manager import default_db
-
-            result = default_db.execute(
-                """
-                SELECT COUNT(*) FROM placed_bets
-                WHERE ticker LIKE :prefix
-                  AND status = 'open'
-                  AND placed_date >= CURRENT_DATE
-                """,
-                {"prefix": f"{match_prefix}%"},
-            )
-            row = result.fetchone()
-            if row and row[0] > 0:
-                logger.info("Skipping %s: open position already in DB", match_prefix)
-                return True
-        except Exception as exc:
-            logger.warning("DB dedup check failed for %s: %s", match_prefix, exc)
-
-        # 2. Check open positions from Kalshi API
+        # 1. Check open positions
         open_positions = self.get_open_positions()
         for pos in open_positions:
             if self.get_match_prefix(pos.get("ticker", "")) == match_prefix:
-                logger.info("Skipping: Already have open position on %s", match_prefix)
+                print(f"   ❌ Skipping: Already have open position on {match_prefix}")
                 return True
 
-        # 3. Check resting orders from Kalshi API
+        # 2. Check resting orders
         resting_orders = self.get_open_orders()
         for order in resting_orders:
             if self.get_match_prefix(order.get("ticker", "")) == match_prefix:
-                logger.info("Skipping: Already have resting order on %s", match_prefix)
+                print(f"   ❌ Skipping: Already have resting order on {match_prefix}")
                 return True
 
         return False

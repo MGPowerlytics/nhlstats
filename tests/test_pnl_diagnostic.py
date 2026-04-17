@@ -73,9 +73,7 @@ def create_diagnostic_tables(engine):
                 passes_gate INTEGER, avg_hours_before_game REAL,
                 timing_roi_under_2hr REAL, timing_roi_over_8hr REAL,
                 bets_with_closing_price INTEGER, bets_flagged_stale INTEGER,
-                recommendation TEXT, elo_replay_divergence REAL,
-                market_impact_verdict VARCHAR, median_market_impact_pct REAL,
-                fill_time_roi_under_2hr REAL, fill_time_roi_over_24hr REAL)
+                recommendation TEXT, elo_replay_divergence REAL)
         """
             )
         )
@@ -699,7 +697,7 @@ class TestWriteResultsToDb:
         results = {"sport": "NBA", "settled_bets": 10}
 
         with patch("plugins.pnl_diagnostic.default_db") as mock_db:
-            mock_db.execute.side_effect = Exception("DB connection failed")
+            mock_db.engine.connect.side_effect = Exception("DB connection failed")
 
             success = write_results_to_db(results)
 

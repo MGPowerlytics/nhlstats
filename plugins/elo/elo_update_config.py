@@ -23,9 +23,9 @@ NHL_K_FACTOR = 10.0
 NHL_HOME_ADVANTAGE = 50.0
 NHL_RECENCY_WEIGHT = 0.2
 
-# MLB parameters
-MLB_K_FACTOR = 20.0
-MLB_HOME_ADVANTAGE = 50.0
+# MLB parameters (updated from K=20, HA=50 to K=10, HA=75 for better calibration)
+MLB_K_FACTOR = 10.0
+MLB_HOME_ADVANTAGE = 75.0
 
 # NFL parameters
 NFL_K_FACTOR = 20.0

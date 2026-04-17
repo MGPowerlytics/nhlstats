@@ -15,12 +15,6 @@ from zoneinfo import ZoneInfo
 from dataclasses import dataclass
 from plugins.db_manager import default_db
 
-try:
-    from plugins.pnl_diagnostic import generate_timing_heatmap_data, run_diagnostic
-except ImportError:  # pragma: no cover
-    generate_timing_heatmap_data = None  # type: ignore[assignment]
-    run_diagnostic = None  # type: ignore[assignment]
-
 
 @dataclass
 class FinancialMetrics:
@@ -708,6 +702,54 @@ def _calculate_open_games_count(betting_df: pd.DataFrame) -> int:
     )
 
 
+def _summarize_market_outcomes(betting_df: pd.DataFrame) -> pd.DataFrame:
+    """Summarize outcomes at the market level instead of per-fill rows."""
+    required_columns = {"ticker", "status"}
+    if betting_df.empty or not required_columns.issubset(betting_df.columns):
+        return pd.DataFrame(columns=["Status", "Count"])
+
+    market_rows = betting_df[
+        betting_df["ticker"].notna() & betting_df["status"].notna()
+    ].copy()
+    if market_rows.empty:
+        return pd.DataFrame(columns=["Status", "Count"])
+
+    if "profit_dollars" not in market_rows.columns:
+        market_rows["profit_dollars"] = 0.0
+
+    outcomes = []
+    for ticker, group in market_rows.groupby("ticker", dropna=True):
+        statuses = set(group["status"].dropna())
+        if "open" in statuses:
+            outcome = "Open"
+        else:
+            total_profit = group["profit_dollars"].fillna(0).sum()
+            if total_profit > 0:
+                outcome = "Won"
+            elif total_profit < 0:
+                outcome = "Lost"
+            else:
+                outcome = "Settled"
+        outcomes.append({"ticker": ticker, "Status": outcome})
+
+    outcome_df = pd.DataFrame(outcomes)
+    summary = (
+        outcome_df["Status"]
+        .value_counts()
+        .reindex(["Won", "Lost", "Open", "Settled"], fill_value=0)
+        .reset_index()
+    )
+    summary.columns = ["Status", "Count"]
+    return summary[summary["Count"] > 0]
+
+
+def _count_settled_markets(settled_bets: pd.DataFrame) -> int:
+    """Count settled markets, not individual fill rows."""
+    if settled_bets.empty or "ticker" not in settled_bets.columns:
+        return len(settled_bets)
+    return int(settled_bets["ticker"].dropna().nunique())
+
+
 def _render_portfolio_metrics(
     latest_portfolio_value: float | None,
     latest_snapshot_time_et: datetime | None,
@@ -752,7 +794,6 @@ def _render_portfolio_chart(snapshots_df: pd.DataFrame, eastern_tz: ZoneInfo) ->
             x="snapshot_hour_et",
             y="portfolio_value_dollars",
             title="Hourly Portfolio Value (ET)",
-            labels={"portfolio_value_dollars": "Portfolio Value ($)", "snapshot_hour_et": "Time (ET)"},
         )
         st.plotly_chart(fig, use_container_width=True)
 
@@ -812,21 +853,23 @@ def _render_overview_tab(betting_df: pd.DataFrame) -> None:
     Args:
         betting_df: DataFrame with betting results
     """
-    wins = len(betting_df[betting_df["status"] == "won"])
-    losses = len(betting_df[betting_df["status"] == "lost"])
-    open_bets = len(betting_df[betting_df["status"] == "open"])
-
-    wl_data = pd.DataFrame(
-        {"Status": ["Won", "Lost", "Open"], "Count": [wins, losses, open_bets]}
-    )
+    wl_data = _summarize_market_outcomes(betting_df)
+    if wl_data.empty:
+        st.info("No market outcomes available yet.")
+        return
 
     fig = px.pie(
         wl_data,
         values="Count",
         names="Status",
-        title="Bet Outcomes",
+        title="Market Outcomes",
         color="Status",
-        color_discrete_map={"Won": "green", "Lost": "red", "Open": "gray"},
+        color_discrete_map={
+            "Won": "green",
+            "Lost": "red",
+            "Open": "gray",
+            "Settled": "blue",
+        },
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1067,8 +1110,9 @@ def _display_financial_metrics(
     portfolio_data: dict,
     metrics: FinancialMetrics,
     settled_bets: pd.DataFrame,
-) -> None:
+    ) -> None:
     """Display financial metrics in columns."""
+    settled_market_count = _count_settled_markets(settled_bets)
     col1, col2, col3, col4 = st.columns(FINANCIAL_METRIC_COLUMNS)
     with col1:
         if (
@@ -1095,7 +1139,7 @@ def _display_financial_metrics(
     with col3:
         st.metric("Win Rate", f"{metrics.win_rate:.1f}%")
     with col4:
-        st.metric("Total Bets", len(settled_bets))
+        st.metric("Settled Markets", settled_market_count)
 
 
 def _display_pl_time_series(
@@ -1110,16 +1154,14 @@ def _display_pl_time_series(
 
     with tab1:
         fig = px.line(
-            daily_pl, x="date", y="cumulative_pl", title="Daily Cumulative P&L",
-            labels={"cumulative_pl": "Cumulative P&L ($)", "date": "Date"},
+            daily_pl, x="date", y="cumulative_pl", title="Daily Cumulative P&L"
         )
         fig.add_bar(x=daily_pl["date"], y=daily_pl["profit_dollars"], name="Daily P&L")
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
         fig = px.line(
-            weekly_pl, x="week", y="cumulative_pl", title="Weekly Cumulative P&L",
-            labels={"cumulative_pl": "Cumulative P&L ($)", "week": "Week"},
+            weekly_pl, x="week", y="cumulative_pl", title="Weekly Cumulative P&L"
         )
         fig.add_bar(
             x=weekly_pl["week"], y=weekly_pl["profit_dollars"], name="Weekly P&L"
@@ -1128,8 +1170,7 @@ def _display_pl_time_series(
 
     with tab3:
         fig = px.line(
-            monthly_pl, x="month", y="cumulative_pl", title="Monthly Cumulative P&L",
-            labels={"cumulative_pl": "Cumulative P&L ($)", "month": "Month"},
+            monthly_pl, x="month", y="cumulative_pl", title="Monthly Cumulative P&L"
         )
         fig.add_bar(
             x=monthly_pl["month"], y=monthly_pl["profit_dollars"], name="Monthly P&L"
@@ -1220,9 +1261,11 @@ def _display_data_quality_summary(all_reports: Dict[str, Any]) -> None:
     for sport, report in all_reports.items():
         checks = report.checks
         total_checks = len(checks)
-        passed_checks = sum(1 for check in checks if check.severity == "info")
-        warning_checks = sum(1 for check in checks if check.severity == "warning")
-        error_checks = sum(1 for check in checks if check.severity == "error")
+        passed_checks = sum(1 for check in checks if check.get("severity") == "info")
+        warning_checks = sum(
+            1 for check in checks if check.get("severity") == "warning"
+        )
+        error_checks = sum(1 for check in checks if check.get("severity") == "error")
 
         summary_data.append(
             {
@@ -1278,10 +1321,10 @@ def _display_detailed_validation_reports(all_reports: Dict[str, Any]) -> None:
                 for check in report.checks:
                     checks_data.append(
                         {
-                            "Check": check.name,
-                            "Status": check.severity,
-                            "Message": check.message,
-                            "Passed": "✅" if check.passed else "❌",
+                            "Check": check.get("name", "Unknown"),
+                            "Status": check.get("severity", "unknown"),
+                            "Message": check.get("message", ""),
+                            "Passed": "✅" if check.get("passed", False) else "❌",
                         }
                     )
                 checks_df = pd.DataFrame(checks_data)
@@ -1376,7 +1419,6 @@ def _display_clv_by_sport(clv_data: Dict[str, Any]) -> None:
                 "title": "Average CLV by Sport",
                 "color": "avg_clv",
                 "color_continuous_scale": "RdYlGn",
-                "labels": {"avg_clv": "Average CLV (%)", "sport": "Sport"},
             },
             title="CLV Performance by Sport",
             add_hline=0,
@@ -1614,7 +1656,7 @@ def _render_ev_by_sport_chart(sport_ev: pd.DataFrame) -> None:
         y=["actual_roi", "avg_ev"],
         title="Actual ROI vs Predicted EV by Sport",
         barmode="group",
-        labels={"value": "Return %", "variable": "Metric", "actual_roi": "Actual ROI", "avg_ev": "Avg Predicted EV"},
+        labels={"value": "Return %", "variable": "Metric"},
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -1723,7 +1765,7 @@ def _display_ev_calibration_by_bucket(ev_with_data: pd.DataFrame) -> None:
         y=["actual_roi", "avg_ev"],
         title="Actual vs Predicted Return by EV Bucket",
         barmode="group",
-        labels={"value": "Return %", "bucket": "EV Bucket", "actual_roi": "Actual ROI", "avg_ev": "Avg Predicted EV"},
+        labels={"value": "Return %", "bucket": "EV Bucket"},
     )
     st.plotly_chart(fig, use_container_width=True)
 
@@ -2405,201 +2447,6 @@ def _render_season_timing_analysis(simulated_data: pd.DataFrame) -> None:
         # timing_df variable was created but never used - removed to fix lint warning
 
 
-# ---------------------------------------------------------------------------
-# Diagnostic Report page (TODO-005 / TODO-007)
-# ---------------------------------------------------------------------------
-
-# Columns to display in the per-sport diagnostic summary table
-_DIAGNOSTIC_DISPLAY_COLUMNS = [
-    "sport",
-    "settled_bets",
-    "roi",
-    "real_clv",
-    "p_value",
-    "recommendation",
-    "elo_replay_divergence",
-]
-
-# Human-readable labels for the per-sport table
-_DIAGNOSTIC_COLUMN_LABELS: Dict[str, str] = {
-    "sport": "Sport",
-    "settled_bets": "Bets",
-    "roi": "ROI",
-    "real_clv": "Real CLV",
-    "p_value": "p-value",
-    "recommendation": "Recommendation",
-    "elo_replay_divergence": "Elo Divergence",
-}
-
-
-def _load_diagnostic_data() -> pd.DataFrame:
-    """Load the most recent diagnostic results from the database.
-
-    Queries the ``diagnostic_results`` table and returns one row per sport
-    (the most recent run).
-
-    Returns:
-        DataFrame with diagnostic metrics, or an empty DataFrame on error.
-    """
-    query = """
-        SELECT sport, settled_bets, roi, real_clv, p_value,
-               recommendation, elo_replay_divergence,
-               timing_roi_under_2hr, timing_roi_over_8hr,
-               bets_with_closing_price, run_date
-        FROM diagnostic_results
-        ORDER BY run_date DESC
-    """
-    try:
-        df = default_db.fetch_df(query)
-        if df is None or df.empty:
-            return pd.DataFrame()
-        # Keep latest run per sport
-        df["run_date"] = pd.to_datetime(df["run_date"], errors="coerce")
-        df = df.sort_values("run_date", ascending=False)
-        df = df.drop_duplicates(subset=["sport"], keep="first")
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-
-def _display_diagnostic_summary_metrics(diag_df: pd.DataFrame) -> None:
-    """Render top-level summary metrics for the diagnostic page.
-
-    Args:
-        diag_df: DataFrame of the latest per-sport diagnostic results.
-    """
-    last_run = diag_df["run_date"].max() if "run_date" in diag_df.columns else None
-    run_label = str(last_run) if last_run is not None and pd.notna(last_run) else "N/A"
-
-    total_sports = len(diag_df)
-    continue_count = int((diag_df["recommendation"] == "CONTINUE").sum())
-    pause_count = int((diag_df["recommendation"] == "PAUSE").sum())
-
-    avg_divergence = diag_df["elo_replay_divergence"].mean()
-    avg_divergence_label = (
-        f"{avg_divergence:.1f}" if pd.notna(avg_divergence) else "N/A"
-    )
-
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric("Last Run", run_label)
-    with col2:
-        st.metric("Sports Analyzed", total_sports)
-    with col3:
-        st.metric("✅ CONTINUE / 🛑 PAUSE", f"{continue_count} / {pause_count}")
-    with col4:
-        st.metric("Avg Elo Replay Divergence", avg_divergence_label)
-
-
-def _display_diagnostic_table(diag_df: pd.DataFrame) -> None:
-    """Render the per-sport qualification gates table.
-
-    Args:
-        diag_df: DataFrame of the latest per-sport diagnostic results.
-    """
-    st.subheader("Per-Sport Qualification Gates")
-
-    available_cols = [c for c in _DIAGNOSTIC_DISPLAY_COLUMNS if c in diag_df.columns]
-    display_df = diag_df[available_cols].copy()
-    display_df = display_df.rename(columns=_DIAGNOSTIC_COLUMN_LABELS)
-
-    # Format ROI and CLV as percentages
-    for pct_col in ("ROI", "Real CLV"):
-        if pct_col in display_df.columns:
-            display_df[pct_col] = display_df[pct_col].apply(
-                lambda v: f"{v:.1%}" if pd.notna(v) else "N/A"
-            )
-
-    if "p-value" in display_df.columns:
-        display_df["p-value"] = display_df["p-value"].apply(
-            lambda v: f"{v:.3f}" if pd.notna(v) else "N/A"
-        )
-
-    if "Elo Divergence" in display_df.columns:
-        display_df["Elo Divergence"] = display_df["Elo Divergence"].apply(
-            lambda v: f"{v:.1f}" if pd.notna(v) else "N/A"
-        )
-
-    st.dataframe(display_df, use_container_width=True)
-
-
-def _display_timing_heatmap() -> None:
-    """Render the ROI × Sport × Timing Window heatmap.
-
-    Fetches heatmap data from ``generate_timing_heatmap_data()`` and renders
-    a Plotly heatmap with a red-to-green colour scale.
-    """
-    if generate_timing_heatmap_data is None:
-        st.warning("Timing heatmap data unavailable (pnl_diagnostic not importable).")
-        return
-
-    heatmap_df = generate_timing_heatmap_data()
-
-    if heatmap_df.empty:
-        st.info("No timing data available for heatmap.")
-        return
-
-    st.subheader("ROI by Sport × Timing Window")
-
-    # Convert fractional ROI to percentages for display
-    plot_df = heatmap_df.multiply(100)
-
-    fig = px.imshow(
-        plot_df,
-        color_continuous_scale="RdYlGn",
-        color_continuous_midpoint=0,
-        labels={"color": "ROI (%)"},
-        title="ROI by Sport × Timing Window",
-        text_auto=".1f",
-    )
-    fig.update_layout(
-        xaxis_title="Timing Window",
-        yaxis_title="Sport",
-    )
-    st.plotly_chart(fig, use_container_width=True)
-
-
-def diagnostic_report_page() -> None:
-    """Diagnostic Report dashboard page.
-
-    Displays per-sport qualification gates (Bootstrap CI, p-value,
-    recommendation), Elo replay divergence, last-run timestamp, a
-    "Run Diagnostic" button, and a timing heatmap.
-    """
-    st.title("🔬 Diagnostic Report")
-
-    # --- Run Diagnostic button ---
-    if st.button("▶ Run Diagnostic"):
-        if run_diagnostic is None:
-            st.error("Diagnostic module not available.")
-        else:
-            try:
-                with st.spinner("Running full P&L diagnostic…"):
-                    run_diagnostic()
-                st.success("Diagnostic complete. Refresh to see updated results.")
-            except Exception as exc:
-                st.error(f"Diagnostic failed: {exc}")
-
-    # --- Load data ---
-    diag_df = _load_diagnostic_data()
-
-    if diag_df.empty:
-        st.warning(
-            "No diagnostic results found. "
-            "Click '▶ Run Diagnostic' to generate a report."
-        )
-        return
-
-    # --- Summary metrics row ---
-    _display_diagnostic_summary_metrics(diag_df)
-
-    # --- Per-sport qualification table ---
-    _display_diagnostic_table(diag_df)
-
-    # --- Timing heatmap ---
-    _display_timing_heatmap()
-
-
 def main():
     """Main dashboard entry point."""
     # Dispatch dictionary mapping page names to their functions
@@ -2610,7 +2457,6 @@ def main():
         "Data Quality": data_quality_page,
         "CLV Analysis": clv_analysis_page,
         "EV Analysis": ev_analysis_page,
-        "Diagnostic Report": diagnostic_report_page,
     }
 
     page = st.sidebar.radio(

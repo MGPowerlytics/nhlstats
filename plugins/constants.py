@@ -62,7 +62,6 @@ MAX_MARKET_PROBABILITY = 0.99  # Reject markets with probability > 99% (arbitrag
 
 # Portfolio betting parameters
 MAX_DAILY_RISK_PCT = 0.25  # 25% maximum daily risk exposure
-MAX_DAILY_ABSOLUTE_RISK = 200.0  # Hard cap: max $200 risked per calendar day
 KELLY_FRACTION = 0.20  # Conservative Kelly fraction (20%) for more volume (matches DAG)
 MAX_BET_SIZE = 10.0  # Lower max bet size ($10) to spread across more bets (matches DAG)
 DEFAULT_KALSHI_BET_SIZE = 5.0  # Default bet size for Kalshi API (safety default)
@@ -132,15 +131,6 @@ BOOTSTRAP_CONFIDENCE_LEVEL = 0.95
 # Stale closing price threshold (hours before market close)
 STALE_CLOSING_PRICE_HOURS = 4.0
 
-# Kalshi closing line tracking
-KALSHI_CLOSING_BOOKMAKER = "Kalshi_close"
-KALSHI_CLOSING_WINDOW_MINUTES = 30
-
-# Timing analysis bucket boundaries (hours before game, for closing-line analysis)
+# Timing analysis bucket boundaries (hours before game)
 TIMING_BUCKETS = [0, 1, 2, 4, 8, float("inf")]
 TIMING_BUCKET_LABELS = ["<1hr", "1-2hr", "2-4hr", "4-8hr", "8+hr"]
-
-# Fill time analysis bucket boundaries (hours before game at Kalshi fill time)
-# placed_time_utc = Kalshi fill timestamp (created_time from fills API)
-FILL_TIME_BUCKETS = [0, 2, 4, 8, 24, float("inf")]
-FILL_TIME_BUCKET_LABELS = ["<2hr", "2-4hr", "4-8hr", "8-24hr", "24+hr"]

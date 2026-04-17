@@ -61,11 +61,11 @@ def test_mlb_elo_abstract_methods():
 
 def test_mlb_elo_backward_compatibility():
     """Test that MLBEloRating maintains backward compatibility."""
-    elo = MLBEloRating(k_factor=20, home_advantage=50, initial_rating=1500)
+    elo = MLBEloRating(k_factor=10, home_advantage=75, initial_rating=1500)
 
-    # Test default values
-    assert elo.k_factor == 20
-    assert elo.home_advantage == 50
+    # Test default values (updated from K=20, HA=50 to K=10, HA=75)
+    assert elo.k_factor == 10
+    assert elo.home_advantage == 75
     assert elo.initial_rating == 1500
 
     # Test basic functionality still works
