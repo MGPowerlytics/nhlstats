@@ -1,112 +1,71 @@
-### [2026-03-30] - QA Pass: Dashboard Crash Fix, Chart Labels, CBA Markets
+### [2026-04-17] - schema-implement-migrations: Materialise new stats/audit tables
 
-- **CRITICAL FIX: Data Quality page crash** (`dashboard/dashboard_app.py`):
-  - `_display_data_quality_summary` and `_display_detailed_validation_reports` were calling
-    `check.get("severity")`, `check["name"]` etc., treating `CheckResult` (a dataclass) as a dict.
-  - Fixed to use attribute access: `check.severity`, `check.name`, `check.message`, `check.passed`.
-  - Added regression test: `tests/test_dashboard_check_result_attrs_regression_1.py` (5 tests).
+- **Ran `DatabaseSchemaManager.initialize_schema()`** against production PostgreSQL; all 10 new tables created idempotently:
+  - `team_game_stats` (core; PK `(game_id, team)`; FK → `unified_games`)
+  - `nba_team_game_stats_ext`, `nhl_team_game_stats_ext`, `mlb_team_game_stats_ext`, `nfl_team_game_stats_ext`, `soccer_team_game_stats_ext`, `ncaab_team_game_stats_ext`, `wncaab_team_game_stats_ext` (sport extensions; FK → `team_game_stats`)
+  - `tennis_player_match_stats` (player-level; PK `(game_id, player_name)`)
+  - `bet_reconciliation_audit` (append-only; SERIAL PK; NOT NULL on `bet_id`, `field_changed`, `source`, `reconciled_at`)
+- **Added `scripts/apply_stats_schema_migrations.sh`** – idempotent migration runner; tries host-side psycopg2 first, falls back to `docker exec nhlstats-airflow-scheduler-1`; verifies all 10 tables post-run
+- **Fixed `tests/test_team_game_stats_schema.py` `schema_manager` fixture** – now bypasses conftest SQLite mock via `DBManager.__new__` + direct PostgreSQL `create_engine`; all 12 tests pass
+- **Fixed `tests/conftest.py` `mocked_execute`** – SQL translation now skipped for non-SQLite dialects so integration tests using a live PostgreSQL connection are not inadvertently translated to SQLite syntax
 
-- **FIX: CBA/Unrivaled market fetchers** (`plugins/kalshi_markets.py`):
-  - `fetch_cba_markets()` and `fetch_unrivaled_markets()` were placeholder stubs that did not call
-    `_fetch_sport_markets()`, causing test `test_fetch_cba_markets_calls_internal` to fail.
-  - Replaced with `_create_sport_market_fetcher()` factory calls, consistent with all other sports.
+### [2026-04-17] - Wave 1 Stats Scaffolds (9 tasks)
 
-- **FIX: Raw column names in chart axis labels** (`dashboard/dashboard_app.py`):
-  - Added `labels=` dicts to Plotly Express charts so human-readable names appear on axes/legends:
-    - `portfolio_value_dollars` → "Portfolio Value ($)"
-    - `cumulative_pl` → "Cumulative P&L ($)"
-    - `avg_clv` → "Average CLV (%)"
-    - `actual_roi` → "Actual ROI (%)"
-    - `avg_ev` → "Average EV (%)"
+- **Added `plugins/stats/__init__.py`** – package init exporting all 7 `BoxScoreFetcher` sub-classes
+- **Added `plugins/stats/base.py`** – abstract `BoxScoreFetcher` base class with `fetch_game_stats`, `fetch_date_range`, `upsert_rows` abstract methods; `SPORT`, `RATE_LIMIT_SECONDS`, `EXT_TABLE` class attributes; `_rate_limit()` helper
+- **Added `plugins/stats/advanced_stats.py`** – stub functions (raise `NotImplementedError`) with full docstrings and formulas for eFG%, TS%, Pace, ORtg, DRtg, Corsi%, wOBA, FIP, PPDA, NFL EPA aggregate
+- **Added `plugins/stats/nba_box_score.py`** – `NBABoxScoreFetcher`; source: `nba_api` (BoxScoreTraditionalV2 + BoxScoreAdvancedV2); 3 req/s; ext: `nba_team_game_stats_ext`
+- **Added `plugins/stats/nhl_box_score.py`** – `NHLBoxScoreFetcher`; source: `api-web.nhle.com/v1/gamecenter/{id}/boxscore`; 1 req/3s; ext: `nhl_team_game_stats_ext`
+- **Added `plugins/stats/mlb_box_score.py`** – `MLBBoxScoreFetcher`; source: `statsapi.mlb.com/api/v1.1/game/{pk}/feed/live`; ext: `mlb_team_game_stats_ext`
+- **Added `plugins/stats/nfl_box_score.py`** – `NFLBoxScoreFetcher`; source: `nfl_data_py` (import_schedules + import_pbp_data); ext: `nfl_team_game_stats_ext`
+- **Added `plugins/stats/soccer_box_score.py`** – `SoccerBoxScoreFetcher`; covers EPL + Ligue1; sources: football-data.co.uk CSVs + FBRef scrape (User-Agent: `nhlstats-research-bot/1.0`, 3s delay); ext: `soccer_team_game_stats_ext`
+- **Added `plugins/stats/cbb_box_score.py`** – `CBBBoxScoreFetcher`; covers NCAAB + WNCAAB; sources: Massey Ratings + ESPN scoreboard/summary API; ext: `cbb_team_game_stats_ext`
+- **Added `plugins/stats/tennis_box_score.py`** – `TennisBoxScoreFetcher`; source: Jeff Sackmann GitHub CSVs (cloned to `data/tennis/`); primary table: `tennis_player_match_stats`
 
-- **FIX: Streamlit sidebar theme config** (`.streamlit/config.toml`):
-  - Added `widgetBackgroundColor`, `widgetBorderColor`, `skeletonBackgroundColor` to `[theme]`.
-  - Added `[theme.sidebar]` section for Streamlit 1.54 sidebar-specific theming.
-  - Note: `widgetBackgroundColor`/`widgetBorderColor`/`skeletonBackgroundColor` warnings in
-    `theme.sidebar` are a known Streamlit 1.54 upstream bug — these properties are JS-frontend-only
-    and not exposed in the Python config schema.
+### [2026-04-17] - Wave 1 Reconciliation Scaffold (TDD)
 
-### [2026-04-14] - Security Hardening, NBA Price Fix, Tennis SDK Migration, DB Dedup
+- **Added `plugins/bet_reconciliation.py`** – stub module with full docstrings, type hints, and `NotImplementedError` bodies for:
+  - `fetch_kalshi_state` – pull fills/positions from Kalshi, indexed by `bet_id`
+  - `diff_bet` – field-level diff restricted to `RECONCILABLE_FIELDS`
+  - `reconcile_bet` – atomic UPDATE + audit INSERT in one transaction
+  - `reconcile_all` – orchestrator returning `{checked, discrepancies, corrected, missing_locally_inserted, missing_on_kalshi}`
+  - `insert_missing_bet` – inserts undiscovered Kalshi fills with `source='kalshi_discovered'`
+  - `RECONCILABLE_FIELDS` constant listing the 8 overwritable fields
+- **Added `tests/test_bet_reconciliation.py`** – 14 TDD tests (13 unit + 1 integration stub):
+  - `TestDiffBet`: status change, price mismatch, identical records, non-reconcilable fields ignored, multi-field diffs
+  - `TestReconcileBet`: UPDATE + audit both called, zero diff skips DB, **atomicity rollback on audit failure**
+  - `TestInsertMissingBet`: `source='kalshi_discovered'` present, duplicate returns `False`
+  - `TestReconcileAll`: empty Kalshi response, `since_date` filter propagated to DB, all 5 summary keys present
+- **Registered `integration` pytest mark** in `setup.cfg` to eliminate mark warnings
+- All 14 tests discoverable (`--collect-only` clean, 0 warnings)
 
-- **C2 FIX: dry_run now reads env var** (`dags/multi_sport_betting_workflow.py`):
-  - `dry_run=False` was hardcoded; now reads `BETTING_DRY_RUN` env var (default `false` = live).
-  - Set `BETTING_DRY_RUN=true` in docker-compose to disable live orders without code changes.
+### [2026-04-11] - Fixed System-Wide Team Name Resolution for EPL, NBA, MLB, and NHL
 
-- **H1 FIX: DB-based dedup check** (`plugins/kalshi_betting.py`):
-  - `_has_existing_position()` now queries `placed_bets` table FIRST before Kalshi API.
-  - Prevents duplicate bets across container restarts (file-based lock was lost on restart).
-  - Falls back to Kalshi open positions + resting orders as secondary checks.
+- **Fixed Team Name Resolver Gaps and Cross-Sport Contamination (🐛 CRITICAL FIX)**:
+  - **Issue**: `plugins/naming_resolver.py` had strong NHL/MLB coverage but little or no usable EPL/NBA coverage. Real bet files contained sportsbook abbreviations and aliases (`WHU`, `WOL`, `MCI`, `ATL`, `MIA`, `CLE`, `LA`, `NJ`, `SJ`, `TB`, etc.) that did not resolve to the actual names in the current Elo CSVs. The generic cross-sport fallback also caused bad resolutions such as NBA `ATL -> Atlanta Braves`, NBA `MIA -> Miami Marlins`, and NHL `TB -> Tampa Bay Rays`.
+  - **Fix**:
+    1. Added comprehensive EPL mappings covering abbreviations, long-form club names, and common aliases to the actual EPL Elo names (`Man City`, `Man United`, `Nott'm Forest`, `West Ham`, `Wolves`, etc.).
+    2. Added comprehensive NBA mappings for all 30 teams, including abbreviations, city names, nicknames, full names, and cleanup aliases for historically contaminated bet files.
+    3. Completed NHL edge alias coverage for `LA`, `NJ`, `SJ`, and `TB`.
+    4. Added missing MLB aliases such as `Arizona -> Arizona Diamondbacks` and cleanup mappings for historically contaminated cross-sport names found in MLB bet files.
+    5. Replaced the generic cross-sport fallback with an explicit related-sport fallback (`NCAAB <-> WNCAAB`) so unrelated sports can no longer leak into each other.
+  - **Files Modified**:
+    - `plugins/naming_resolver.py`
+    - `tests/test_naming_resolver_mappings.py` (new)
+    - `tests/test_name_resolver_comprehensive.py`
+  - **Verification**:
+    1. Added 140 targeted resolver tests covering EPL, NBA, MLB, NHL, and related-sport fallback behavior.
+    2. Updated the existing comprehensive resolver smoke test to validate final Elo-facing names.
+    3. Data-driven audit now resolves all observed names in current bet files against the live Elo CSVs:
+       - EPL: 41 observed names, 0 unresolved
+       - NBA: 74 observed names, 0 unresolved
+       - MLB: 69 observed names, 0 unresolved
+       - NHL: 63 observed names, 0 unresolved
 
-- **H2 FIX: Removed stale PEM directory**:
-  - `kalshi_private_key.pem/` (accidental directory) deleted from repo root.
-  - Added `kalshkey`, `odds_api_key`, `*.pem` to `.gitignore`.
-
-- **M1: Absolute daily risk cap** (`plugins/constants.py`):
-  - Added `MAX_DAILY_ABSOLUTE_RISK = 200.0` — hard $200/day cap regardless of bankroll %.
-
-- **M2: Replaced print() with logger** (`plugins/clv_tracker.py`):
-  - All `print()` statements in `fetch_and_store_kalshi_closing_prices()` replaced with `logger.warning/error`.
-  - Added `import logging` + module-level `logger = logging.getLogger(__name__)`.
-
-- **NBA BUG FIX: price_cents=0 for all bets** (`plugins/bet_tracker.py`):
-  - Root cause: `_extract_basic_fill_data()` looked for `yes_price`/`no_price` fields that don't exist in Kalshi v2 fills API (`/portfolio/fills`). These are ORDER fields, not FILL fields.
-  - Fix: fall back to `fill["price"]` (canonical v2 fill field) when side-specific keys absent.
-  - Bonus: `fill_id` now preferred over `trade_id` for bet ID — prevents empty `bet_id` values.
-  - Result: `price_cents` and `cost_dollars` now correctly populated for all new fills.
-  - Tests: 15 new tests in `tests/test_price_cents_fix.py` (all passing)
-
-- **TENNIS: Migrated from TheOddsAPI → Kalshi SDK** (`plugins/kalshi_markets.py`):
-  - `fetch_tennis_markets()` now queries all 4 Kalshi series independently:
-    `KXATPMATCH`, `KXWTAMATCH`, `KXATPCHALLENGERMATCH`, `KXWTACHALLENGERMATCH`
-  - Per-series isolation: one failing series never blocks others.
-  - No more silent failures during tournament gaps (TheOddsAPI returned empty between events).
-  - Logs: `✓ Fetched N tennis markets (ATP: X, WTA: Y, Challengers: Z)`
-  - Tests: 21 new tests in `tests/test_tennis_kalshi_markets.py` (all passing)
-
-- **TENNIS: TennisTickerParser improvements** (`plugins/kalshi_markets.py`):
-  - Added precise primary regex `r"win the (.*?) vs (.*?) :"` matching real Kalshi title format.
-  - Added `extract_outcome_code()` static method — returns 3-char winner code from parts[2].
-  - Added `extract_player_codes()` static method — splits 6-char player pair into (P1, P2).
-  - Added docstrings documenting real ticker format and title format.
-  - All real-world ATP/WTA/Challenger title+ticker combos verified passing.
-
-### [2026-03-30] - TODO-005/006/007/008/009: Diagnostic Dashboard, Order Book Depth, Timing Heatmap, Kalshi Closing Lines, Fill-Time Analysis
-
-- **TODO-005: Diagnostic Report Dashboard Page (✨ NEW FEATURE)**:
-  - Added `diagnostic_report_page()` to `dashboard/dashboard_app.py` with per-sport qualification gates table (Bootstrap CI, p-value, recommendation), 4-metric summary row, and Run Diagnostic button.
-  - Registered as "Diagnostic Report" in sidebar navigation.
-  - Graceful handling of empty `diagnostic_reports` table and DB errors.
-  - Tests: 22 new tests in `tests/test_diagnostic_dashboard.py` (all passing)
-
-- **TODO-006: Kalshi Order Book Depth Analysis (✨ NEW FEATURE)**:
-  - Added `get_order_book_depth()` to `KalshiAPI` in `plugins/kalshi_markets.py` — returns all price levels + quantities + `market_impact_pct`.
-  - Added `analyze_market_impact()` to `plugins/pnl_diagnostic.py` — NEGLIGIBLE/MONITOR/SIGNIFICANT verdict stored to `diagnostic_reports`.
-  - At $10 max bet size, market impact is expected to be NEGLIGIBLE (<1% of typical order book depth).
-  - Tests: 22 new tests in `tests/test_order_book_depth.py` (all passing)
-
-- **TODO-007: Timing Heatmap Visualization (✨ NEW FEATURE)**:
-  - Added `generate_timing_heatmap_data()` to `plugins/pnl_diagnostic.py` — pivots timing ROI into sport×bucket DataFrame.
-  - Added Plotly `RdYlGn` heatmap (red=negative, green=positive ROI) to `diagnostic_report_page()` in the dashboard.
-  - Included in TODO-005 test coverage.
-
-- **TODO-008: Kalshi-Specific Closing Line Tracking (✨ NEW FEATURE)**:
-  - Added `fetch_and_store_kalshi_closing_prices()` to `plugins/clv_tracker.py` — upserts Kalshi prices near market close into `game_odds` with `bookmaker='Kalshi_close'`.
-  - Added `capture_kalshi_closing_prices` task to `dags/bet_sync_hourly.py` (wired after CLV update task, non-blocking).
-  - `update_real_closing_lines()` now defaults `prefer_kalshi_close=True` — prefers Kalshi-specific closing prices over SBR.
-  - Added constants: `KALSHI_CLOSING_BOOKMAKER = "Kalshi_close"`, `KALSHI_CLOSING_WINDOW_MINUTES = 30`.
-  - Tests: 19 new tests in `tests/test_kalshi_closing_tracker.py` (all passing)
-
-- **TODO-009: Fill Time / Resting Duration Analysis (✨ NEW FEATURE)**:
-  - Added `compute_fill_time_analysis()` to `plugins/pnl_diagnostic.py` — buckets bets by hours-before-game at fill time (`<2hr`, `2-4hr`, `4-8hr`, `8-24hr`, `24+hr`), computes ROI and avg edge per bucket.
-  - `placed_time_utc` confirmed as Kalshi fill timestamp (`created_time`) — no new API calls needed.
-  - Integrated into `_diagnose_sport()`, `write_results_to_db()`, `_print_sport_summary()`.
-  - Added constants: `FILL_TIME_BUCKETS`, `FILL_TIME_BUCKET_LABELS`.
-  - Also fixed pre-existing missing `Any` import in `pnl_diagnostic.py`.
-  - Tests: 27 new tests in `tests/test_fill_time_analysis.py` (all passing)
-
-- **Net: 90 new tests across 4 new test files; 133 total related tests all passing.**
-
----
+- **Follow-up: source-aware canonical names for EPL/NBA**:
+  - `NamingResolver.resolve()` now keeps the existing Elo-facing mappings for compatibility while returning canonical full Kalshi team names for EPL/NBA (`WHU -> West Ham United`, `WOL -> Wolverhampton Wanderers`, `ATL -> Atlanta Hawks`, `MIA -> Miami Heat`, `CLE -> Cleveland Cavaliers`).
+  - Added missing live-market aliases such as `Wolverhampton`, `Los Angeles C`, and `Los Angeles L`.
+  - Added `tests/test_name_resolver_fixes.py` plus `scripts/verify_name_resolver_fixes.py` to verify the latest dated bet files resolve cleanly to current Elo team names.
 
 ### [2026-03-30] - P&L Diagnostic Module + Critical CLV Fix
 

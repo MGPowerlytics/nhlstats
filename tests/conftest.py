@@ -109,7 +109,7 @@ def mock_db_manager_to_test_engine():
 def translate_sql(sql):
     """Translate Postgres SQL to SQLite for tests."""
     # Handle TextClause objects from SQLAlchemy
-    if hasattr(sql, 'text'):
+    if hasattr(sql, "text"):
         sql = sql.text
     sql_upper = sql.strip().upper()
     sql_normalized = " ".join(sql_upper.split())
@@ -308,6 +308,11 @@ def patch_sqlalchemy_execute_for_duckdb_compat():
     original_execute = Connection.execute
 
     def mocked_execute(self, statement, parameters=None, **kwargs):
+        # Skip translation for PostgreSQL connections (integration tests use live DB)
+        dialect_name = getattr(getattr(self, "dialect", None), "name", "")
+        if dialect_name and dialect_name != "sqlite":
+            return original_execute(self, statement, parameters, **kwargs)
+
         # Unwrap TextClause to string if possible, translate, then re-wrap
         sql_text = None
         if isinstance(statement, str):
