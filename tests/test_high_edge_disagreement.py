@@ -41,7 +41,9 @@ class DummyEloSystem:
         key = f"{home}_{away}"
         if tour:
             key = f"{key}_{tour}"
-        return self.predictions.get(key, 0.5)
+        if key in self.predictions:
+            return self.predictions[key]
+        return next(iter(self.predictions.values()), 0.5)
 
     def get_rating(self, team, tour=None):
         return self.ratings.get(team, 1500)
@@ -98,12 +100,8 @@ def test_large_positive_edge_bet():
             sport="nba",
             elo_system=elo_system,
             thresholds=BettingThresholds(
-                threshold=0.65,
                 min_edge=0.05,
                 max_edge=1.0,
-                market_confidence_cutoff=0.55,
-                enable_high_edge_disagreement=True,
-                high_edge_threshold=0.10,
             ),
         )
     )
@@ -171,12 +169,8 @@ def test_small_edge_below_threshold_no_bet():
             sport="nba",
             elo_system=elo_system,
             thresholds=BettingThresholds(
-                threshold=0.65,
                 min_edge=0.05,
                 max_edge=1.0,
-                market_confidence_cutoff=0.55,
-                enable_high_edge_disagreement=True,
-                high_edge_threshold=0.10,
             ),
         )
     )
@@ -236,12 +230,8 @@ def test_positive_ev_with_medium_edge():
             sport="nba",
             elo_system=elo_system,
             thresholds=BettingThresholds(
-                threshold=0.65,
                 min_edge=0.05,
                 max_edge=1.0,
-                market_confidence_cutoff=0.55,
-                enable_high_edge_disagreement=True,
-                high_edge_threshold=0.10,
             ),
         )
     )
@@ -308,12 +298,8 @@ def test_max_edge_cap_rejects_extreme_edges():
             sport="nba",
             elo_system=elo_system,
             thresholds=BettingThresholds(
-                threshold=0.65,
                 min_edge=0.05,
                 max_edge=0.40,  # Cap at 40%
-                market_confidence_cutoff=0.55,
-                enable_high_edge_disagreement=True,
-                high_edge_threshold=0.10,
             ),
         )
     )

@@ -169,7 +169,6 @@ class TestUnrivaledDAGConfiguration:
         assert "elo_module" in config
         assert "games_module" in config
         assert "kalshi_function" in config
-        assert "elo_threshold" in config
         assert "series_ticker" in config
 
     def test_unrivaled_config_values(self):
@@ -185,7 +184,6 @@ class TestUnrivaledDAGConfiguration:
         assert config["elo_module"] == "elo"
         assert config["games_module"] == "unrivaled_games"
         assert config["kalshi_function"] == "fetch_unrivaled_markets"
-        assert 0.5 <= config["elo_threshold"] <= 0.8  # Reasonable threshold range
         assert "UNRIVALED" in config["series_ticker"].upper()
 
     def test_team_mapping_exists(self):

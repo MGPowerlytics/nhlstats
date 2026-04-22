@@ -181,7 +181,7 @@ class TestCBAKalshiIntegration:
         mock_fetch.return_value = []
         fetch_cba_markets("2026-02-01")
 
-        mock_fetch.assert_called_once_with("cba", _date_str="2026-02-01")
+        mock_fetch.assert_called_once_with("cba")
 
 
 class TestCBATeamMappingIntegration:
@@ -218,9 +218,9 @@ class TestCBATeamMappingIntegration:
             data = json.load(f)
 
         assert len(data["teams"]) == 20, f"Expected 20 teams, got {len(data['teams'])}"
-        assert len(data["abbreviation_mapping"]) == 20, (
-            f"Expected 20 abbreviations, got {len(data['abbreviation_mapping'])}"
-        )
+        assert (
+            len(data["abbreviation_mapping"]) == 20
+        ), f"Expected 20 abbreviations, got {len(data['abbreviation_mapping'])}"
 
     def test_team_mapping_abbreviations_map_to_teams(self):
         """Test that all abbreviations map to valid teams."""
@@ -229,9 +229,9 @@ class TestCBATeamMappingIntegration:
             data = json.load(f)
 
         for abbrev, team_name in data["abbreviation_mapping"].items():
-            assert team_name in data["teams"], (
-                f"Abbreviation {abbrev} maps to unknown team: {team_name}"
-            )
+            assert (
+                team_name in data["teams"]
+            ), f"Abbreviation {abbrev} maps to unknown team: {team_name}"
 
 
 class TestCBADagConfigIntegration:
@@ -253,7 +253,6 @@ class TestCBADagConfigIntegration:
             "elo_module",
             "games_module",
             "kalshi_function",
-            "elo_threshold",
             "series_ticker",
             "team_mapping",
         ]
@@ -272,7 +271,6 @@ class TestCBADagConfigIntegration:
         assert cba_config["elo_module"] == "elo"
         assert cba_config["games_module"] == "cba_games"
         assert cba_config["kalshi_function"] == "fetch_cba_markets"
-        assert 0.0 <= cba_config["elo_threshold"] <= 1.0
         assert len(cba_config["team_mapping"]) == 20
 
 
@@ -330,9 +328,9 @@ class TestCBAEndToEndIntegration:
         guangdong_rating = all_ratings.get("Guangdong Southern Tigers", 0)
         for team, rating in all_ratings.items():
             if team != "Guangdong Southern Tigers":
-                assert guangdong_rating >= rating, (
-                    f"Guangdong should have highest rating, but {team} has {rating}"
-                )
+                assert (
+                    guangdong_rating >= rating
+                ), f"Guangdong should have highest rating, but {team} has {rating}"
 
 
 if __name__ == "__main__":

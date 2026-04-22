@@ -1,0 +1,240 @@
+"""Adapter wrapping :class:`MLBEnsembleModel` behind the standard Elo interface.
+
+The unified ``OddsComparator`` calls ``elo_system.predict(home, away)`` for
+every matchup. The :class:`MLBEnsembleModel` instead expects an
+:class:`MLBPredictionContext` carrying side information (rolling pythagorean
+runs, rest days, venue, optional pitcher IDs).
+
+This adapter:
+
+* Exposes a ``.ratings`` dict that the DAG can populate from the DB.
+* Pre-computes a per-team context cache (rolling runs scored/allowed, last
+  game date) from ``mlb_games`` for the current season.
+* Resolves a per-game venue lookup keyed by ``(home_team, away_team)`` from
+  ``unified_games`` for the upcoming-games window.
+* On ``predict(home, away)`` it builds an :class:`MLBPredictionContext` from
+  the cached side information and delegates to the ensemble. When inputs
+  are missing the underlying feature functions return 0, so the call
+  degrades gracefully to plain team Elo + home-field advantage.
+
+Pitcher Elo and bullpen ERA inputs are intentionally left at neutral
+defaults until those feeds are ingested. The remaining signals
+(pythagorean differential, rest, park factor) are computable from data
+already in the warehouse and provide measurable lift on team-only Elo.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Dict, Optional, Tuple
+
+from plugins.elo.mlb_elo_rating import MLBEloRating
+from plugins.elo.mlb_ensemble import MLBEnsembleModel, MLBPredictionContext
+
+
+@dataclass
+class _TeamSeasonStats:
+    """Rolling per-team season aggregates used to build prediction contexts."""
+
+    runs_scored: float = 0.0
+    runs_allowed: float = 0.0
+    last_game_date: Optional[date] = None
+
+
+@dataclass
+class MLBEnsembleAdapter:
+    """Drop-in replacement for :class:`MLBEloRating` that uses the ensemble.
+
+    Attributes:
+        ensemble: Underlying :class:`MLBEnsembleModel` whose ``team_elo``
+            backs the public ``ratings`` view.
+        venues: Map of ``(home_team, away_team)`` → venue name for upcoming
+            matchups (populated from ``unified_games``).
+        team_stats: Map of canonical team name → :class:`_TeamSeasonStats`.
+        reference_date: Reference "today" used to compute rest days. When
+            ``None`` (default) the system clock is used.
+    """
+
+    ensemble: MLBEnsembleModel = field(default_factory=MLBEnsembleModel)
+    venues: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    team_stats: Dict[str, _TeamSeasonStats] = field(default_factory=dict)
+    reference_date: Optional[date] = None
+
+    # ------------------------------------------------------------------
+    # Drop-in Elo interface
+    # ------------------------------------------------------------------
+    @property
+    def ratings(self) -> Dict[str, float]:
+        """Return the underlying team-Elo ratings dict (read-write view)."""
+        return self.ensemble.team_elo.ratings
+
+    @ratings.setter
+    def ratings(self, new_ratings: Dict[str, float]) -> None:
+        """Replace the underlying team-Elo ratings (used by ``_load_elo_system``)."""
+        self.ensemble.team_elo.ratings = dict(new_ratings or {})
+
+    def predict(self, home_team: str, away_team: str) -> float:
+        """Return ensemble P(home wins).
+
+        Builds an :class:`MLBPredictionContext` from cached side data, then
+        delegates to :meth:`MLBEnsembleModel.predict`. Missing context
+        degrades to neutral defaults that contribute zero adjustment.
+        """
+        ctx = self._build_context(home_team, away_team)
+        return self.ensemble.predict(ctx)
+
+    # ------------------------------------------------------------------
+    # Context construction
+    # ------------------------------------------------------------------
+    def _build_context(self, home_team: str, away_team: str) -> MLBPredictionContext:
+        """Assemble an :class:`MLBPredictionContext` for a matchup."""
+        h_stats = self.team_stats.get(home_team) or _TeamSeasonStats()
+        a_stats = self.team_stats.get(away_team) or _TeamSeasonStats()
+        venue = self.venues.get((home_team, away_team))
+        ref = self.reference_date or date.today()
+
+        return MLBPredictionContext(
+            home_team=home_team,
+            away_team=away_team,
+            venue=venue,
+            home_runs_scored_ytd=h_stats.runs_scored,
+            home_runs_allowed_ytd=h_stats.runs_allowed,
+            away_runs_scored_ytd=a_stats.runs_scored,
+            away_runs_allowed_ytd=a_stats.runs_allowed,
+            home_rest_days=_rest_days(h_stats.last_game_date, ref),
+            away_rest_days=_rest_days(a_stats.last_game_date, ref),
+            # Pitcher / bullpen feeds not yet ingested → neutral
+            home_pitcher_id=None,
+            away_pitcher_id=None,
+            home_bullpen_era=0.0,
+            away_bullpen_era=0.0,
+        )
+
+    # ------------------------------------------------------------------
+    # Population helpers (called by the DAG)
+    # ------------------------------------------------------------------
+    def populate_from_db(
+        self,
+        db,
+        season_year: Optional[int] = None,
+        reference_date: Optional[date] = None,
+    ) -> None:
+        """Populate ``team_stats``, ``form``, and ``venues`` from the warehouse.
+
+        Streams completed season games in chronological order so the
+        ensemble's :class:`RecentFormTracker` reflects each team's most
+        recent results — without this, ``ensemble.form`` stays empty after
+        ``populate_from_db`` and the form feature contributes 0 to every
+        prediction.
+
+        Args:
+            db: A :class:`plugins.db_manager.DBManager`-compatible object
+                exposing ``fetch_df(query, params)``.
+            season_year: Season to aggregate (defaults to the year of
+                ``reference_date`` or today).
+            reference_date: "Today" used for rest-day calculations and to
+                bound the season aggregates (only games before this date
+                contribute). Defaults to today.
+        """
+        ref = reference_date or date.today()
+        self.reference_date = ref
+        year = season_year or ref.year
+        self._load_team_stats_and_form(db, year, ref)
+        self._load_venues(db, ref)
+
+    def _load_team_stats_and_form(self, db, year: int, ref: date) -> None:
+        """Aggregate season runs/last-game-date and replay form per team.
+
+        A single chronological scan of completed games feeds two trackers:
+
+        * ``self.team_stats`` — cumulative runs scored/allowed and most
+          recent game date (used to derive Pythagorean expectation and
+          rest days).
+        * ``self.ensemble.form`` — :class:`RecentFormTracker` rolling
+          window of recent W/L outcomes per team.
+        """
+        query = """
+            SELECT game_date, home_team, away_team, home_score, away_score
+            FROM mlb_games
+            WHERE EXTRACT(YEAR FROM game_date) = :year
+              AND game_date < :ref
+              AND home_score IS NOT NULL
+              AND away_score IS NOT NULL
+              AND status IN ('Final', 'Game Over', 'Completed Early')
+            ORDER BY game_date
+        """
+        df = db.fetch_df(query, {"year": int(year), "ref": ref})
+        if df is None or df.empty:
+            return
+
+        stats: Dict[str, _TeamSeasonStats] = {}
+        # Reset form so re-population is idempotent.
+        self.ensemble.form._records.clear()
+
+        for row in df.itertuples(index=False):
+            gd = _coerce_date(row.game_date)
+            home, away = row.home_team, row.away_team
+            hs, as_ = float(row.home_score), float(row.away_score)
+
+            # Cumulative season stats
+            h = stats.setdefault(home, _TeamSeasonStats())
+            a = stats.setdefault(away, _TeamSeasonStats())
+            h.runs_scored += hs
+            h.runs_allowed += as_
+            a.runs_scored += as_
+            a.runs_allowed += hs
+            if h.last_game_date is None or gd > h.last_game_date:
+                h.last_game_date = gd
+            if a.last_game_date is None or gd > a.last_game_date:
+                a.last_game_date = gd
+
+            # Recent-form tracker (chronological order matters)
+            home_won = hs > as_
+            self.ensemble.form.update(home, home_won)
+            self.ensemble.form.update(away, not home_won)
+
+        self.team_stats = stats
+
+    def _load_venues(self, db, ref: date) -> None:
+        """Resolve venues for upcoming MLB games (today + next 3 days)."""
+        end = ref + timedelta(days=4)
+        query = """
+            SELECT home_team_name AS home_team,
+                   away_team_name AS away_team,
+                   venue
+            FROM unified_games
+            WHERE LOWER(sport) = 'mlb'
+              AND game_date >= :ref
+              AND game_date < :end
+              AND venue IS NOT NULL
+        """
+        df = db.fetch_df(query, {"ref": ref, "end": end})
+        if df is None or df.empty:
+            return
+        for row in df.itertuples(index=False):
+            self.venues[(row.home_team, row.away_team)] = row.venue
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+
+def _rest_days(last: Optional[date], ref: date) -> int:
+    """Return rest days between ``last`` and ``ref``, capped to ``[0, 7]``.
+
+    Returns 2 (neutral) when ``last`` is unknown.
+    """
+    if last is None:
+        return 2
+    delta = (ref - last).days - 1
+    return max(0, min(7, delta))
+
+
+def _coerce_date(value) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.strptime(str(value)[:10], "%Y-%m-%d").date()

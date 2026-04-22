@@ -28,20 +28,19 @@ GLICKO2_SPORTS = ["nba", "nhl", "mlb", "nfl"]
 
 # Sports that support direct bet placement (single-sport workflow)
 # Note: Most betting now goes through the unified portfolio_optimized_betting task
-SINGLE_BETTING_SPORTS = ["nba", "nhl", "ncaab", "wncaab", "tennis", "ligue1"]
+SINGLE_BETTING_SPORTS = (
+    []
+)  # Empty list - all betting now handled by portfolio optimized betting
 
 # Sports that should be included in the daily portfolio optimization
 PORTFOLIO_SPORTS = ALL_SPORTS
 
 # Betting threshold constants
-# These values control the identification of betting opportunities
-DEFAULT_THRESHOLD = 0.65  # Minimum Elo probability to consider a bet
+# These values control the identification of betting opportunities.
+# Per-sport confidence floors are enforced separately by
+# PortfolioOptimizer._get_sport_min_confidence.
 DEFAULT_MIN_EDGE = (
     0.03  # Minimum 3% edge (Elo prob - market prob) required (positive EV)
-)
-DEFAULT_MARKET_CONFIDENCE_CUTOFF = 0.55  # Market must show >55% for a side to bet
-DEFAULT_HIGH_EDGE_THRESHOLD = (
-    0.12  # 12% edge required for high-confidence bets (updated to match DAG)
 )
 
 # Confidence level thresholds (edge-based: larger edge = higher confidence)
@@ -74,10 +73,9 @@ MIN_CONFIDENCE_FOR_BET = 0.68  # Minimum confidence level required
 
 # Edge threshold constants (matches DAG values for consistency)
 MAX_EDGE_THRESHOLD = 0.40  # Maximum 40% edge cap (reject likely data errors)
-MARKET_CONFIDENCE_CUTOFF = 0.55  # Minimum market probability to consider a bet (55%)
 
 # Analysis thresholds
-MIN_CONFIDENCE_THRESHOLD = 0.0  # Set to 0.0 to rely on sport-specific elo_thresholds
+MIN_CONFIDENCE_THRESHOLD = 0.0  # Set to 0.0 to rely on edge-based confidence
 MIN_GAMES_FOR_ANALYSIS = 15  # Minimum games required for statistical analysis
 MIN_WINS_FOR_HIGH_CONFIDENCE = (
     5  # Minimum wins required for high confidence classification

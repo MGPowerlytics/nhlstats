@@ -511,23 +511,6 @@ class PortfolioOptimizer:
         self._db_parser = DatabaseRowParser()
         self._json_parser = JsonFileParser()
 
-    def _fetch_team_factor(self, game_id: str) -> float:
-        """Fetch team factor adjustment for a given game_id from database."""
-        if not game_id:
-            return 0.0
-        try:
-            from plugins.db_manager import default_db
-            query = """
-                SELECT adjustment
-                FROM team_factors
-                WHERE game_id = :game_id
-            """
-            result = default_db.fetch_scalar(query, {"game_id": game_id})
-            return float(result) if result is not None else 0.0
-        except Exception as e:
-            print(f"Error fetching team factor: {e}")
-            return 0.0
-
     def _fetch_betmgm_prob(
         self, game_id: Optional[str], bet_direction: str
     ) -> Optional[float]:
@@ -807,7 +790,9 @@ class PortfolioOptimizer:
             if opp.elo_prob < sport_min_confidence:
                 stats["confidence"] += 1
                 # Track which sport was filtered
-                sport_confidence_stats[opp.sport] = sport_confidence_stats.get(opp.sport, 0) + 1
+                sport_confidence_stats[opp.sport] = (
+                    sport_confidence_stats.get(opp.sport, 0) + 1
+                )
                 continue
 
             # Check Kelly fraction - must be positive for valid value bets
@@ -820,7 +805,9 @@ class PortfolioOptimizer:
         self._print_filter_stats(stats, sport_confidence_stats)
         return filtered
 
-    def _print_filter_stats(self, stats: Dict[str, int], sport_confidence_stats: Dict[str, int] = None) -> None:
+    def _print_filter_stats(
+        self, stats: Dict[str, int], sport_confidence_stats: Dict[str, int] = None
+    ) -> None:
         """Print filtering statistics."""
         if stats["segment"] > 0:
             print(
@@ -831,13 +818,13 @@ class PortfolioOptimizer:
                 f"🚫 Excluded {stats['edge']} due to low edge (< {self.min_edge:.1%})"
             )
         if stats["confidence"] > 0:
-            print(
-                f"🚫 Excluded {stats['confidence']} due to low confidence"
-            )
+            print(f"🚫 Excluded {stats['confidence']} due to low confidence")
             if sport_confidence_stats:
                 for sport, count in sport_confidence_stats.items():
                     sport_threshold = self._get_sport_min_confidence(sport)
-                    print(f"     - {sport.upper()}: {count} bets (< {sport_threshold:.1%})")
+                    print(
+                        f"     - {sport.upper()}: {count} bets (< {sport_threshold:.1%})"
+                    )
         if stats["kelly"] > 0:
             print(f"🚫 Excluded {stats['kelly']} due to zero/negative Kelly fraction")
 
@@ -953,14 +940,6 @@ class PortfolioOptimizer:
         else:
             print(f"📊 Loading opportunities from files for {date_str}...")
             opportunities = self.load_opportunities_from_files(date_str, sports)
-
-        # Apply team factor adjustments
-        for opp in opportunities:
-            if opp.game_id:
-                adjustment = self._fetch_team_factor(opp.game_id)
-                # Cap adjustment at +/- 5%
-                adjustment = max(-0.05, min(0.05, adjustment))
-                opp.elo_prob = max(0.0, min(1.0, opp.elo_prob + adjustment))
 
         filtered_opps = self.filter_opportunities(opportunities)
         allocations = self.calculate_portfolio_allocation(filtered_opps)

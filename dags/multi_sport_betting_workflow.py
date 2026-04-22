@@ -1,4 +1,3 @@
-from plugins.team_factors import fetch_team_factors
 """
 Multi-Sport Betting Workflow DAG
 Unified workflow for NBA, NHL, MLB, and NFL betting opportunities using Elo ratings.
@@ -63,8 +62,6 @@ class DailyBalanceSummary:
 SMTP_ALERTING_ENABLED = False
 
 # Betting strategy parameters - extracted from magic numbers for clarity and maintainability
-MARKET_CONFIDENCE_CUTOFF = 0.55  # Minimum market probability to consider a bet (55%)
-HIGH_EDGE_THRESHOLD = 0.12  # 12% edge required for high-confidence bets
 MIN_EDGE_THRESHOLD = 0.03  # Minimum 3% positive edge required (positive EV)
 MAX_EDGE_THRESHOLD = 0.40  # Maximum 40% edge cap (reject likely data errors)
 MAX_DAILY_RISK_PCT = 0.25  # Maximum 25% of bankroll risked per day
@@ -93,6 +90,8 @@ SMS_SUMMARY_MSG3_MAX = 8  # Maximum bet index to show in third summary SMS
 DAG_START_YEAR = 2026
 DAG_RETRY_COUNT = 2
 DAG_RETRY_DELAY_MINS = 10
+DEFAULT_SCHEDULE_DAY_OFFSETS = (-1, 0)
+MLB_SCHEDULE_DAY_OFFSETS = (-1, 0, 1, 2)
 
 
 def send_sms(to_number: str, subject: str, body: str) -> bool:
@@ -162,12 +161,11 @@ __all__ = [
 ]
 
 # Sport configurations
-# Thresholds optimized based on lift/gain analysis (see docs/VALUE_BETTING_THRESHOLDS.md)
-# NBA: 73% threshold captures top 20% of predictions with 1.39x lift
-# NHL: 66% threshold (lowered from 77% which was too conservative)
-# MLB: 67% threshold for consistent lift in high deciles
-# NFL: 70% threshold for strong discrimination
-# All thresholds validated on 55K+ historical games
+# Per-sport settings used by ingestion, Elo, and Kalshi market fetchers.
+# Betting decisions use a pure positive-EV strategy (edge >= MIN_EDGE_THRESHOLD)
+# with per-sport confidence floors enforced by
+# PortfolioOptimizer._get_sport_min_confidence — there is no per-sport
+# elo_threshold or market_confidence_cutoff anymore.
 SPORTS_CONFIG = {
     "nba": {
         "elo_module": "elo",
@@ -176,8 +174,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": True,
         "has_error_handling": True,
         "kalshi_function": "fetch_nba_markets",
-        "elo_threshold": 0.78,  # Optimized from 0.73 - focus on decile 9+ (69.2%+ win rate, lift 1.31+)
-        "market_confidence_cutoff": 0.52,  # Lower cutoff for predictable NBA markets
         "series_ticker": "KXNBAGAME",
         "team_mapping": {
             "ATL": "Hawks",
@@ -219,8 +215,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": True,
         "has_error_handling": False,
         "kalshi_function": "fetch_nhl_markets",
-        "elo_threshold": 0.70,  # Optimized from 0.66 - focus on decile 10 (71.8% win rate, lift 1.32+)
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for high-variance NHL
         "series_ticker": "KXNHLGAME",
         "team_mapping": {
             "ANA": "ANA",
@@ -262,10 +256,9 @@ SPORTS_CONFIG = {
         "games_module": "mlb_games",
         "downloader_class": "MLBGames",
         "use_dates_loop": True,
+        "schedule_day_offsets": MLB_SCHEDULE_DAY_OFFSETS,
         "has_error_handling": False,
         "kalshi_function": "fetch_mlb_markets",
-        "elo_threshold": 0.72,  # Optimized from 0.67 - focus on decile 10 (65.3% win rate, lift 1.23+)
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for high-variance MLB
         "series_ticker": "KXMLBGAME",
         "team_mapping": {
             "ARI": "Arizona Diamondbacks",
@@ -308,8 +301,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": True,
         "has_error_handling": False,
         "kalshi_function": "fetch_nfl_markets",
-        "elo_threshold": 0.75,  # Optimized from 0.70 - focus on decile 9+ (71.8%+ win rate, lift 1.32+)
-        "market_confidence_cutoff": MARKET_CONFIDENCE_CUTOFF,  # Medium cutoff for NFL
         "series_ticker": "KXNFLGAME",
         "team_mapping": {},  # Will be populated from database
     },
@@ -320,8 +311,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_epl_markets",
-        "elo_threshold": 0.45,  # Threshold for 3-way markets
-        "market_confidence_cutoff": MARKET_CONFIDENCE_CUTOFF,  # Standard cutoff for soccer
         "series_ticker": "KXEPLGAME",
         "team_mapping": {
             "MCI": "Man City",
@@ -348,8 +337,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_tennis_markets",
-        "elo_threshold": 0.60,
-        "market_confidence_cutoff": MARKET_CONFIDENCE_CUTOFF,  # Standard cutoff for tennis
         "series_ticker": "TENNIS",  # Placeholder
         "team_mapping": {},
     },
@@ -360,8 +347,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_ncaab_markets",
-        "elo_threshold": 0.78,  # Optimized from 0.72 - aligns with updated NBA pattern (focus on highest deciles)
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for college sports (higher variance)
         "series_ticker": "KXNCAAMBGAME",
         "team_mapping": {},
     },
@@ -372,8 +357,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_ligue1_markets",
-        "elo_threshold": 0.45,  # Threshold for 3-way markets
-        "market_confidence_cutoff": MARKET_CONFIDENCE_CUTOFF,  # Standard cutoff for soccer
         "series_ticker": "KXLIGUE1GAME",
         "team_mapping": {
             "PSG": "PSG",
@@ -421,8 +404,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_wncaab_markets",
-        "elo_threshold": 0.78,  # Optimized from 0.72 - aligns with updated basketball pattern (focus on highest deciles)
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for college sports (higher variance)
         "series_ticker": "KXNCAAWBGAME",
         "team_mapping": {},
     },
@@ -433,8 +414,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_unrivaled_markets",
-        "elo_threshold": 0.70,  # Similar to other basketball leagues
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for experimental league
         "series_ticker": "KXUNRIVALED",
         "team_mapping": {
             "ROSE": "Rose BC",
@@ -453,8 +432,6 @@ SPORTS_CONFIG = {
         "use_dates_loop": False,
         "has_error_handling": False,
         "kalshi_function": "fetch_cba_markets",
-        "elo_threshold": 0.70,  # Similar to other basketball leagues
-        "market_confidence_cutoff": 0.58,  # Higher cutoff for international league
         "series_ticker": "KXCBAGAME",  # Placeholder for future Kalshi markets
         "team_mapping": {
             "GUA": "Guangdong Southern Tigers",
@@ -482,6 +459,27 @@ SPORTS_CONFIG = {
 }
 
 
+def _get_schedule_dates_to_process(
+    sport: str, date_str: str, use_dates_loop: bool = True
+) -> List[str]:
+    """Get schedule dates to ingest/load for a sport.
+
+    MLB intentionally loads two future dates to match the current Kalshi
+    lookahead window; other date-loop sports remain on yesterday + today.
+    """
+    if not use_dates_loop:
+        return [date_str]
+
+    current_date = datetime.strptime(date_str, "%Y-%m-%d")
+    schedule_day_offsets = SPORTS_CONFIG.get(sport, {}).get(
+        "schedule_day_offsets", DEFAULT_SCHEDULE_DAY_OFFSETS
+    )
+    return [
+        (current_date + timedelta(days=day_offset)).strftime("%Y-%m-%d")
+        for day_offset in schedule_day_offsets
+    ]
+
+
 def download_games(sport: str, **context: Any) -> None:
     """Download latest games for a sport using registry pattern."""
     print(f"📥 Downloading {sport.upper()} games...")
@@ -492,10 +490,6 @@ def download_games(sport: str, **context: Any) -> None:
 
     # Get date from context
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
-
-    # Calculate yesterday to ensure we capture final scores from previous day
-    current_date = datetime.strptime(date_str, "%Y-%m-%d")
-    yesterday_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
 
     config = SPORTS_CONFIG[sport]
     module_name = config["games_module"]
@@ -508,7 +502,7 @@ def download_games(sport: str, **context: Any) -> None:
     downloader_class = getattr(module, class_name)
 
     # Determine dates to process
-    dates_to_process = [yesterday_str, date_str] if use_dates_loop else [date_str]
+    dates_to_process = _get_schedule_dates_to_process(sport, date_str, use_dates_loop)
 
     # Execute downloads
     for d_str in dates_to_process:
@@ -535,11 +529,7 @@ def load_data_to_db(sport: str, **context: Any) -> None:
     print(f"💾 Loading {sport.upper()} games into database...")
 
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
-
-    # Calculate yesterday to ensure we update final scores
-    current_date = datetime.strptime(date_str, "%Y-%m-%d")
-    yesterday_str = (current_date - timedelta(days=1)).strftime("%Y-%m-%d")
-    dates_to_process = [yesterday_str, date_str]
+    dates_to_process = _get_schedule_dates_to_process(sport, date_str)
 
     # Create DBManager instance with default connection string
     db_manager = _create_db_manager()
@@ -649,11 +639,7 @@ def _load_full_history_sport(sport: str, date_str: str, loader: Any) -> str:
         Always returns "all" to indicate full history was loaded
     """
     # Map sport names to CSV history identifiers
-    csv_sport_map = {
-        "tennis": "Tennis",
-        "epl": "EPL",
-        "ligue1": "Ligue1"
-    }
+    csv_sport_map = {"tennis": "Tennis", "epl": "EPL", "ligue1": "Ligue1"}
 
     csv_sport = csv_sport_map.get(sport, sport)
     loader.load_csv_history(csv_sport, target_date=date_str)
@@ -717,14 +703,22 @@ def _initialize_elo_system(sport: str, config) -> Any:
 
 
 def _load_ligue1_ratings_from_csv(elo) -> None:
-    """Load Ligue 1 ratings from CSV file.
+    """Load Ligue 1 ratings from CSV file if available.
 
     Args:
         elo: Elo rating instance to populate with team ratings
     """
     import csv
 
-    with open("data/ligue1_current_elo_ratings.csv", "r") as f:
+    ratings_path = Path("data/ligue1_current_elo_ratings.csv")
+    if not ratings_path.exists():
+        print(
+            f"⚠️ Missing Ligue 1 ratings seed at {ratings_path}; "
+            "continuing with empty ratings"
+        )
+        return
+
+    with ratings_path.open("r") as f:
         reader = csv.DictReader(f)
         for row in reader:
             elo.ratings[row["team"]] = float(row["rating"])
@@ -1084,7 +1078,45 @@ def _load_elo_system(sport: str, elo_ratings: dict) -> object:
     else:
         elo_system.ratings = elo_ratings
 
+    if sport == "mlb":
+        elo_system = _maybe_wrap_mlb_with_ensemble(elo_system)
+
     return elo_system
+
+
+def _maybe_wrap_mlb_with_ensemble(elo_system):
+    """Wrap an :class:`MLBEloRating` in an ensemble adapter when enabled.
+
+    The DAG calls ``OddsComparator`` with whatever this returns, so the
+    adapter must preserve the ``predict(home, away)``/``ratings`` surface.
+    Falls back to the original ``elo_system`` on any error so a bug in the
+    adapter cannot break the daily MLB pipeline.
+    """
+    try:
+        from elo_update_config import MLB_USE_ENSEMBLE
+    except ImportError:
+        from plugins.elo.elo_update_config import MLB_USE_ENSEMBLE
+
+    if not MLB_USE_ENSEMBLE:
+        return elo_system
+
+    try:
+        from plugins.elo.mlb_ensemble_adapter import MLBEnsembleAdapter
+        from plugins.db_manager import default_db
+
+        adapter = MLBEnsembleAdapter()
+        # Seed ensemble's underlying team_elo with the trained ratings
+        adapter.ratings = dict(getattr(elo_system, "ratings", {}) or {})
+        adapter.populate_from_db(default_db)
+        print(
+            f"✓ MLB ensemble adapter active "
+            f"({len(adapter.team_stats)} teams w/ stats, "
+            f"{len(adapter.venues)} venues cached)"
+        )
+        return adapter
+    except Exception as exc:  # noqa: BLE001 - intentional broad catch
+        print(f"⚠️ MLB ensemble adapter failed to initialize: {exc} — using plain Elo")
+        return elo_system
 
 
 def _setup_ncaab_name_mapping() -> None:
@@ -1140,7 +1172,11 @@ def _setup_ncaab_name_mapping() -> None:
 
 
 def _find_betting_opportunities(
-    sport: str, elo_system: object, elo_ratings: dict, config: dict
+    sport: str,
+    elo_system: object,
+    elo_ratings: dict,
+    config: dict,
+    date_str: Optional[str] = None,
 ) -> list:
     """Find betting opportunities using OddsComparator.
 
@@ -1148,7 +1184,11 @@ def _find_betting_opportunities(
         sport: Sport name
         elo_system: Initialized Elo system with ratings
         elo_ratings: Raw Elo ratings dictionary
-        config: Sport configuration from SPORTS_CONFIG
+        config: Sport configuration from SPORTS_CONFIG (currently unused but
+            retained for forward compatibility)
+        date_str: Optional reference date in ``YYYY-MM-DD`` form. Pass the
+            Airflow ``ds`` here so "today" filtering is deterministic across
+            runs and timezones.
 
     Returns:
         List of betting opportunity dictionaries
@@ -1160,36 +1200,23 @@ def _find_betting_opportunities(
     )
 
     comparator = OddsComparator()
-    elo_threshold = config["elo_threshold"]
-    market_confidence_cutoff = config.get(
-        "market_confidence_cutoff", MARKET_CONFIDENCE_CUTOFF
-    )
 
-    # Enable high-edge disagreement for sports where Elo has shown strong predictive power
-    # NBA: Predictable league, Elo model should be strong
-    # Tennis: Individual sport, Elo should be accurate
-    # Other sports: Higher variance, be more conservative
-    enable_high_edge_disagreement = sport in ["nba", "tennis"]
-    high_edge_threshold = HIGH_EDGE_THRESHOLD  # 12% edge required for disagreement bets
-
-    # Create betting thresholds
+    # Pure positive-EV strategy: only edge bounds are needed. Per-sport
+    # confidence floors are enforced downstream by
+    # PortfolioOptimizer._get_sport_min_confidence.
     thresholds = BettingThresholds(
-        threshold=elo_threshold,
         min_edge=MIN_EDGE_THRESHOLD,
         max_edge=MAX_EDGE_THRESHOLD,
-        market_confidence_cutoff=market_confidence_cutoff,
-        enable_high_edge_disagreement=enable_high_edge_disagreement,
-        high_edge_threshold=high_edge_threshold,
     )
 
-    # Create betting opportunity config
-    config = BettingOpportunityConfig(
+    opportunity_config = BettingOpportunityConfig(
         sport=sport,
         elo_system=elo_system,
         thresholds=thresholds,
+        date_str=date_str,
     )
 
-    return comparator.find_opportunities(config)
+    return comparator.find_opportunities(opportunity_config)
 
 
 def _deduplicate_bets(good_bets: list) -> list:
@@ -1282,9 +1309,12 @@ def identify_good_bets(sport: str, **context: Any) -> None:
     if sport == "ncaab":
         _setup_ncaab_name_mapping()
 
-    # Find betting opportunities
+    # Find betting opportunities (use Airflow ds for deterministic "today")
     config = SPORTS_CONFIG[sport]
-    good_bets = _find_betting_opportunities(sport, elo_system, elo_ratings, config)
+    date_str = context.get("ds") or datetime.now().strftime("%Y-%m-%d")
+    good_bets = _find_betting_opportunities(
+        sport, elo_system, elo_ratings, config, date_str=date_str
+    )
 
     # Deduplicate bets
     good_bets = _deduplicate_bets(good_bets)
@@ -1314,14 +1344,14 @@ def place_bets_on_recommendations(sport: str, **context: Any) -> None:
 
 
 def _initialize_kalshi_client() -> Any:
-    """Initialize Kalshi client with credentials from kalshkey file.
+    """Initialize Kalshi client with runtime-injected credentials.
 
     Returns:
         Initialized KalshiBetting client
     """
     from kalshi_betting import KalshiBetting, KalshiConfig
 
-    config = KalshiConfig.from_kalshkey(production=True)
+    config = KalshiConfig.from_env(production=True)
     return KalshiBetting(config=config)
 
 
@@ -1451,7 +1481,7 @@ def place_portfolio_optimized_bets(**context: Any) -> None:
     print(f"{'=' * SEPARATOR_WIDTH}\n")
 
     try:
-        # Initialize Kalshi client (loads credentials from kalshkey automatically)
+        # Initialize Kalshi client from runtime environment secrets
         kalshi_client = _initialize_kalshi_client()
 
         # Initialize portfolio manager
@@ -1499,32 +1529,36 @@ def _initialize_kalshi_client_for_summary() -> Optional[Any]:
     Returns:
         KalshiBetting client if credentials are valid, None otherwise
     """
-    import os
-    from pathlib import Path
-
-    api_key_id = os.getenv("KALSHI_API_KEY")
-    private_key_path = Path("/opt/airflow/kalshi_private_key.pem")
-
-    if not api_key_id or not private_key_path.exists():
-        print("⚠️  Missing Kalshi credentials - cannot fetch balance")
-        return None
-
     try:
         from kalshi_betting import KalshiBetting, KalshiConfig
 
-        config = KalshiConfig(
-            api_key_id=api_key_id,
-            private_key_path=str(private_key_path),
-            production=True,
-        )
+        config = KalshiConfig.from_env(production=True)
         client = KalshiBetting(config=config)
         return client
+    except ValueError as e:
+        print(f"⚠️  Missing Kalshi credentials - cannot fetch balance: {e}")
+        return None
     except ImportError as e:
         print(f"❌ Failed to import KalshiBetting: {e}")
         return None
     except Exception as e:
         print(f"❌ Failed to initialize Kalshi client: {e}")
         return None
+
+
+def _get_kalshi_runtime_secret_error() -> Optional[str]:
+    """Return a runtime Kalshi secret error message, if one exists."""
+    from kalshi_betting import load_runtime_kalshi_env
+
+    try:
+        _api_key_id, private_key_path = load_runtime_kalshi_env(env=os.environ)
+    except ValueError as exc:
+        return str(exc)
+
+    if not Path(private_key_path).is_file():
+        return f"Kalshi private key is not available at {private_key_path}"
+
+    return None
 
 
 def _fetch_current_balance(client: Any) -> Tuple[float, float]:
@@ -1750,18 +1784,7 @@ for sport in ALL_SPORTS:
         dag=dag,
     )
 
-    # Fetch team factors for MLB only
-    if sport == 'mlb':
-        fetch_team_factors = PythonOperator(
-            task_id=f"{sport}_fetch_team_factors",
-            python_callable=fetch_team_factors,
-            op_kwargs={'sport': sport},
-            dag=dag,
-        )
-        markets_task >> fetch_team_factors
-        fetch_team_factors >> bets_task
-    else:
-        markets_task >> bets_task
+    markets_task >> bets_task
 
     load_bets_task = PythonOperator(
         task_id=f"{sport}_load_bets_db",
@@ -1841,6 +1864,7 @@ clv_update_task = PythonOperator(
 # CLV update runs after portfolio betting
 portfolio_betting_task >> clv_update_task
 
+
 # Add reconcile_placed_bets task – runs after CLV update, before daily summary
 def _run_reconcile_placed_bets(**_kwargs: Any) -> dict:
     """Airflow callable: reconcile local placed_bets against Kalshi state.
@@ -1850,6 +1874,11 @@ def _run_reconcile_placed_bets(**_kwargs: Any) -> dict:
     hour.  Bets whose ``created_at`` is within the last 15 minutes are left
     for the next reconciliation cycle.
     """
+    secret_error = _get_kalshi_runtime_secret_error()
+    if secret_error:
+        print(f"⚠️  Skipping reconcile_placed_bets: {secret_error}")
+        return {"status": "skipped", "reason": secret_error}
+
     from bet_reconciliation import reconcile_all
 
     return reconcile_all(cutoff_minutes=15)

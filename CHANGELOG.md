@@ -1,3 +1,447 @@
+## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
+
+### Removed dead code paths
+- `plugins/odds_comparator.py::BettingThresholds` trimmed to `min_edge` /
+  `max_edge` only. The fields `threshold`,
+  `market_confidence_cutoff`, `enable_high_edge_disagreement`, and
+  `high_edge_threshold` were never read by `OddsComparator` (per-sport
+  confidence floors live in `PortfolioOptimizer._get_sport_min_confidence`).
+- `plugins/constants.py` removed `DEFAULT_THRESHOLD`,
+  `DEFAULT_MARKET_CONFIDENCE_CUTOFF`, `DEFAULT_HIGH_EDGE_THRESHOLD`,
+  `MARKET_CONFIDENCE_CUTOFF` — all unused.
+- `dags/multi_sport_betting_workflow.py::SPORTS_CONFIG` no longer carries
+  `elo_threshold` or `market_confidence_cutoff` for any sport (dead keys).
+- `plugins/team_factors.py` deleted, along with its caller chain
+  (`PortfolioOptimizer._fetch_team_factor` and the MLB-only
+  `fetch_team_factors_task` branch). The module wrote to a `team_factors`
+  table no consumer read, used a `team_id` schema incompatible with bet team
+  names, and `_fetch_team_factor` was a documented no-op.
+- `plugins/kalshi_markets.py` dropped the `_date_str` parameter from
+  `_fetch_sport_markets` and `fetch_cba_markets`. The Kalshi API only returns
+  currently-active markets — the param was unused since inception. Public
+  per-sport `fetch_<sport>_markets(date_str=None)` signatures are unchanged
+  for Airflow callable compatibility.
+
+### Bug fixes
+- `plugins/elo/mlb_ensemble_adapter.py::populate_from_db` now seeds
+  `ensemble.form` (RecentFormTracker) chronologically alongside
+  `team_stats`. Previously the form tracker stayed empty so its weighted
+  contribution to predictions was always 0. Idempotent: `_records` is
+  cleared on re-population.
+- `plugins/odds_comparator.py::_get_games` accepts an explicit `date_str`
+  (sourced from Airflow's `ds`) instead of `datetime.now()`, fixing
+  off-by-one date boundaries in non-UTC scheduler environments.
+- `dags/multi_sport_betting_workflow.py::identify_good_bets` now extracts
+  `context["ds"]` and threads it through `_find_betting_opportunities` →
+  `BettingOpportunityConfig.date_str`.
+
+### Tests
+- New `tests/test_mlb_ensemble_adapter.py` cases:
+  `test_populate_from_db_populates_recent_form_tracker` and
+  `test_populate_from_db_form_is_idempotent`.
+- Cleaned dead `BettingThresholds` kwargs and `elo_threshold` /
+  `market_confidence_cutoff` / `_date_str` assertions from
+  `tests/test_odds_comparator.py`,
+  `tests/test_high_edge_disagreement.py`,
+  `tests/test_negative_edge_fix.py`,
+  `tests/test_portfolio_optimizer.py`,
+  `tests/test_dag_smoke_multi_sport.py`,
+  `tests/test_cba_integration.py`,
+  `tests/test_unrivaled_integration.py`.
+
+## [Earlier] — MLB pipeline audit & remediation
+
+### Summary
+
+Full ingestion → bet-placement audit of the MLB pipeline surfaced 11 defects
+that were collectively producing biased Elo ratings, NULL bet metadata, and
+silently dead advanced-model code. All 11 are now fixed. The model now uses
+an ensemble of team Elo + pythagorean differential + rest + park factor, and
+trains on 14,915 final regular-season games stretching back to 2021.
+
+### Ingestion hygiene
+- `plugins/db_loader.py::_load_mlb_schedule()` now (a) skips non-regular-season
+  `game_type` values (S/E/A/W exhibition + spring training) and (b) writes
+  ``NULL`` scores for any game whose ``status`` does not indicate it is final.
+  Previously the MLB Stats API's literal ``"score": 0`` for un-played previews
+  was inserted as a real 0–0 final and silently rewarded every visiting team
+  in the Elo ladder.
+- `plugins/elo/elo_update_config.py::_get_mlb_query()` defense-in-depth filter
+  now requires ``status IN ('Final', 'Game Over', 'Completed Early')``.
+- 5 poisoned 0–0 preview rows scrubbed from `mlb_games`/`unified_games`.
+
+### Elo configuration
+- MLB Elo retuned to ``K=4.0`` / ``HA=20.0`` (was ``10.0`` / ``75.0``) per the
+  empirical 2021-2024 grid search documented in
+  ``plugins/elo/mlb_elo_rating.py`` (+1.68 acc / +3.01% relative).
+
+### Persistence
+- `plugins/bet_loader.py::load_bets_for_date()` now upper-cases the sport
+  before constructing ``BetContext`` so casing matches everywhere.
+- Backfilled all `data/mlb/bets_*.json` history into `bet_recommendations`
+  (548 MLB rows, 2026-03-23 → 2026-04-21) and ran `backfill_bet_metrics` so
+  every historical MLB `placed_bets` row has its `elo_prob`/`market_prob`/
+  `edge`/`home_team`/`away_team`/`bet_on` populated.
+
+### Historical backfill
+- Loaded 14,915 final MLB games (seasons 2021–2026) into `mlb_games` and
+  `unified_games` via the hardened loader. Elo will retrain on the full
+  history on the next DAG run.
+
+### Cleanup
+- Removed all "NUCLEAR DEBUG" prints from `plugins/bet_loader.py`.
+- `plugins/portfolio_optimizer.py::_fetch_team_factor()` is now a documented
+  ``0.0`` stub; the previous implementation queried a column layout that does
+  not exist and silently returned 0 in production anyway.
+- `dags/multi_sport_betting_workflow.py` — fixed variable shadowing where
+  the imported `fetch_team_factors` callable was being overwritten by the
+  PythonOperator instance bound to the same name.
+- Removed dead `MLBEloRating.calculate_current_elo_ratings` and
+  `create_team_factors_table` from `plugins/elo/mlb_elo_rating.py` (no
+  callers; supplanted by `plugins/team_factors.py`).
+
+### Advanced model wiring
+- `plugins/elo/mlb_ensemble_adapter.py` (new) wraps `MLBEnsembleModel` behind
+  the standard ``predict(home, away)`` / ``ratings`` interface used by
+  ``OddsComparator``. Pre-populates per-team season runs (RS/RA), last-game
+  date for rest, and per-game venues from `mlb_games` + `unified_games`.
+- `dags/multi_sport_betting_workflow.py::_load_elo_system()` now wraps the
+  MLB Elo system in the adapter when ``MLB_USE_ENSEMBLE`` is True (default).
+  Falls back to plain Elo on any initialization error.
+- New ``MLB_USE_ENSEMBLE`` flag in `plugins/elo/elo_update_config.py`.
+
+### Tests
+- New: `tests/test_mlb_schedule_loader.py` (10 tests) locks in score-NULL
+  and game_type-filter behaviour.
+- New: `tests/test_mlb_ensemble_adapter.py` (8 tests) covers the drop-in
+  interface, DB population, pythagorean lift, park factor, rest-day helper,
+  and graceful degradation when context caches are empty.
+
+---
+
+## Repair MLB unified game identity sync
+
+### Problem
+
+MLB schedule ingestion wrote rows only to `mlb_games`, while Kalshi market
+ingestion created synthetic MLB `unified_games.game_id` values from team/date
+slugs. That split the canonical identity in two: historical stats looked in
+`unified_games`, MLB box-score fetches require native MLB `gamePk` IDs, and
+odds/recommendation consumers could not reliably join schedule rows, Kalshi
+odds, and downstream stats for the same MLB game.
+
+### Fix
+
+- Updated `plugins/db_loader.py::_load_mlb_schedule()` to upsert MLB schedule
+  rows into `unified_games` as well as `mlb_games`, using the native MLB
+  `gamePk` (stored as the canonical string `game_id`) plus schedule metadata,
+  team names, scores, start time, and venue.
+- Updated `plugins/kalshi_markets.py` so MLB markets first resolve against the
+  native MLB schedule identity, reuse that `gamePk` in `unified_games` and
+  `game_odds`, and migrate any matching synthetic MLB odds/unified rows onto
+  the canonical native ID. Reconciliation now explicitly prefers `mlb_games`
+  native IDs over synthetic `MLB_*` rows and rewrites stale synthetic
+  `game_odds.odds_id` values during reruns so both Kalshi and pre-existing
+  bookmaker MLB odds remain idempotent on the native game ID.
+- Hardened `plugins/kalshi_markets.py::StandardTickerParser` for MLB-only
+  compact team payloads so 5-character Kalshi codes (for example `LADSF`,
+  `CWSAZ`, `SDCOL`, `BALKC`, `CINTB`) are split deterministically via title
+  validation, including live abbreviated `Winner?` forms such as
+  `Los Angeles D vs San Francisco`, `Chicago WS vs Arizona`, and
+  `Cincinnati vs Tampa Bay`, while still failing closed on ambiguous or
+  unverifiable titles. These markets now persist back onto the correct native
+  MLB game IDs instead of being dropped.
+- Hardened `plugins/kalshi_markets.py::_reconcile_mlb_game_identity()` so the
+  MLB identity migration rewrites dependent `team_game_stats` and
+  `mlb_team_game_stats_ext` rows before removing the synthetic
+  `unified_games` row, all inside one DB transaction. That prevents FK failures
+  from leaving partial synthetic/native splits on reruns.
+- Further hardened `plugins/kalshi_markets.py::_reconcile_mlb_game_identity()`
+  to backfill the canonical native MLB `unified_games` row from schedule data
+  inside the same transaction before any destructive synthetic→native
+  dependency migration, and to fail closed when that native parent row cannot
+  be established safely.
+- Updated `dags/multi_sport_betting_workflow.py` so MLB schedule download/load
+  explicitly covers `execution_date-1`, `execution_date`, `execution_date+1`,
+  and `execution_date+2`, matching the current Kalshi MLB lookahead while
+  leaving other sports on their existing horizons.
+- Updated `dags/historical_stats_daily.py` so the MLB stats task sources its
+  daily game list from `mlb_games`, guaranteeing native MLB IDs are passed to
+  `MLBBoxScoreFetcher`.
+- Added targeted regression coverage in
+  `tests/test_kalshi_markets.py`, `tests/test_mlb_unified_sync_hotfix.py`, and
+  `tests/test_dag_smoke_multi_sport.py` for MLB schedule→`unified_games`
+  writes, compact MLB ticker parsing, Kalshi MLB native-ID reuse, MLB
+  historical stats game lookup, and the extended MLB schedule ingest horizon.
+
+## [Unreleased] — Restore Airflow scheduling and harden Ligue 1 Elo seeding
+
+### Problem
+
+Today’s `multi_sport_betting_workflow` miss was caused by Airflow service drift:
+the stack was running without `airflow-dag-processor`, `airflow-worker`, and
+`airflow-triggerer`, so the DAG was never registered in the `dag` table and the
+scheduler had nothing to fire at 5 AM. Once the DAG processor came back, Airflow
+re-created the active DAG rows in a paused state. During recovery, both the
+scheduled catch-up run and a manual catch-up run hit the same secondary bug:
+`ligue1_update_elo` hard-failed if `data/ligue1_current_elo_ratings.csv` was
+missing.
+
+### Fix
+
+- Restored the missing Airflow runtime services so DAG parsing, scheduling, and
+  Celery task execution resume normally.
+- Cleaned stale serialized example DAG metadata that was breaking Airflow CLI
+  commands after example bundles were disabled.
+- Unpaused the four active production DAGs in Airflow metadata so future runs
+  schedule normally again.
+- Updated `_load_ligue1_ratings_from_csv()` in
+  `dags/multi_sport_betting_workflow.py` to treat a missing Ligue 1 seed CSV as
+  a warning and continue with empty/default ratings instead of failing the DAG.
+- Updated `reconcile_placed_bets` in
+  `dags/multi_sport_betting_workflow.py` to skip cleanly when Kalshi runtime
+  secrets are unavailable, matching the graceful behavior already used by
+  `portfolio_optimized_betting` instead of leaving the daily DAG stuck in
+  retries.
+- Added `tests/test_ligue1_elo_seed_fallback.py` to lock in the missing-file
+  fallback behavior, plus `tests/test_reconcile_bets_secret_guard.py` for the
+  missing-secret reconcile guard.
+
+## [Unreleased] — Fix `DBManager.fetch_df` under pandas 3.x + SQLAlchemy 1.4
+
+### Problem
+
+`DBManager.fetch_df` raised `TypeError: Query must be a string unless using
+sqlalchemy.` whenever it was called (breaking MLB Elo updates, among other
+tasks). Root cause: pandas 3.x no longer recognises SQLAlchemy 1.4
+`Connection` objects as SQLAlchemy connectables and falls through to the
+DBAPI code path, which requires a plain string and a DBAPI cursor. Airflow
+pins `sqlalchemy<2.0`, so we cannot fix this by upgrading SQLAlchemy.
+
+### Fix
+
+`plugins/db_manager.py::DBManager.fetch_df` now executes the query through
+SQLAlchemy directly (`conn.execute(text(query), params)`) and constructs the
+`DataFrame` from `result.fetchall()` / `result.keys()`, bypassing
+`pd.read_sql` entirely. Behaviour for callers is unchanged.
+
+## [Unreleased] — Remove import workarounds; rely on installed packages
+
+### Problem
+
+Many plugin modules wrapped third-party imports (`kalshi_python`, `nba_api`,
+`nfl_data_py`, `bs4`, `sklearn`) and intra-package imports
+(`plugins.db_manager`, `plugins.bet_tracker`, `plugins.kalshi_betting`,
+`plugins.naming_resolver`, `plugins.elo.elo_update_config`) in `try/except
+ImportError` blocks. This was a workaround for historical environments where
+those packages were missing from `sys.path`. In the current Docker setup all
+required packages are pinned in `requirements.txt` and installed into
+`/home/airflow/.local/lib/python3.12/site-packages` (which is on `sys.path`
+in every Airflow worker, scheduler, and dag-processor process), so the
+fallbacks were both dead code and a maintenance hazard — they masked real
+import failures and produced runtime `None`-attribute errors instead of
+clear `ImportError`s.
+
+### Fix
+
+Removed try/except import workarounds and replaced them with direct, canonical
+absolute imports in:
+
+- `plugins/kalshi_markets.py` (`kalshi_python`, `db_manager`,
+  `naming_resolver`)
+- `plugins/team_factors.py` (hoisted `db_manager` to module top)
+- `plugins/ev_accuracy_report.py`, `plugins/update_clv_data.py`,
+  `plugins/utils.py` (`db_manager`)
+- `plugins/elo/elo_update_helpers.py` (`elo_update_config`)
+- `plugins/nfl_games.py`, `plugins/stats/nfl_box_score.py` (`nfl_data_py`,
+  `pandas`)
+- `plugins/stats/nba_box_score.py` (`nba_api`)
+- `plugins/stats/soccer_box_score.py` (`bs4`)
+- `plugins/bet_reconciliation.py` (`bet_tracker`, `kalshi_betting`)
+- `plugins/elo/mlb_ensemble.py`, `plugins/elo/nba_elo_rating.py`
+  (`numpy`, `sklearn`)
+
+Removed the now-unreachable `if not NFL_DATA_AVAILABLE: return 0` runtime
+guard in `plugins/nfl_games.py`. Module-level constants
+`KALSHI_AVAILABLE`, `_NBA_API_AVAILABLE`, `_NFL_DATA_AVAILABLE`,
+`NFL_DATA_AVAILABLE` are retained as `True` for backwards compatibility with
+tests that still patch them.
+
+### Verification
+
+- All 82 modules under `plugins/` import cleanly inside the worker container
+  (`pkgutil.walk_packages` smoke import: 82 ok / 0 fail).
+- `tests/test_fetch_markets_smoke.py` (30/30) and
+  `tests/test_stats_fetchers_mlb_nfl.py` (12/12) pass inside the container.
+  The pre-existing `test_fetch_tennis_multiple_series` failure is unrelated
+  to imports and was failing before this change.
+
+---
+
+## [Unreleased] — Hotfix: graceful optional-import handling in plugins/stats
+
+### Problem
+
+Airflow's plugin scanner imports every `.py` file under `/opt/airflow/plugins`
+as if it were an Airflow plugin. `plugins/stats/__init__.py` eagerly executed
+`from plugins.stats.nba_box_score import NBABoxScoreFetcher`, and that module
+in turn did `from nba_api.stats.endpoints import ...` at module import time.
+
+In task-runner subprocesses where `nba_api` isn't on `sys.path`, the package
+import raised `ModuleNotFoundError: No module named 'nba_api'`, which then
+cascaded to every other box-score module that touched `plugins.stats.*`
+(MLB, NFL, CBB), corrupting Airflow's plugin registry and obscuring task
+errors. Today's `multi_sport_betting_workflow` run failed with orphaned
+`*_place_bets` task instances, blocking `portfolio_optimized_betting` and
+preventing 8 positive-EV bets (3 MLB + 5 EPL) from being placed.
+
+### Fix
+
+- **`plugins/stats/__init__.py`** — replaced the eager import block with a
+  `_try_import()` helper that wraps each sport-specific fetcher in a
+  `try/except`, logs a warning on failure, and only adds successfully
+  loaded fetchers to `__all__`. `BoxScoreFetcher` (the abstract base) is
+  still imported eagerly because it has no optional deps.
+- **`plugins/stats/nba_box_score.py`** — wrapped the top-level
+  `from nba_api.stats.endpoints import ...` in `try/except ImportError`,
+  setting the symbols to `None` and a `_NBA_API_AVAILABLE = False` flag
+  so the module always imports cleanly. Failures now surface only when a
+  caller actually invokes the NBA fetcher.
+
+### Operational recovery
+
+- Deleted 6 orphaned `*_place_bets` task instances from today's dagrun
+  (these tasks no longer exist in the DAG since `SINGLE_BETTING_SPORTS=[]`).
+- Re-ran the cleared downstream chain; `portfolio_optimized_betting`
+  succeeded, placing 8 bets ($32.40 risked, $13.16 expected return).
+
+### Verification
+
+```bash
+# Confirm package imports even without nba_api
+python -c "import sys; sys.modules['nba_api']=None; \
+  import plugins.stats as s; print(s.__all__)"
+```
+
+All 8 fetchers are still exported when the optional SDK is missing.
+
+## [Unreleased] — MLB Elo Phase 2: Advanced Feature Stack (+2.5–4.0% projected)
+
+### Summary
+
+Builds on the Phase 1 parameter retune by adding a layered feature stack
+on top of the team-Elo base. Each feature contributes a *capped, calibrated
+Elo-point adjustment* applied to the home rating before the sigmoid, so
+the existing single-number Elo workflow is preserved for callers that want
+it.
+
+### New modules
+
+- **`plugins/elo/mlb_features.py`** — pure feature engineering helpers:
+  - `pythagorean_win_pct` / `pythagorean_elo_adjustment` (Bill James, exp 1.83)
+  - `park_factor_elo_adjustment` with 2021-2024 BR park factors
+  - `bullpen_elo_adjustment` (3 Elo per 0.10 ERA differential)
+  - `rest_elo_adjustment` (saturates at 2 days, 6 Elo per day)
+  - `RecentFormTracker` (rolling last-10 win pct → Elo)
+  - `RestTracker` (auto-derives days-rest from game stream)
+  - `bayesian_shrink` (preseason regression toward prior with pseudocount)
+  - All adjustments hard-clipped to ±50 Elo (`MAX_FEATURE_ELO`).
+- **`plugins/elo/mlb_pitcher_elo.py`** — separate `PitcherEloLadder`
+  keyed by pitcher ID (K=6, weight=0.35). MLB feed already exposes
+  `gameData.probablePitchers.{home,away}` with stable IDs.
+- **`plugins/elo/mlb_ensemble.py`** — `MLBEnsembleModel` composes
+  team-Elo + pitcher-Elo + features + (optional) market-prob blend via
+  `MLBPredictionContext`. Includes optional `fit_logistic_ensemble`
+  helper (lazy sklearn import) for users who want a fully-fit blender.
+
+### Estimated accuracy contribution (additive on top of 57.66%)
+
+| Signal | Est. Δ accuracy | Notes |
+|--------|----------------:|-------|
+| Starting-pitcher Elo | +1.5–2.5% | Largest single signal; pitcher data already in feed |
+| Pythagorean run-diff prior | +0.6–1.0% | Compresses noise in W-L Elo |
+| Bullpen-strength gap | +0.3–0.6% | Requires 30-day rolling ERA |
+| Recent form (last 10) | +0.2–0.5% | Light weight (0.4×) |
+| Park factor on offense gap | +0.1–0.3% | Small but free |
+| Rest / B2B | +0.1–0.3% | Free from schedule |
+| Market-odds blend (sharp book) | +0.4–0.8% | Optional, when odds available |
+
+Independent contributions partially correlate; expected combined lift
+is **+2.5 to +4.0% relative** vs. the Phase 1 baseline.
+
+### Tests
+
+- `tests/test_mlb_features.py` — 22 unit tests (pythag, park, bullpen,
+  rest, form, RestTracker, Bayesian shrink).
+- `tests/test_mlb_pitcher_elo.py` — 18 unit tests (pitcher ladder +
+  ensemble integration: home advantage, pitcher uplift, market blend,
+  observe-updates-all-layers, B2B rest penalty).
+- All **40 tests pass** (`pytest -q`).
+
+### Backward compatibility
+
+No changes to `MLBEloRating` public API or default behavior. Callers who
+do not opt into `MLBEnsembleModel` see identical Phase 1 predictions.
+
+### Next steps
+
+1. Wire `MLBEnsembleModel` into `dags/multi_sport_betting_workflow.py`
+   behind a feature flag and run the existing backtest harness to lock in
+   the empirical lift on the 2021-2024 dataset.
+2. Backfill `mlb_pitcher_starts` table from the per-game JSON in
+   `data/mlb/*/game_*.json` (data already on disk).
+3. Compute rolling 30-day bullpen ERA into a materialized view from
+   `mlb_team_game_stats_ext`.
+4. Once labelled history is large enough, replace the additive blender
+   with the fitted `LogisticRegression` from `fit_logistic_ensemble`.
+
+---
+
+## [Previous] — MLB Elo Accuracy Improvement (+3.01% relative)
+
+### Summary
+
+Re-tuned the MLB Elo model on a 2021-2024 walk-forward backtest (10,455
+predicted games). Lifted next-game prediction accuracy from **55.97% →
+57.66%** (+1.69 pts absolute, **+3.01% relative**) and reduced log loss from
+0.6976 → 0.6794 (-2.61%).
+
+### Changes (`plugins/elo/mlb_elo_rating.py`)
+
+| Parameter | Before | After | Why | Δ Accuracy |
+|-----------|-------:|------:|-----|-----------:|
+| `k_factor` | 10 | **4** | MLB has the highest single-game variance of the four majors. K=10 was overfitting to noise — small K matches MLB's true talent spread (±60 Elo). | +0.4 pts |
+| `home_advantage` | 75 | **20** | Empirical home win rate in the dataset is **53.17%**, implying an HA of only **22.1 Elo points**. The previous 75 was 3× too large and systematically over-predicted home favorites. | +0.7 pts |
+| Spring-training filter | ❌ | ✅ (`is_regular_season_date`, pre-Mar 20) | The raw feed contained ~1,600 Feb/early-Mar exhibition games (minor-leaguers, random outcomes) that poisoned April ratings. | +0.3 pts |
+| `use_mov` (MOV multiplier) | always on | **off** by default | A 10-run blowout in MLB is dominated by bullpen quality + late-inning randomness, not team strength. Disabling MOV yields cleaner rating updates. Still available via `use_mov=True`. | +0.3 pts |
+
+### New API surface
+
+* `is_regular_season_date(date)` — public helper for filtering spring training.
+* `MLBEloRating.apply_season_carryover(weight)` — opt-in regression-to-mean
+  at season boundaries. Default weight 0.0 was empirically optimal but the
+  hook is exposed for downstream tuning.
+* `calculate_current_elo_ratings(skip_spring_training=True, season_regression=0.0)`
+  — new kwargs; defaults preserve the new behavior.
+
+### Tests
+
+* `tests/test_mlb_elo_accuracy_improvements.py` — 16 new TDD tests covering
+  every parameter change and the new helpers. All 22 MLB Elo tests pass.
+
+### Notes
+
+* Production DAG (`dags/multi_sport_betting_workflow.py`) requires no edits —
+  it constructs `MLBEloRating()` with no overrides and inherits the new
+  defaults automatically.
+* `update_with_scores()`, `update_legacy()`, and the dataclass-based
+  `update(matchup=..., result=...)` paths are all preserved.
+* Reaching the next +1-2 pts of accuracy will require additional features
+  outside the pure-Elo formulation (starting-pitcher rating, bullpen
+  fatigue, recent run-differential). Those are scoped for a later pass.
+
+---
+
 ## [Unreleased] — Kalshi Reconciliation + Historical Stats Backfill
 
 ### Summary

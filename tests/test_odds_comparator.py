@@ -125,12 +125,8 @@ def test_find_opportunities_basic_flow():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.60,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -199,12 +195,8 @@ def test_find_opportunities_epl_3way():
                 sport="epl",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.45,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -227,12 +219,8 @@ def test_find_opportunities_handles_db_error():
             sport="nba",
             elo_system=elo_system,
             thresholds=BettingThresholds(
-                threshold=0.65,
                 min_edge=0.05,
                 max_edge=1.0,
-                market_confidence_cutoff=0.55,
-                enable_high_edge_disagreement=False,
-                high_edge_threshold=0.10,
             ),
         )
     )
@@ -279,12 +267,8 @@ def test_find_opportunities_skips_when_no_odds():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.65,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -353,12 +337,8 @@ def test_find_opportunities_named_outcomes_resolve():
                 sport="epl",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.45,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -417,12 +397,8 @@ def test_find_opportunities_no_bet_when_disagreement():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.65,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -485,12 +461,8 @@ def test_find_opportunities_tennis_tour_selection():
                 sport="tennis",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.60,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -551,12 +523,8 @@ def test_find_opportunities_market_below_cutoff_no_bet():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.65,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -616,12 +584,8 @@ def test_find_opportunities_confidence_levels():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.60,
                     min_edge=0.03,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )
@@ -683,12 +647,8 @@ def test_find_opportunities_away_team_agreement():
                 sport="nba",
                 elo_system=elo_system,
                 thresholds=BettingThresholds(
-                    threshold=0.60,
                     min_edge=0.05,
                     max_edge=1.0,
-                    market_confidence_cutoff=0.55,
-                    enable_high_edge_disagreement=False,
-                    high_edge_threshold=0.10,
                 ),
             )
         )

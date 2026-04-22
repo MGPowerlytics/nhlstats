@@ -77,12 +77,8 @@ def test_no_bet_when_negative_edge():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         thresholds = BettingThresholds(
-            threshold=0.65,
             min_edge=0.05,
             max_edge=1.0,
-            market_confidence_cutoff=0.55,
-            enable_high_edge_disagreement=True,
-            high_edge_threshold=0.10,
         )
 
         config = BettingOpportunityConfig(
@@ -144,12 +140,8 @@ def test_bet_when_small_positive_edge():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         thresholds = BettingThresholds(
-            threshold=0.65,
             min_edge=0.05,
             max_edge=1.0,
-            market_confidence_cutoff=0.55,
-            enable_high_edge_disagreement=True,
-            high_edge_threshold=0.10,
         )
 
         config = BettingOpportunityConfig(
@@ -213,12 +205,8 @@ def test_high_edge_disagreement_still_works_with_positive_edge():
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         thresholds = BettingThresholds(
-            threshold=0.65,
             min_edge=0.05,
             max_edge=1.0,
-            market_confidence_cutoff=0.55,
-            enable_high_edge_disagreement=True,
-            high_edge_threshold=0.10,
         )
 
         config = BettingOpportunityConfig(

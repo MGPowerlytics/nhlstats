@@ -192,7 +192,6 @@ class TestDAGImportAndStructure:
         for sport in expected_sports:
             assert sport in SPORTS_CONFIG, f"Missing sport: {sport}"
             assert "elo_module" in SPORTS_CONFIG[sport]
-            assert "elo_threshold" in SPORTS_CONFIG[sport]
 
     def test_all_task_functions_are_callable(self):
         """All task functions should be callable."""
@@ -299,6 +298,90 @@ class TestDownloadGamesTask:
             mock_instance.download_games_for_date.assert_any_call("2026-02-14")
             # Second call should be for today (2026-02-15)
             mock_instance.download_games_for_date.assert_any_call("2026-02-15")
+
+    def test_download_games_mlb_extends_horizon_two_days_ahead(
+        self, mock_airflow_context
+    ):
+        """download_games includes MLB lookahead dates through execution_date+2."""
+        from multi_sport_betting_workflow import download_games
+
+        with patch("mlb_games.MLBGames") as mock_mlb_games:
+            mock_instance = MagicMock()
+            mock_mlb_games.return_value = mock_instance
+
+            download_games("mlb", **mock_airflow_context)
+
+            expected_dates = [
+                "2026-01-26",
+                "2026-01-27",
+                "2026-01-28",
+                "2026-01-29",
+            ]
+
+            assert mock_mlb_games.call_count == len(expected_dates)
+            assert mock_instance.download_games_for_date.call_count == len(
+                expected_dates
+            )
+            for expected_date in expected_dates:
+                mock_mlb_games.assert_any_call(date_folder=expected_date)
+                mock_instance.download_games_for_date.assert_any_call(expected_date)
+
+
+# ============================================================================
+# load_data_to_db Task Tests
+# ============================================================================
+
+
+class TestLoadDataToDbTask:
+    """Test load_data_to_db task function."""
+
+    def test_load_data_to_db_mlb_extends_horizon_two_days_ahead(
+        self, mock_airflow_context
+    ):
+        """load_data_to_db includes MLB lookahead dates through execution_date+2."""
+        from multi_sport_betting_workflow import load_data_to_db
+
+        mock_db_manager = MagicMock()
+
+        with (
+            patch(
+                "multi_sport_betting_workflow._create_db_manager",
+                return_value=mock_db_manager,
+            ),
+            patch("multi_sport_betting_workflow._load_sport_data") as mock_load,
+        ):
+            load_data_to_db("mlb", **mock_airflow_context)
+
+            mock_load.assert_called_once_with(
+                "mlb",
+                ["2026-01-26", "2026-01-27", "2026-01-28", "2026-01-29"],
+                "2026-01-27",
+                mock_db_manager,
+            )
+
+    def test_load_data_to_db_nba_keeps_yesterday_and_today_only(
+        self, mock_airflow_context
+    ):
+        """load_data_to_db leaves non-MLB date-based sports unchanged."""
+        from multi_sport_betting_workflow import load_data_to_db
+
+        mock_db_manager = MagicMock()
+
+        with (
+            patch(
+                "multi_sport_betting_workflow._create_db_manager",
+                return_value=mock_db_manager,
+            ),
+            patch("multi_sport_betting_workflow._load_sport_data") as mock_load,
+        ):
+            load_data_to_db("nba", **mock_airflow_context)
+
+            mock_load.assert_called_once_with(
+                "nba",
+                ["2026-01-26", "2026-01-27"],
+                "2026-01-27",
+                mock_db_manager,
+            )
 
 
 # ============================================================================
@@ -675,12 +758,12 @@ class TestDAGTaskFlow:
         upstream_ids = {t.task_id for t in reconcile_task.upstream_list}
         downstream_ids = {t.task_id for t in reconcile_task.downstream_list}
 
-        assert "update_clv_data" in upstream_ids, (
-            "reconcile_placed_bets should run after update_clv_data"
-        )
-        assert "send_daily_summary" in downstream_ids, (
-            "reconcile_placed_bets should run before send_daily_summary"
-        )
+        assert (
+            "update_clv_data" in upstream_ids
+        ), "reconcile_placed_bets should run after update_clv_data"
+        assert (
+            "send_daily_summary" in downstream_ids
+        ), "reconcile_placed_bets should run before send_daily_summary"
 
     def test_reconcile_placed_bets_has_retries(self):
         """reconcile_placed_bets should be configured with retries=2."""

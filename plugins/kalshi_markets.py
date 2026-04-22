@@ -19,31 +19,29 @@ from datetime import datetime
 from pathlib import Path
 from typing import Callable, Optional, Tuple, Union, List, Dict
 
+import sqlalchemy
+from sqlalchemy import text
+
 from plugins.base_games import UnifiedGameInfo
 from plugins.the_odds_api import TheOddsAPI
 
+try:
+    from plugins.kalshi_betting import load_runtime_kalshi_env
+except ImportError:  # pragma: no cover - test path injection imports top-level module
+    from kalshi_betting import load_runtime_kalshi_env
+
 # Configure module logger
 logger = logging.getLogger(__name__)
-
 
 try:
     from kalshi_python import Configuration, ApiClient, MarketsApi
 
     KALSHI_AVAILABLE = True
-except ImportError as e:
-    logger.warning(f"⚠️  kalshi_python not installed: {e}")
-    logger.warning("   Install with: pip install kalshi-python")
+except ImportError:  # pragma: no cover - exercised in environments without SDK
+    Configuration = ApiClient = MarketsApi = None
     KALSHI_AVAILABLE = False
-    Configuration = None
-    ApiClient = None
-    MarketsApi = None
 
-try:
-    from plugins.db_manager import DBManager, default_db
-except ImportError:
-    logger.warning("⚠️  db_manager not available - database operations disabled")
-    DBManager = None
-    default_db = None
+from plugins.db_manager import DBManager, default_db
 
 
 @dataclass
@@ -350,6 +348,10 @@ class StandardTickerParser(TickerParser):
     TEAMS_PART_IDX = 2
     TEAM_CODE_LENGTH = 3
     TOTAL_TEAM_CHARS = 6
+    MLB_COMPACT_TEAM_CHARS = 5
+
+    def __init__(self, sport: str) -> None:
+        self.sport = sport.lower()
 
     def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
         parts = ticker.split("-")
@@ -361,10 +363,11 @@ class StandardTickerParser(TickerParser):
         teams_part = parts[self.TEAMS_PART_IDX]
 
         game_date = self._parse_numeric_date(date_part)
-        if game_date and len(teams_part) == self.TOTAL_TEAM_CHARS:
-            away_team = teams_part[: self.TEAM_CODE_LENGTH]
-            home_team = teams_part[self.TEAM_CODE_LENGTH :]
-            return home_team, away_team, game_date
+        if game_date:
+            parsed_teams = self._parse_teams(teams_part, title)
+            if parsed_teams:
+                home_team, away_team = parsed_teams
+                return home_team, away_team, game_date
 
         # Attempt 2: New alphanumeric date format (YYMMMDDTEAMS or YYMMMDDHHMMTEAMS)
         if len(parts) >= 2:
@@ -378,9 +381,9 @@ class StandardTickerParser(TickerParser):
                 except ValueError:
                     return None
 
-                if len(teams_str) == self.TOTAL_TEAM_CHARS:
-                    away_team = teams_str[: self.TEAM_CODE_LENGTH]
-                    home_team = teams_str[self.TEAM_CODE_LENGTH :]
+                parsed_teams = self._parse_teams(teams_str, title)
+                if parsed_teams:
+                    home_team, away_team = parsed_teams
                     return home_team, away_team, game_date
 
         # Fallback: try to extract teams from title
@@ -389,6 +392,164 @@ class StandardTickerParser(TickerParser):
             return None
 
         return None
+
+    def _parse_teams(self, teams_str: str, title: str) -> Optional[Tuple[str, str]]:
+        if self.sport != "mlb":
+            if len(teams_str) != self.TOTAL_TEAM_CHARS:
+                return None
+            away_team = teams_str[: self.TEAM_CODE_LENGTH]
+            home_team = teams_str[self.TEAM_CODE_LENGTH :]
+            return home_team, away_team
+
+        return self._parse_mlb_teams(teams_str, title)
+
+    def _parse_mlb_teams(self, teams_str: str, title: str) -> Optional[Tuple[str, str]]:
+        if len(teams_str) == self.TOTAL_TEAM_CHARS:
+            away_team = teams_str[: self.TEAM_CODE_LENGTH]
+            home_team = teams_str[self.TEAM_CODE_LENGTH :]
+            return home_team, away_team
+
+        if len(teams_str) != self.MLB_COMPACT_TEAM_CHARS:
+            return None
+
+        title_matchup = self._parse_title_matchup(title)
+        if not title_matchup:
+            return None
+
+        candidate_splits = ((2, 3), (3, 2))
+        matching_candidates = []
+        for away_len, home_len in candidate_splits:
+            away_code = teams_str[:away_len]
+            home_code = teams_str[away_len : away_len + home_len]
+            if self._mlb_candidate_matches_title(
+                away_code,
+                home_code,
+                title_matchup["away"],
+                title_matchup["home"],
+            ):
+                matching_candidates.append(
+                    (
+                        self._resolve_mlb_team_code(home_code),
+                        self._resolve_mlb_team_code(away_code),
+                    )
+                )
+
+        if len(matching_candidates) == 1:
+            return matching_candidates[0]
+
+        return None
+
+    @staticmethod
+    def _resolve_mlb_team_code(team_code: str) -> str:
+        from plugins.naming_resolver import NamingResolver, NamingContext
+
+        return NamingResolver.resolve(NamingContext("mlb", "kalshi", team_code.upper()))
+
+    @staticmethod
+    def _parse_title_matchup(title: str) -> Optional[Dict[str, str]]:
+        cleaned_title = StandardTickerParser._strip_title_market_suffix(title)
+
+        explicit_match = re.match(
+            r"^\s*(.*?)\s+at\s+(.*?)\s*$", cleaned_title, flags=re.IGNORECASE
+        )
+        if explicit_match:
+            away_team, home_team = explicit_match.groups()
+            return {"away": away_team.strip(), "home": home_team.strip()}
+
+        vs_match = re.match(
+            r"^\s*(.*?)\s+vs\.?\s+(.*?)\s*$", cleaned_title, flags=re.IGNORECASE
+        )
+        if vs_match:
+            away_team, home_team = vs_match.groups()
+            return {"away": away_team.strip(), "home": home_team.strip()}
+
+        return None
+
+    def _mlb_candidate_matches_title(
+        self,
+        away_code: str,
+        home_code: str,
+        title_away: str,
+        title_home: str,
+    ) -> bool:
+        return self._code_matches_mlb_title_team(away_code, title_away) and (
+            self._code_matches_mlb_title_team(home_code, title_home)
+        )
+
+    def _code_matches_mlb_title_team(self, team_code: str, title_team: str) -> bool:
+        from plugins.naming_resolver import NamingResolver, NamingContext
+
+        resolved_name = NamingResolver.resolve(
+            NamingContext("mlb", "kalshi", team_code.upper())
+        )
+        normalized_title = self._normalize_team_text(title_team)
+        normalized_resolved = self._normalize_team_text(resolved_name)
+
+        if normalized_resolved == normalized_title:
+            return True
+
+        return team_code.upper() in self._derive_title_team_codes(title_team)
+
+    @staticmethod
+    def _derive_title_team_codes(title_team: str) -> set[str]:
+        cleaned_title = StandardTickerParser._strip_title_market_suffix(title_team)
+        normalized_title = StandardTickerParser._normalize_team_text(cleaned_title)
+        overrides = {
+            "ARIZONA": {"AZ", "ARI"},
+            "ARIZONADIAMONDBACKS": {"AZ", "ARI"},
+        }
+
+        words = re.findall(r"[A-Za-z]+", cleaned_title)
+        if not words:
+            return overrides.get(normalized_title, set())
+
+        codes = set(overrides.get(normalized_title, set()))
+        codes.update(StandardTickerParser._derive_single_word_title_codes(words))
+        codes.update(StandardTickerParser._derive_multi_word_title_codes(words))
+        return {code for code in codes if code}
+
+    @staticmethod
+    def _derive_single_word_title_codes(words: List[str]) -> set[str]:
+        if len(words) != 1:
+            return set()
+
+        word = words[0].upper()
+        return {word[:2], word[:3]}
+
+    @staticmethod
+    def _derive_multi_word_title_codes(words: List[str]) -> set[str]:
+        if len(words) < 2:
+            return set()
+
+        location_words = [word.upper() for word in words[:-1]]
+        location_compact = "".join(location_words)
+        codes = {
+            "".join(word[0] for word in location_words),
+            location_words[0][:2],
+            location_words[0][:3],
+            location_compact[:2],
+            location_compact[:3],
+            StandardTickerParser._title_word_initialism(words),
+        }
+        return codes
+
+    @staticmethod
+    def _title_word_initialism(words: List[str]) -> str:
+        initials = []
+        for word in words:
+            if len(word) <= 3 and word.isalpha() and word.isupper():
+                initials.append(word.upper())
+            else:
+                initials.append(word[0].upper())
+        return "".join(initials)
+
+    @staticmethod
+    def _strip_title_market_suffix(title: str) -> str:
+        return re.sub(r"\s+winner\?\s*$", "", title, flags=re.IGNORECASE).strip()
+
+    @staticmethod
+    def _normalize_team_text(team_name: str) -> str:
+        return re.sub(r"[^A-Z0-9]", "", team_name.upper())
 
     @staticmethod
     def _parse_numeric_date(date_part: str) -> Optional[str]:
@@ -455,7 +616,7 @@ def _get_parser(sport: str) -> TickerParser:
     """Return appropriate parser for the given sport."""
     if sport.lower() == "tennis":
         return TennisTickerParser()
-    return StandardTickerParser()
+    return StandardTickerParser(sport)
 
 
 def _parse_market(ticker: str, title: str, sport: str) -> Optional[GameParseData]:
@@ -477,10 +638,7 @@ def _parse_market(ticker: str, title: str, sport: str) -> Optional[GameParseData
 
 def _resolve_names(game_data: GameParseData) -> Tuple[str, str]:
     """Resolve canonical team/player names using NamingResolver."""
-    try:
-        from naming_resolver import NamingResolver, NamingContext
-    except ImportError:
-        from plugins.naming_resolver import NamingResolver, NamingContext
+    from plugins.naming_resolver import NamingResolver, NamingContext
 
     canon_home = (
         NamingResolver.resolve(
@@ -540,20 +698,300 @@ def _generate_game_id(
     return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
 
 
+def _resolve_existing_mlb_game_id(
+    db_manager: DBManager,
+    game: UnifiedGameInfo,
+) -> Optional[str]:
+    """Return the canonical MLB native gamePk when schedule data already exists."""
+    native_game_id = db_manager.fetch_scalar(
+        """
+        SELECT CAST(mg.game_id AS VARCHAR) AS game_id
+        FROM mlb_games mg
+        WHERE mg.game_date = :game_date
+          AND mg.home_team = :home_team_name
+          AND mg.away_team = :away_team_name
+        LIMIT 1
+    """,
+        {
+            "game_date": game.game_date,
+            "home_team_name": game.canon_home,
+            "away_team_name": game.canon_away,
+        },
+    )
+    if native_game_id is not None:
+        return str(native_game_id)
+
+    fallback_game_id = db_manager.fetch_scalar(
+        """
+        SELECT ug.game_id
+        FROM unified_games ug
+        WHERE ug.sport = 'MLB'
+          AND ug.game_date = :game_date
+          AND ug.home_team_name = :home_team_name
+          AND ug.away_team_name = :away_team_name
+          AND SUBSTR(ug.game_id, 1, 4) <> 'MLB_'
+        LIMIT 1
+    """,
+        {
+            "game_date": game.game_date,
+            "home_team_name": game.canon_home,
+            "away_team_name": game.canon_away,
+        },
+    )
+    return str(fallback_game_id) if fallback_game_id is not None else None
+
+
+def _reconcile_mlb_game_identity(
+    db_manager: DBManager,
+    game: UnifiedGameInfo,
+    canonical_game_id: str,
+) -> None:
+    """Move any synthetic MLB rows/odds onto the canonical native gamePk."""
+    synthetic_game_id = _generate_game_id(game)
+    if synthetic_game_id == canonical_game_id:
+        return
+
+    params = {
+        "native_game_id": canonical_game_id,
+        "synthetic_game_id": synthetic_game_id,
+        "synthetic_odds_pattern": f"{synthetic_game_id}_%",
+        "game_date": game.game_date,
+        "home_team_name": game.canon_home,
+        "away_team_name": game.canon_away,
+        "status": game.status,
+        "commence_time": game.commence_time,
+    }
+    native_unified_exists_sql = """
+        SELECT 1
+        FROM unified_games
+        WHERE sport = 'MLB'
+          AND game_id = :native_game_id
+        LIMIT 1
+    """
+    ensure_native_unified_sql = """
+        INSERT INTO unified_games (
+            game_id, sport, game_date, season, status,
+            home_team_id, home_team_name, away_team_id, away_team_name,
+            home_score, away_score, commence_time, venue
+        )
+        SELECT
+            CAST(mg.game_id AS VARCHAR) AS game_id,
+            'MLB' AS sport,
+            mg.game_date,
+            mg.season,
+            COALESCE(NULLIF(mg.status, ''), synthetic.status, :status) AS status,
+            synthetic.home_team_id,
+            COALESCE(mg.home_team, synthetic.home_team_name, :home_team_name),
+            synthetic.away_team_id,
+            COALESCE(mg.away_team, synthetic.away_team_name, :away_team_name),
+            mg.home_score,
+            mg.away_score,
+            COALESCE(synthetic.commence_time, :commence_time),
+            synthetic.venue
+        FROM mlb_games mg
+        LEFT JOIN unified_games synthetic
+          ON synthetic.sport = 'MLB'
+         AND synthetic.game_id = :synthetic_game_id
+        WHERE CAST(mg.game_id AS VARCHAR) = :native_game_id
+          AND mg.game_date = :game_date
+          AND mg.home_team = :home_team_name
+          AND mg.away_team = :away_team_name
+        ON CONFLICT (game_id) DO UPDATE SET
+            sport = EXCLUDED.sport,
+            game_date = EXCLUDED.game_date,
+            season = COALESCE(EXCLUDED.season, unified_games.season),
+            status = COALESCE(EXCLUDED.status, unified_games.status),
+            home_team_id = COALESCE(unified_games.home_team_id, EXCLUDED.home_team_id),
+            home_team_name = COALESCE(unified_games.home_team_name, EXCLUDED.home_team_name),
+            away_team_id = COALESCE(unified_games.away_team_id, EXCLUDED.away_team_id),
+            away_team_name = COALESCE(unified_games.away_team_name, EXCLUDED.away_team_name),
+            home_score = COALESCE(EXCLUDED.home_score, unified_games.home_score),
+            away_score = COALESCE(EXCLUDED.away_score, unified_games.away_score),
+            commence_time = COALESCE(EXCLUDED.commence_time, unified_games.commence_time),
+            venue = COALESCE(EXCLUDED.venue, unified_games.venue)
+    """
+    statements = [
+        """
+        DELETE FROM game_odds
+        WHERE odds_id LIKE :synthetic_odds_pattern
+          AND EXISTS (
+              SELECT 1
+              FROM game_odds native
+              WHERE native.odds_id = REPLACE(
+                  game_odds.odds_id,
+                  :synthetic_game_id,
+                  :native_game_id
+              )
+          )
+    """,
+        """
+        UPDATE game_odds
+        SET game_id = :native_game_id,
+            odds_id = REPLACE(odds_id, :synthetic_game_id, :native_game_id)
+        WHERE odds_id LIKE :synthetic_odds_pattern
+    """,
+        """
+        UPDATE game_odds
+        SET game_id = :native_game_id
+        WHERE game_id = :synthetic_game_id
+    """,
+        """
+        INSERT INTO team_game_stats (
+            game_id, sport, team, opponent, is_home, game_date, season,
+            points_for, points_against, won, off_rating, def_rating, pace, margin
+        )
+        SELECT
+            :native_game_id,
+            sport,
+            team,
+            opponent,
+            is_home,
+            game_date,
+            season,
+            points_for,
+            points_against,
+            won,
+            off_rating,
+            def_rating,
+            pace,
+            margin
+        FROM team_game_stats
+        WHERE sport = 'MLB'
+          AND game_id = :synthetic_game_id
+        ON CONFLICT (game_id, team) DO UPDATE SET
+            sport = EXCLUDED.sport,
+            opponent = EXCLUDED.opponent,
+            is_home = EXCLUDED.is_home,
+            game_date = EXCLUDED.game_date,
+            season = EXCLUDED.season,
+            points_for = EXCLUDED.points_for,
+            points_against = EXCLUDED.points_against,
+            won = EXCLUDED.won,
+            off_rating = EXCLUDED.off_rating,
+            def_rating = EXCLUDED.def_rating,
+            pace = EXCLUDED.pace,
+            margin = EXCLUDED.margin,
+            updated_at = CURRENT_TIMESTAMP
+    """,
+        """
+        INSERT INTO mlb_team_game_stats_ext (
+            game_id, team, hits, errors, lob, doubles, triples, home_runs, rbi,
+            stolen_bases, strikeouts, walks, at_bats, obp, slg, ops, woba, era
+        )
+        SELECT
+            :native_game_id,
+            team,
+            hits,
+            errors,
+            lob,
+            doubles,
+            triples,
+            home_runs,
+            rbi,
+            stolen_bases,
+            strikeouts,
+            walks,
+            at_bats,
+            obp,
+            slg,
+            ops,
+            woba,
+            era
+        FROM mlb_team_game_stats_ext
+        WHERE game_id = :synthetic_game_id
+        ON CONFLICT (game_id, team) DO UPDATE SET
+            hits = EXCLUDED.hits,
+            errors = EXCLUDED.errors,
+            lob = EXCLUDED.lob,
+            doubles = EXCLUDED.doubles,
+            triples = EXCLUDED.triples,
+            home_runs = EXCLUDED.home_runs,
+            rbi = EXCLUDED.rbi,
+            stolen_bases = EXCLUDED.stolen_bases,
+            strikeouts = EXCLUDED.strikeouts,
+            walks = EXCLUDED.walks,
+            at_bats = EXCLUDED.at_bats,
+            obp = EXCLUDED.obp,
+            slg = EXCLUDED.slg,
+            ops = EXCLUDED.ops,
+            woba = EXCLUDED.woba,
+            era = EXCLUDED.era
+    """,
+        """
+        DELETE FROM mlb_team_game_stats_ext
+        WHERE game_id = :synthetic_game_id
+    """,
+        """
+        DELETE FROM team_game_stats
+        WHERE sport = 'MLB'
+          AND game_id = :synthetic_game_id
+    """,
+        """
+        DELETE FROM unified_games
+        WHERE sport = 'MLB'
+          AND game_id = :synthetic_game_id
+          AND game_id <> :native_game_id
+    """,
+    ]
+
+    engine = getattr(db_manager, "engine", None)
+    if isinstance(engine, sqlalchemy.engine.Engine):
+        with engine.begin() as conn:
+            native_unified_exists = conn.execute(
+                text(native_unified_exists_sql), params
+            ).scalar()
+            if native_unified_exists is None:
+                conn.execute(text(ensure_native_unified_sql), params)
+                native_unified_exists = conn.execute(
+                    text(native_unified_exists_sql), params
+                ).scalar()
+            if native_unified_exists is None:
+                logger.warning(
+                    "Skipping destructive MLB identity migration for %s because "
+                    "the native unified_games row could not be established safely.",
+                    canonical_game_id,
+                )
+                return
+            for statement in statements:
+                conn.execute(text(statement), params)
+        return
+
+    native_unified_exists = db_manager.fetch_scalar(native_unified_exists_sql, params)
+    if native_unified_exists is None:
+        db_manager.execute(ensure_native_unified_sql, params)
+        native_unified_exists = db_manager.fetch_scalar(
+            native_unified_exists_sql, params
+        )
+    if native_unified_exists is None:
+        logger.warning(
+            "Skipping destructive MLB identity migration for %s because "
+            "the native unified_games row could not be established safely.",
+            canonical_game_id,
+        )
+        return
+    for statement in statements:
+        db_manager.execute(statement, params)
+
+
 def _upsert_game(
     db_manager: DBManager,
     game: UnifiedGameInfo,
 ) -> str:
     """Upsert game into unified_games table and return game_id."""
-    game_id = _generate_game_id(game)
+    game_id = game.game_id or _generate_game_id(game)
     db_manager.execute(
         """
         INSERT INTO unified_games (
             game_id, sport, game_date, home_team_id, home_team_name,
-            away_team_id, away_team_name, status
+            away_team_id, away_team_name, commence_time, status
         ) VALUES (:game_id, :sport, :game_date, :home_id, :home_name,
-                 :away_id, :away_name, :status)
+                 :away_id, :away_name, :commence_time, :status)
         ON CONFLICT (game_id) DO UPDATE SET
+            home_team_id = COALESCE(unified_games.home_team_id, EXCLUDED.home_team_id),
+            home_team_name = COALESCE(unified_games.home_team_name, EXCLUDED.home_team_name),
+            away_team_id = COALESCE(unified_games.away_team_id, EXCLUDED.away_team_id),
+            away_team_name = COALESCE(unified_games.away_team_name, EXCLUDED.away_team_name),
+            commence_time = COALESCE(EXCLUDED.commence_time, unified_games.commence_time),
             status = EXCLUDED.status
     """,
         {
@@ -564,6 +1002,7 @@ def _upsert_game(
             "home_name": game.canon_home,
             "away_id": game.away_team,
             "away_name": game.canon_away,
+            "commence_time": game.commence_time,
             "status": game.status,
         },
     )
@@ -722,7 +1161,7 @@ def _upsert_odds_to_database(
         ON CONFLICT (odds_id) DO UPDATE SET
             price = EXCLUDED.price,
             external_id = EXCLUDED.external_id,
-            last_update = NOW()
+            last_update = CURRENT_TIMESTAMP
     """,
         {
             "odds_id": odds_id,
@@ -794,6 +1233,12 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db) ->
             canon_away=canon_away,
         )
 
+        if sport.lower() == "mlb":
+            native_game_id = _resolve_existing_mlb_game_id(db_manager, game_info)
+            if native_game_id:
+                _reconcile_mlb_game_identity(db_manager, game_info, native_game_id)
+                game_info.game_id = str(native_game_id)
+
         # Upsert game
         game_id = _upsert_game(db_manager, game_info)
 
@@ -807,75 +1252,10 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db) ->
 
 
 def load_kalshi_credentials():
-    """Load Kalshi credentials from standard files."""
-    key_file = _get_kalshkey_path()
-    if not key_file.exists():
-        raise FileNotFoundError("Kalshi credentials file not found")
-
-    content = key_file.read_text(encoding="utf-8")
-
-    # 1. Extract API Key ID
-    api_key_id = _extract_api_key_id(content)
-
-    # 2. Extract Private Key
-    private_key = _extract_private_key(content)
-
-    if not api_key_id or not private_key:
-        raise ValueError(
-            "Could not find both API Key ID and Private Key in credentials"
-        )
-
+    """Load Kalshi credentials from the approved runtime environment."""
+    api_key_id, private_key_path = load_runtime_kalshi_env()
+    private_key = Path(private_key_path).read_text(encoding="utf-8")
     return api_key_id, private_key
-
-
-def _get_kalshkey_path() -> Path:
-    """Determine the path to the kalshkey file."""
-    paths = [
-        Path("kalshkey"),
-        Path("/opt/airflow/kalshkey"),
-    ]
-    for path in paths:
-        if path.exists():
-            return path
-    return paths[0]
-
-
-def _extract_api_key_id(content: str) -> Optional[str]:
-    """Extract API Key ID from the credentials content."""
-    for line in content.splitlines():
-        if "API key id:" in line:
-            return line.split(": ")[1].strip()
-    return None
-
-
-def _extract_private_key(content: str) -> Optional[str]:
-    """Extract Private Key from the credentials content or external file."""
-    if "-----BEGIN RSA PRIVATE KEY-----" in content:
-        # Key is embedded in the kalshkey file
-        lines = content.splitlines()
-        in_key = False
-        key_lines = []
-        for line in lines:
-            if "-----BEGIN RSA PRIVATE KEY-----" in line:
-                in_key = True
-            if in_key:
-                key_lines.append(line)
-            if "-----END RSA PRIVATE KEY-----" in line:
-                break
-        return "\n".join(key_lines)
-
-    # Look for external .pem file
-    pem_paths = [
-        Path("kalshi_private_key.pem"),
-        Path("/opt/airflow/kalshi_private_key.pem"),
-        Path(__file__).parent.parent / "kalshi_private_key.pem",
-    ]
-
-    for path in pem_paths:
-        if path.exists():
-            return path.read_text(encoding="utf-8")
-
-    return None
 
 
 # Sport-specific series tickers
@@ -1022,16 +1402,19 @@ def _fetch_sport_markets(
     sport: str,
     series_tickers: Optional[list] = None,
     limit: Optional[int] = None,
-    _date_str: Optional[str] = None,  # kept for API compatibility, currently unused
 ) -> list:
     """
     Generic function to fetch markets for any sport with error handling.
+
+    Note: The Kalshi API only returns currently-active markets. There is no
+    server-side date filter, so per-sport public wrappers accept ``date_str``
+    only for Airflow callable-signature compatibility — the value is logged
+    upstream but not threaded into the API call.
 
     Args:
         sport: Sport code (e.g., 'nba', 'nhl', 'tennis')
         series_tickers: List of Kalshi series tickers to fetch (optional)
         limit: Max markets per series (optional)
-        _date_str: Optional date string (currently unused, for API compatibility)
 
     Returns:
         List of market dictionaries, empty list on error
@@ -1072,12 +1455,14 @@ def _create_sport_market_fetcher(
         description: Function docstring description
 
     Returns:
-        Function that fetches markets for the specified sport
+        Function that fetches markets for the specified sport. The returned
+        function accepts ``date_str`` for Airflow signature compatibility but
+        the value is unused — Kalshi only exposes currently-active markets.
     """
 
     def fetch_sport_markets(date_str: Optional[str] = None) -> list:
         """{description}"""
-        return _fetch_sport_markets(sport, _date_str=date_str)
+        return _fetch_sport_markets(sport)
 
     # Set function metadata
     fetch_sport_markets.__doc__ = description
@@ -1136,9 +1521,8 @@ def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
 
 
 def fetch_cba_markets(date_str: Optional[str] = None) -> list:
-    """Fetch CBA (Chinese Basketball Association) markets (Placeholder)."""
-    logger.info("💰 Fetching CBA prediction markets (Placeholder)...")
-    return []
+    """Fetch CBA (Chinese Basketball Association) markets from Kalshi."""
+    return _fetch_sport_markets("cba")
 
 
 def fetch_unrivaled_markets(date_str: Optional[str] = None) -> list:

@@ -12,10 +12,7 @@ import pandas as pd
 from plugins.db_manager import DBManager, default_db
 from naming_resolver import NamingResolver, NamingContext
 from constants import (
-    DEFAULT_THRESHOLD,
     DEFAULT_MIN_EDGE,
-    DEFAULT_MARKET_CONFIDENCE_CUTOFF,
-    DEFAULT_HIGH_EDGE_THRESHOLD,
     HIGH_CONFIDENCE_MIN_EDGE,
     MEDIUM_CONFIDENCE_MIN_EDGE,
     MAX_MARKET_PROBABILITY,
@@ -24,23 +21,36 @@ from constants import (
 
 @dataclass
 class BettingThresholds:
-    """Thresholds for identifying betting opportunities."""
+    """Edge thresholds for identifying positive-EV betting opportunities.
 
-    threshold: float = DEFAULT_THRESHOLD
+    Only ``min_edge`` and ``max_edge`` are used by ``BettingOutcome.is_value_bet``.
+    Confidence levels (HIGH/MEDIUM/LOW) are derived from edge size via the
+    ``HIGH_CONFIDENCE_MIN_EDGE`` / ``MEDIUM_CONFIDENCE_MIN_EDGE`` constants, and
+    per-sport confidence floors are enforced separately by
+    ``PortfolioOptimizer._get_sport_min_confidence``.
+    """
+
     min_edge: float = DEFAULT_MIN_EDGE
     max_edge: float = 1.0
-    market_confidence_cutoff: float = DEFAULT_MARKET_CONFIDENCE_CUTOFF
-    enable_high_edge_disagreement: bool = False
-    high_edge_threshold: float = DEFAULT_HIGH_EDGE_THRESHOLD
 
 
 @dataclass
 class BettingOpportunityConfig:
-    """Configuration for finding betting opportunities."""
+    """Configuration for finding betting opportunities.
+
+    Args:
+        sport: Sport name (e.g. ``"mlb"``).
+        elo_system: Elo/ensemble model providing ``predict``/``get_rating``.
+        thresholds: Edge thresholds for value-bet identification.
+        date_str: Reference date in ``YYYY-MM-DD`` form. When ``None``, defaults
+            to the current local date. Pass the Airflow ``ds`` here to keep
+            "today" deterministic across DAG runs and timezone boundaries.
+    """
 
     sport: str
     elo_system: Any
     thresholds: BettingThresholds
+    date_str: Optional[str] = None
 
 
 @dataclass
@@ -274,9 +284,16 @@ class OddsComparator:
     def __init__(self, db_manager: DBManager = default_db):
         self.db = db_manager
 
-    def _get_games(self, sport: str) -> pd.DataFrame:
-        """Fetches upcoming games for a sport from unified_games."""
-        today = datetime.now().strftime("%Y-%m-%d")
+    def _get_games(self, sport: str, date_str: Optional[str] = None) -> pd.DataFrame:
+        """Fetches upcoming games for a sport from unified_games.
+
+        Args:
+            sport: Sport identifier (case-insensitive).
+            date_str: Reference date in ``YYYY-MM-DD`` form. Defaults to the
+                current local date when ``None``. Pass the Airflow ``ds`` to
+                keep "today" deterministic across runs and timezones.
+        """
+        today = date_str or datetime.now().strftime("%Y-%m-%d")
         query = """
             SELECT game_id, game_date, home_team_name, away_team_name, status
             FROM unified_games
@@ -451,7 +468,7 @@ class OddsComparator:
         opportunities = []
 
         try:
-            games_df = self._get_games(config.sport)
+            games_df = self._get_games(config.sport, config.date_str)
             print(
                 f"🔍 Analyzing {len(games_df)} {config.sport.upper()} games for value bets..."
             )
