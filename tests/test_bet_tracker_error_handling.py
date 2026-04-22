@@ -35,7 +35,7 @@ class TestBetTrackerErrorHandling:
         from plugins.kalshi_betting import KalshiConfig
 
         with patch(
-            "plugins.bet_tracker.KalshiConfig.from_kalshkey",
+            "plugins.bet_tracker.KalshiConfig.from_env",
             return_value=KalshiConfig(
                 api_key_id="api_key", private_key_path="/tmp/key.pem"
             ),
@@ -91,7 +91,7 @@ class TestBetTrackerErrorHandling:
             from plugins.kalshi_betting import KalshiConfig
 
             with patch(
-                "plugins.bet_tracker.KalshiConfig.from_kalshkey",
+                "plugins.bet_tracker.KalshiConfig.from_env",
                 return_value=KalshiConfig(
                     api_key_id="api_key", private_key_path="/tmp/key.pem"
                 ),
@@ -158,7 +158,7 @@ class TestBetTrackerErrorHandling:
         from plugins.kalshi_betting import KalshiConfig
 
         with patch(
-            "plugins.bet_tracker.KalshiConfig.from_kalshkey",
+            "plugins.bet_tracker.KalshiConfig.from_env",
             return_value=KalshiConfig(
                 api_key_id="api_key", private_key_path="/tmp/key.pem"
             ),
@@ -212,7 +212,7 @@ class TestBetTrackerErrorHandling:
             from plugins.kalshi_betting import KalshiConfig
 
             with patch(
-                "plugins.bet_tracker.KalshiConfig.from_kalshkey",
+                "plugins.bet_tracker.KalshiConfig.from_env",
                 return_value=KalshiConfig(
                     api_key_id="api_key", private_key_path="/tmp/key.pem"
                 ),

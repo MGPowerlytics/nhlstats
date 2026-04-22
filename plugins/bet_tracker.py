@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 from plugins.db_manager import DBManager, default_db
+from plugins.schema_migrations import SchemaMigrationRunner
 from plugins.sql_params_mixin import SqlParamsMixin
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -308,10 +309,26 @@ def _parse_iso_utc(value: Optional[str]) -> Optional[datetime]:
 
 
 def create_bets_table(db: DBManager = default_db) -> None:
-    """Create bets tracking table if it doesn't exist."""
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS placed_bets (
+    """Materialize placed_bets via migrations in PostgreSQL or compatibility DDL locally."""
+    if _uses_governed_schema(db):
+        runner = SchemaMigrationRunner(db)
+        runner.apply()
+        runner.assert_verified()
+        return
+
+    db.execute(_placed_bets_compat_sql())
+
+
+def _uses_governed_schema(db: DBManager) -> bool:
+    """Return True when the current database is the governed PostgreSQL runtime."""
+    dialect = getattr(getattr(db, "engine", None), "dialect", None)
+    return getattr(dialect, "name", "") == "postgresql"
+
+
+def _placed_bets_compat_sql() -> str:
+    """Return local/test compatibility DDL for placed_bets."""
+    return """
+        CREATE TABLE placed_bets (
             bet_id VARCHAR PRIMARY KEY,
             sport VARCHAR,
             placed_date DATE,
@@ -344,8 +361,7 @@ def create_bets_table(db: DBManager = default_db) -> None:
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-        """
-    )
+    """
 
 
 def load_fills_from_kalshi(client: KalshiBetting, days_back: int = 30) -> List[Dict]:
@@ -451,7 +467,7 @@ def _create_kalshi_client() -> KalshiBetting:
         Exception: If credentials are invalid or client creation fails
     """
     try:
-        config = KalshiConfig.from_kalshkey(production=True)
+        config = KalshiConfig.from_env(production=True)
         return KalshiBetting(config=config)
     except Exception as e:
         print(f"❌ Failed to create Kalshi client: {e}")

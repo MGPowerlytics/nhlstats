@@ -7,24 +7,21 @@ Requirements:
 4. Store deposit history in database
 """
 
-import os
 import pytest
 from datetime import datetime
 from plugins.db_manager import DBManager
-
-# Override for testing outside Docker
-os.environ["POSTGRES_HOST"] = "localhost"
 
 
 class TestDepositTracking:
     """TDD tests for deposit tracking."""
 
     @pytest.fixture(autouse=True)
-    def setup_db(self):
+    def setup_db(self, monkeypatch):
         """Setup test database connection."""
         from plugins.deposit_tracking import initialize_starting_deposit
         from datetime import date
 
+        monkeypatch.setenv("POSTGRES_HOST", "localhost")
         self.db = DBManager()
 
         # Ensure initial deposit exists (idempotent)

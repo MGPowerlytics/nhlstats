@@ -23,9 +23,18 @@ NHL_K_FACTOR = 10.0
 NHL_HOME_ADVANTAGE = 50.0
 NHL_RECENCY_WEIGHT = 0.2
 
-# MLB parameters (updated from K=20, HA=50 to K=10, HA=75 for better calibration)
-MLB_K_FACTOR = 10.0
-MLB_HOME_ADVANTAGE = 75.0
+# MLB parameters
+# Empirically tuned via backtest (see plugins/elo/mlb_elo_rating.py docstring):
+# K=4 + HA=20 yields +1.68 pts accuracy / +3.01% relative improvement vs the
+# previous K=10/HA=75 settings.
+MLB_K_FACTOR = 4.0
+MLB_HOME_ADVANTAGE = 20.0
+
+# Master switch for the MLB ensemble (team Elo + pythagorean + rest + park).
+# When True, ``_load_elo_system('mlb', ...)`` returns an MLBEnsembleAdapter
+# instead of a bare MLBEloRating. The adapter is a drop-in replacement so
+# ``OddsComparator`` is unaffected. Set False to fall back to plain Elo.
+MLB_USE_ENSEMBLE = True
 
 # NFL parameters
 NFL_K_FACTOR = 20.0
@@ -422,6 +431,7 @@ def _get_mlb_query() -> str:
                CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
         FROM mlb_games
         WHERE game_type IN ('R', 'D', 'L', 'W', 'F')
+          AND status IN ('Final', 'Game Over', 'Completed Early')
           AND home_score IS NOT NULL
           AND away_score IS NOT NULL
           AND home_team IS NOT NULL

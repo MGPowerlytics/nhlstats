@@ -1,121 +1,109 @@
-prd_id: recon-stats-backfill
+prd_id: remediation-20260420-085817
 version: 1.0.0
 status: final
-completion_date: "2026-04-22"
-completion_notes: >
-  All four implementation waves shipped successfully.
-  Wave 1: Database schema (10 new tables), reconciliation scaffold, stats plugin scaffolds.
-  Wave 2: All 7 BoxScoreFetcher implementations (NBA, NHL, MLB, NFL, Soccer, CBB, Tennis),
-  reconciliation pipeline fully implemented, historical backfill script, schema migrations.
-  Wave 3: Daily historical_stats_daily DAG implemented end-to-end, data_validation.py
-  extended with stats coverage checks, race-condition prevention (cutoff_minutes=15).
-  Wave 4: Documentation complete — database_schema.md updated with all 10 tables,
-  OPERATIONS_RUNBOOK.md extended with stats backfill, pool setup, troubleshooting,
-  and escalation sections; CHANGELOG.md consolidated; PRD finalized.
-  249 new tests passing. All free data sources confirmed (no paid APIs).
-  PostgreSQL-only compliance maintained throughout.
+plan_status: ready_for_approval
 
 user_stories:
-  - as_a: Betting system operator
-    i_want: Daily Kalshi bet reconciliation with auto-correction and audit log
-    so_that: I can trust placed_bets matches Kalshi's source-of-truth and have traceable history of any corrections
-  - as_a: Model developer
-    i_want: Game-by-game team box score + advanced stats for all 9 leagues from 2021 to current, updated daily
-    so_that: I can engineer team-factor features to improve Elo predictions
+  - as_a: platform owner
+    i_want: a prioritized remediation plan for the highest-risk operational gaps
+    so_that: the system can stay operational without accumulating hidden security, schema, and runtime risk
+  - as_a: maintainer
+    i_want: one agreed remediation scope across security, database, CI, runtime, and docs
+    so_that: planning and execution can proceed without conflicting assumptions
+  - as_a: Airflow operator
+    i_want: clear remediation requirements for environment completeness and runbook parity
+    so_that: DAGs remain operable and incidents are easier to diagnose
 
 scope:
   in_scope:
-    - Bet reconciliation Airflow task run DAILY (as part of multi_sport_betting_workflow)
-    - Backfill reconciliation from first Kalshi bet (~2026-01-22) to current
-    - Full reconciliation fields - status, fill price, fees, payout, settlement timestamp, discrepancies vs placed_bets
-    - Auto-correct discrepancies in placed_bets with every change logged to bet_reconciliation_audit table
-    - Historical team-game stats for NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, Tennis from 2021-01-01 to current
-    - Box score + advanced stats (efficiency, pace, eFG%, etc.) - advanced derived from basic where needed
-    - One-shot backfill script scripts/backfill_team_game_stats.py for 2021 to current
-    - Daily incremental stats ingestion DAG (historical_stats_daily)
-    - Unified team_game_stats table with per-sport extension tables + tennis_player_match_stats
-    - Free data sources only - nba_api, NHL Web API, MLB Stats API, nfl_data_py, FBRef scrape, Jeff Sackmann tennis
-    - Upsert idempotency + proper indexing
-    - Unit + integration tests
+    - Security remediation plan for unsafe secrets handling and secret hygiene controls
+    - Database/schema remediation plan for fragmented PostgreSQL ownership, conflicting table definitions, and migration governance
+    - Test/CI remediation plan for broken default pytest collection, weak gates, and reliable regression detection
+    - Deployment/runtime remediation plan for immutable builds, reproducible environments, and removal of mutable bind-mounted drift
+    - Documentation/runbook remediation plan for docs/runtime drift and operator-facing parity
+    - Airflow environment completeness plan covering dependencies, configuration, and operability gaps
+    - Prioritization of remediation work by risk, dependency order, and verification path
+    - Definition of acceptance criteria for future implementation waves
   out_of_scope:
-    - Paid providers (SportsDataIO, SportRadar)
-    - Player-level game logs (except tennis which is inherently player-level)
-    - Real-time intraday reconciliation (daily only)
-    - Manual discrepancy review UI (auto-correct with audit log)
-    - Point-by-point data / shot location heat maps
+    - Feature development
+    - Product behavior changes unrelated to remediation
+    - Direct implementation of code, schema, infrastructure, or secret-management fixes
+    - Large-scale architecture replacement beyond targeted remediation planning
 
 acceptance_criteria:
-  - criterion: bet_reconciliation_audit table exists with every field change logged
-    verification: Query audit table after reconciliation run shows entries for any discrepancy
-  - criterion: reconcile_placed_bets task runs daily in multi_sport_betting_workflow without errors
-    verification: Airflow UI shows green runs; check task logs
-  - criterion: Historical backfill ingests >=95% of games for each sport 2021-present
-    verification: Row count per sport per season matches expected league game counts (within 5%)
-  - criterion: team_game_stats + per-sport extension tables exist with PK (game_id, team) and FK to unified_games
-    verification: psql \d commands show schema; sample queries return joined data
-  - criterion: Daily historical_stats_daily DAG ingests prior-day games for all 9 sports
-    verification: Next-day row count increases by expected amount
-  - criterion: Advanced stats (eFG%, TS%, pace, ORtg/DRtg) computed and populated
-    verification: Sample rows show non-null values for computable columns
-  - criterion: All existing tests still pass plus new tests for reconciliation + stats
-    verification: pytest run clean with >=85% coverage on new modules
+  - criterion: Security planning explicitly defines how secrets stop being handled unsafely
+    verification: PRD names required secret sources, handling boundaries, and migration expectations
+  - criterion: Database planning establishes a single source of truth for schema ownership
+    verification: PRD requires governed migrations and removal of conflicting table definitions
+  - criterion: Test/CI planning restores dependable default validation
+    verification: PRD requires passing default pytest collection and stronger CI merge gates
+  - criterion: Runtime planning targets reproducible deployments
+    verification: PRD requires immutable build/deploy expectations and drift detection or elimination
+  - criterion: Documentation planning aligns operator docs with actual runtime
+    verification: PRD requires runbook and environment documentation parity with deployed behavior
+  - criterion: Airflow planning closes environment completeness gaps
+    verification: PRD requires dependency, config, and operability checks for scheduler/task reliability
 
 needs_clarification: []
 
 features:
-  - name: Kalshi bet reconciliation task (daily)
-    overview: Fetches fills/positions/balance from Kalshi, diffs against placed_bets, auto-corrects and writes audit rows
+  - name: Security remediation plan
+    overview: Define secret inventory, approved secret sources, rotation expectations, and unsafe-handling removal sequence
     status: planned
-  - name: bet_reconciliation_audit table
-    overview: Immutable audit log of all bet field changes from reconciliation
+  - name: Schema governance remediation plan
+    overview: Define PostgreSQL schema authority, migration path, ownership boundaries, and conflict resolution rules
     status: planned
-  - name: team_game_stats unified table + per-sport extension tables
-    overview: Core columns for all sports + specialized ext tables per league
+  - name: Test and CI remediation plan
+    overview: Define default pytest reliability, minimum CI gates, and regression enforcement expectations
     status: planned
-  - name: Historical backfill script (2021-current)
-    overview: One-shot script scripts/backfill_team_game_stats.py with --sport --start --end flags
+  - name: Deployment and runtime remediation plan
+    overview: Define immutable deployment requirements, reproducible environment controls, and runtime drift reduction
     status: planned
-  - name: historical_stats_daily DAG
-    overview: Daily incremental ingestion of prior-day games across all sports
+  - name: Documentation and runbook remediation plan
+    overview: Define required updates so docs, runbooks, and runtime behavior stay aligned
     status: planned
-  - name: Per-sport stat fetchers
-    overview: plugins/stats/{sport}_box_score.py modules using free data sources
+  - name: Airflow operability remediation plan
+    overview: Define environment completeness, dependency readiness, and operational validation for DAG execution
     status: planned
 
 state_machines:
-  - name: Bet reconciliation
-    states: [synced, discrepancy_detected, auto_corrected, audit_logged]
+  - name: Remediation planning lifecycle
+    states: [findings_confirmed, remediation_scoped, sequencing_defined, acceptance_defined, ready_for_execution]
     transitions:
-      - from: synced
-        to: discrepancy_detected
-        trigger: Kalshi field mismatch
-      - from: discrepancy_detected
-        to: auto_corrected
-        trigger: UPDATE placed_bets with Kalshi value
-      - from: auto_corrected
-        to: audit_logged
-        trigger: INSERT into bet_reconciliation_audit
+      - from: findings_confirmed
+        to: remediation_scoped
+        trigger: Review risks translated into explicit plan themes
+      - from: remediation_scoped
+        to: sequencing_defined
+        trigger: Dependencies and priority order agreed
+      - from: sequencing_defined
+        to: acceptance_defined
+        trigger: Verification criteria defined for each remediation theme
+      - from: acceptance_defined
+        to: ready_for_execution
+        trigger: PRD finalized without open clarification blockers
 
 errors:
-  - code: RECON_001
-    message: Kalshi API unreachable during reconciliation
-  - code: RECON_002
-    message: Bet exists in Kalshi but missing from placed_bets
-  - code: STATS_001
-    message: Upstream stats API rate limit hit
-  - code: STATS_002
-    message: unified_games missing game referenced by box score
+  - code: PLAN_001
+    message: Remediation scope omits one or more critical risk themes from the completed review
+  - code: PLAN_002
+    message: Schema plan does not define a single source of truth for PostgreSQL structure
+  - code: PLAN_003
+    message: CI plan does not restore reliable default validation before merge
+  - code: PLAN_004
+    message: Runtime plan allows continued mutable drift without a containment strategy
 
 decisions:
-  - decision: Reconciliation runs as a task inside multi_sport_betting_workflow (daily), not a separate DAG
-  - decision: Use unified core + per-sport extension tables (not JSONB, not per-sport standalone)
-  - decision: Historical backfill is a one-shot script in scripts/, daily DAG handles incrementals
-  - decision: Free sources only - nba_api, NHL Web API, MLB Stats API, nfl_data_py, FBRef scrape, Jeff Sackmann
-  - decision: Advanced stats calculated from basic box score server-side (no paid advanced-stat APIs)
-  - decision: Auto-correct with audit log - no manual review gate
-  - decision: Tennis uses player-level table (tennis_player_match_stats), not team table
-  - decision: Soccer leagues (EPL, Ligue1) share soccer_team_game_stats_ext
+  - decision: PostgreSQL remains the primary runtime system of record for operational data and schema governance
+  - decision: One canonical schema definition and governed migration path are required; conflicting table definitions are not acceptable
+  - decision: Remediation is planned in themes first, then executed in dependency order rather than as ad hoc fixes
+  - decision: CI must validate the default developer path, including default pytest collection, before merge
+  - decision: Runtime environments should move toward immutable, reproducible deployment artifacts instead of mutable bind-mounted drift
+  - decision: Operator docs and runbooks must match the live runtime and Airflow environment as deployed
+  - decision: Airflow operability requirements are part of core platform remediation, not optional follow-up work
 
 changes:
+  - version: 1.0.1
+    change: Marked remediation planning complete; canonical plan is ready for approval and execution sequencing
   - version: 1.0.0
-    change: Initial PRD
+    change: Replaced prior PRD contents with final remediation-planning PRD based on completed current-state review

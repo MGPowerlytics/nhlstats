@@ -562,7 +562,7 @@ class TestNHLGameEventsDeep:
 
         assert "nhl" in NHLGameEvents.BASE_URL.lower()
 
-    @patch("nhl_game_events.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_make_request_success(self, mock_get, nhl_events):
         mock_response = Mock()
         mock_response.status_code = 200
@@ -572,8 +572,8 @@ class TestNHLGameEventsDeep:
         result = nhl_events._make_request("http://test.com")
         assert result == {"data": "test"}
 
-    @patch("nhl_game_events.requests.get")
-    @patch("nhl_game_events.time.sleep")
+    @patch("plugins.base_games.requests.get")
+    @patch("plugins.base_games.time.sleep")
     def test_make_request_rate_limited(self, mock_sleep, mock_get, nhl_events):
         mock_429 = Mock()
         mock_429.status_code = 429

@@ -11,8 +11,22 @@ Tests ALL components including:
 """
 
 import pytest
-from playwright.sync_api import Page, expect
 import time
+
+playwright_sync = pytest.importorskip(
+    "playwright.sync_api",
+    reason="Dashboard Playwright tests require the optional playwright dependency",
+)
+Page = playwright_sync.Page
+expect = playwright_sync.expect
+
+pytestmark = pytest.mark.skipif(
+    not bool(__import__("os").environ.get("RUN_DASHBOARD_E2E")),
+    reason=(
+        "Dashboard Playwright tests are quarantined from default pytest. "
+        "Set RUN_DASHBOARD_E2E=1 after provisioning the dashboard and browsers."
+    ),
+)
 
 
 @pytest.fixture(scope="module")

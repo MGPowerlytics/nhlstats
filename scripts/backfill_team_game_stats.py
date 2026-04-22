@@ -60,16 +60,8 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
+from plugins import stats as stats_package  # noqa: E402
 from plugins.db_manager import DBManager  # noqa: E402 — after sys.path fix
-from plugins.stats import (  # noqa: E402
-    CBBBoxScoreFetcher,
-    MLBBoxScoreFetcher,
-    NBABoxScoreFetcher,
-    NFLBoxScoreFetcher,
-    NHLBoxScoreFetcher,
-    SoccerBoxScoreFetcher,
-    TennisBoxScoreFetcher,
-)
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -103,6 +95,17 @@ _SPORT_UNIFIED_KEY: dict[str, str] = {
 
 _RETRY_BASE_SECONDS = 2.0
 _MAX_RETRIES = 3
+_FETCHER_SPECS: dict[str, tuple[str, dict[str, str]]] = {
+    "nba": ("NBABoxScoreFetcher", {}),
+    "nhl": ("NHLBoxScoreFetcher", {}),
+    "mlb": ("MLBBoxScoreFetcher", {}),
+    "nfl": ("NFLBoxScoreFetcher", {}),
+    "epl": ("SoccerBoxScoreFetcher", {"sport": "EPL"}),
+    "ligue1": ("SoccerBoxScoreFetcher", {"sport": "Ligue1"}),
+    "ncaab": ("CBBBoxScoreFetcher", {"sport": "NCAAB"}),
+    "wncaab": ("CBBBoxScoreFetcher", {"sport": "WNCAAB"}),
+    "tennis": ("TennisBoxScoreFetcher", {}),
+}
 
 logging.basicConfig(
     level=logging.INFO,
@@ -200,25 +203,19 @@ def build_fetcher(sport: str, db: DBManager):
     Raises:
         ValueError: If *sport* is not recognised.
     """
-    if sport == "nba":
-        return NBABoxScoreFetcher(db=db)
-    if sport == "nhl":
-        return NHLBoxScoreFetcher(db=db)
-    if sport == "mlb":
-        return MLBBoxScoreFetcher(db=db)
-    if sport == "nfl":
-        return NFLBoxScoreFetcher(db=db)
-    if sport == "epl":
-        return SoccerBoxScoreFetcher(sport="EPL", db=db)
-    if sport == "ligue1":
-        return SoccerBoxScoreFetcher(sport="Ligue1", db=db)
-    if sport == "ncaab":
-        return CBBBoxScoreFetcher(sport="NCAAB", db=db)
-    if sport == "wncaab":
-        return CBBBoxScoreFetcher(sport="WNCAAB", db=db)
-    if sport == "tennis":
-        return TennisBoxScoreFetcher(db=db)
-    raise ValueError(f"Unknown sport: {sport!r}")
+    try:
+        fetcher_name, fetcher_kwargs = _FETCHER_SPECS[sport]
+    except KeyError as exc:
+        raise ValueError(f"Unknown sport: {sport!r}") from exc
+
+    try:
+        fetcher_class = stats_package.resolve_fetcher_class(fetcher_name)
+    except ImportError as exc:
+        raise ImportError(
+            f"{sport} box-score fetcher {fetcher_name} is unavailable"
+        ) from exc
+
+    return fetcher_class(db=db, **fetcher_kwargs)
 
 
 # ---------------------------------------------------------------------------

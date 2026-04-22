@@ -114,7 +114,7 @@ class TestSnapshotPortfolioValueTask:
         mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
         with patch(
-            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+            "kalshi_betting.KalshiConfig.from_env", return_value=mock_config
         ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
@@ -135,7 +135,7 @@ class TestSnapshotPortfolioValueTask:
         mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
         with patch(
-            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+            "kalshi_betting.KalshiConfig.from_env", return_value=mock_config
         ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
@@ -156,7 +156,7 @@ class TestSnapshotPortfolioValueTask:
         mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
         with patch(
-            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+            "kalshi_betting.KalshiConfig.from_env", return_value=mock_config
         ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
@@ -180,34 +180,38 @@ class TestSnapshotPortfolioValueTask:
 class TestPortfolioSnapshotErrorHandling:
     """Test error handling in portfolio snapshot task."""
 
-    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
-    def test_snapshot_raises_on_missing_kalshkey(self, mock_from_kalshkey):
-        """snapshot_portfolio_value should raise when kalshkey not found."""
+    @patch("kalshi_betting.KalshiConfig.from_env")
+    def test_snapshot_raises_on_missing_runtime_secret_env(self, mock_from_env):
+        """snapshot_portfolio_value should raise when runtime env is missing."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_from_kalshkey.side_effect = FileNotFoundError("kalshkey file not found")
+        mock_from_env.side_effect = ValueError(
+            "KALSHI_API_KEY_ID environment variable is required"
+        )
 
-        with pytest.raises(FileNotFoundError, match="kalshkey"):
+        with pytest.raises(ValueError, match="KALSHI_API_KEY_ID"):
             snapshot_portfolio_value()
 
-    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
-    def test_snapshot_raises_on_missing_api_key(self, mock_from_kalshkey):
-        """snapshot_portfolio_value should raise when API key not in file."""
+    @patch("kalshi_betting.KalshiConfig.from_env")
+    def test_snapshot_raises_on_missing_api_key(self, mock_from_env):
+        """snapshot_portfolio_value should raise when API key env is missing."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_from_kalshkey.side_effect = ValueError("Could not find API key ID")
+        mock_from_env.side_effect = ValueError(
+            "KALSHI_API_KEY_ID environment variable is required"
+        )
 
-        with pytest.raises(ValueError, match="API key ID"):
+        with pytest.raises(ValueError, match="KALSHI_API_KEY_ID"):
             snapshot_portfolio_value()
 
-    @patch("kalshi_betting.KalshiConfig.from_kalshkey")
-    def test_snapshot_raises_on_missing_private_key(self, mock_from_kalshkey):
-        """snapshot_portfolio_value should raise when private key not in file."""
+    @patch("kalshi_betting.KalshiConfig.from_env")
+    def test_snapshot_raises_on_missing_private_key(self, mock_from_env):
+        """snapshot_portfolio_value should raise when private key env is invalid."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        mock_from_kalshkey.side_effect = ValueError("Could not extract RSA private key")
+        mock_from_env.side_effect = ValueError("KALSHI_PRIVATE_KEY_PATH must be set")
 
-        with pytest.raises(ValueError, match="private key"):
+        with pytest.raises(ValueError, match="KALSHI_PRIVATE_KEY_PATH"):
             snapshot_portfolio_value()
 
     def test_snapshot_propagates_kalshi_errors(self):
@@ -219,7 +223,7 @@ class TestPortfolioSnapshotErrorHandling:
         mock_config = KalshiConfig(api_key_id="test", private_key_path="test.pem")
 
         with patch(
-            "kalshi_betting.KalshiConfig.from_kalshkey", return_value=mock_config
+            "kalshi_betting.KalshiConfig.from_env", return_value=mock_config
         ):
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot"):
@@ -274,13 +278,6 @@ class TestPortfolioDataFlow:
         """snapshot should pass balance and portfolio value to upsert."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        kalshkey_content = """
-API key id: test-api-key
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
-
         # Test with specific values
         test_cases = [
             (0.0, 0.0),
@@ -290,12 +287,10 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
         ]
 
         for balance, portfolio_value in test_cases:
-            with patch("portfolio_hourly_snapshot.Path") as mock_path:
-                mock_kalshkey = MagicMock()
-                mock_kalshkey.exists.return_value = True
-                mock_kalshkey.read_text.return_value = kalshkey_content
-                mock_path.return_value = mock_kalshkey
-
+            with patch("kalshi_betting.KalshiConfig.from_env") as mock_from_env:
+                mock_from_env.return_value = MagicMock(
+                    api_key_id="test", private_key_path="test.pem"
+                )
                 with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                     with patch(
                         "portfolio_snapshots.upsert_hourly_snapshot"
@@ -317,19 +312,10 @@ MIIEpAIBAAKCAQEA0Z3VS5JJcds
         """snapshot should pass UTC timestamp to upsert."""
         from portfolio_hourly_snapshot import snapshot_portfolio_value
 
-        kalshkey_content = """
-API key id: test-api-key
------BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA0Z3VS5JJcds
------END RSA PRIVATE KEY-----
-"""
-
-        with patch("portfolio_hourly_snapshot.Path") as mock_path:
-            mock_kalshkey = MagicMock()
-            mock_kalshkey.exists.return_value = True
-            mock_kalshkey.read_text.return_value = kalshkey_content
-            mock_path.return_value = mock_kalshkey
-
+        with patch("kalshi_betting.KalshiConfig.from_env") as mock_from_env:
+            mock_from_env.return_value = MagicMock(
+                api_key_id="test", private_key_path="test.pem"
+            )
             with patch("kalshi_betting.KalshiBetting") as mock_kalshi:
                 with patch("portfolio_snapshots.upsert_hourly_snapshot") as mock_upsert:
                     mock_client = MagicMock()

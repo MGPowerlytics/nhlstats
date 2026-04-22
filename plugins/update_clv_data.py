@@ -11,66 +11,16 @@ Should be run daily after markets close.
 """
 
 from datetime import datetime, timedelta
-from pathlib import Path
 from typing import Dict, Optional, Any, List, Tuple
 
-try:
-    from plugins.db_manager import default_db
-    from kalshi_betting import KalshiBetting
-except ImportError:
-    from plugins.db_manager import default_db
-    from plugins.kalshi_betting import KalshiBetting
-
-
-def load_kalshi_credentials() -> tuple[str, str]:
-    """Load Kalshi API credentials."""
-    kalshkey_file = Path("/opt/airflow/kalshkey")
-    if not kalshkey_file.exists():
-        kalshkey_file = Path("kalshkey")
-
-    if not kalshkey_file.exists():
-        raise FileNotFoundError("Kalshi credentials file not found")
-
-    content = kalshkey_file.read_text()
-
-    # Extract API key ID
-    api_key_id = None
-    for line in content.split("\n"):
-        if "API key id:" in line:
-            api_key_id = line.split(":", 1)[1].strip()
-            break
-
-    if not api_key_id:
-        raise ValueError("Could not find API key ID")
-
-    # Extract private key
-    private_key_lines = []
-    in_key = False
-    for line in content.split("\n"):
-        if "-----BEGIN RSA PRIVATE KEY-----" in line:
-            in_key = True
-        if in_key:
-            private_key_lines.append(line)
-        if "-----END RSA PRIVATE KEY-----" in line:
-            break
-
-    private_key = "\n".join(private_key_lines)
-    return api_key_id, private_key
+from plugins.db_manager import default_db
+from plugins.kalshi_betting import KalshiBetting, KalshiConfig
 
 
 def _initialize_kalshi_client() -> Optional[KalshiBetting]:
     """Initialize the Kalshi betting client."""
     try:
-        api_key_id, private_key = load_kalshi_credentials()
-        temp_key_file = Path("/tmp/kalshi_private_key.pem")
-        temp_key_file.write_text(private_key)
-        temp_key_file.chmod(0o600)
-
-        from kalshi_betting import KalshiConfig
-
-        config = KalshiConfig(
-            api_key_id=api_key_id,
-            private_key_path=str(temp_key_file),
+        config = KalshiConfig.from_env(
             max_bet_size=5.0,
             production=True,
         )

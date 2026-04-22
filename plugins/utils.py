@@ -7,10 +7,7 @@ and promote the DRY (Don't Repeat Yourself) principle across the codebase.
 
 from typing import Dict, TypeVar, Any, List, Optional, Callable, Tuple
 
-try:
-    from .db_manager import DBManager
-except ImportError:
-    from plugins.db_manager import DBManager
+from plugins.db_manager import DBManager
 
 K = TypeVar("K")  # Key type
 V = TypeVar("V")  # Value type

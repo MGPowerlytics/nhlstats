@@ -7,9 +7,32 @@ Tests the Portfolio Value metric calculation:
 """
 
 import pytest
-from playwright.sync_api import Page
 import time
 import re
+import socket
+
+playwright_sync = pytest.importorskip(
+    "playwright.sync_api",
+    reason="Financial performance Playwright tests require the optional playwright dependency",
+)
+Page = playwright_sync.Page
+
+pytestmark = pytest.mark.skipif(
+    not bool(__import__("os").environ.get("RUN_DASHBOARD_E2E")),
+    reason=(
+        "Dashboard Playwright tests are quarantined from default pytest. "
+        "Set RUN_DASHBOARD_E2E=1 after provisioning the dashboard and browsers."
+    ),
+)
+
+
+def _dashboard_is_running(host: str = "localhost", port: int = 8501) -> bool:
+    """Return True when the dashboard is accepting TCP connections."""
+    try:
+        with socket.create_connection((host, port), timeout=2):
+            return True
+    except OSError:
+        return False
 
 
 @pytest.fixture(scope="module")
@@ -23,6 +46,8 @@ def dashboard_url():
 @pytest.fixture(scope="function")
 def page(dashboard_url, playwright):
     """Create a new page for each test."""
+    if not _dashboard_is_running():
+        pytest.skip("Dashboard not running at localhost:8501")
     browser = playwright.chromium.launch(headless=True)
     context = browser.new_context()
     page = context.new_page()

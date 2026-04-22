@@ -36,8 +36,20 @@ def test_place_portfolio_optimized_bets_exact_xcom(
     context = mock_airflow_context
     # Patch the PortfolioBettingManager in the plugin module, reload DAG module, then import the function
     import importlib
+    from kalshi_betting import KalshiConfig
 
-    with patch("portfolio_betting.PortfolioBettingManager") as MockManager:
+    kalshi_sandbox_client.get_balance.return_value = (1000.0, 1000.0)
+
+    with (
+        patch("portfolio_betting.PortfolioBettingManager") as MockManager,
+        patch(
+            "kalshi_betting.KalshiConfig.from_env",
+            return_value=KalshiConfig(
+                api_key_id="api_key", private_key_path="/run/secrets/kalshi_private_key.pem"
+            ),
+        ),
+        patch("kalshi_betting.KalshiBetting", return_value=kalshi_sandbox_client),
+    ):
         manager = MockManager.return_value
         manager.process_daily_bets.return_value = {
             "planned_bets": 1,

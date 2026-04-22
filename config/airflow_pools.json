@@ -1,0 +1,30 @@
+{
+  "stats_nba_pool": {
+    "slots": 3,
+    "description": "NBA Stats API — ~1 req/s"
+  },
+  "stats_nhl_pool": {
+    "slots": 1,
+    "description": "NHL API — ~0.5 req/s"
+  },
+  "stats_mlb_pool": {
+    "slots": 2,
+    "description": "MLB Stats API — ~1 req/s"
+  },
+  "stats_nfl_pool": {
+    "slots": 2,
+    "description": "nfl_data_py parquet download"
+  },
+  "stats_fbref_pool": {
+    "slots": 1,
+    "description": "FBRef / Sports-Reference — 1 req/4s"
+  },
+  "stats_cbb_pool": {
+    "slots": 2,
+    "description": "Sports-Reference CBB — 1 req/4s"
+  },
+  "stats_tennis_pool": {
+    "slots": 1,
+    "description": "Tennis Abstract GitHub CSV"
+  }
+}

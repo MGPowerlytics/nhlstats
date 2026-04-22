@@ -1,5 +1,37 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Bug fixes — MLB scoring and placement consistency (2026-04-22 audit)
+- `plugins/portfolio_optimizer.py::load_opportunities_from_database` now
+  normalizes sport filters to uppercase before querying `bet_recommendations`.
+  The table stores `MLB`/`NBA`/etc. in uppercase, so lowercase filters were
+  silently missing DB-backed opportunities and forcing a fallback to JSON
+  files.
+- `plugins/portfolio_optimizer.py::DatabaseRowParser`,
+  `plugins/opportunity_loader.py`, and `plugins/portfolio_parsers.py` now
+  accept both `bet_on='home'/'away'` and legacy team-name values when
+  reconstructing the recommendation side. This fixes MLB home bets being
+  misread as away bets on DB-backed recommendation flows.
+- `plugins/portfolio_betting.py` now records `bet_line_prob` as
+  `price_cents / 100` and prefers the live Kalshi ask returned by
+  `get_market_details()` over any stale stored ask from the recommendation.
+  Previously YES prices were inverted in the placement report and live orders
+  could be submitted using old recommendation prices.
+
+### Bug fixes — MLB rating contamination (2026-04-22 audit)
+- `plugins/elo/mlb_ensemble_adapter.py::_load_team_stats_and_form` now
+  filters `mlb_games` by `game_type IN ('R','D','L','W','F')`, matching
+  `_get_mlb_query`. Previously spring training (S), exhibition (E), and
+  All-Star (A) games inflated the ensemble's per-team season runs/form even
+  though the team-Elo backbone correctly excluded them, leaving the
+  ensemble's pythagorean and form features misaligned with the underlying
+  ratings.
+- `dags/multi_sport_betting_workflow.py::_load_glicko2_games_df` now applies
+  the same `game_type` and `status` filters for MLB. The Glicko-2 query
+  previously consumed every row in `mlb_games`, contaminating ratings with
+  spring training games. NFL behaviour is unchanged.
+
+## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
+
 ### Removed dead code paths
 - `plugins/odds_comparator.py::BettingThresholds` trimmed to `min_edge` /
   `max_edge` only. The fields `threshold`,

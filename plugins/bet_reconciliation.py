@@ -76,11 +76,8 @@ def fetch_kalshi_state(client: Any = None) -> dict[str, dict]:
     Raises:
         RuntimeError: If authentication or the API request fails.
     """
-    try:
-        from bet_tracker import load_fills_from_kalshi
-        from kalshi_betting import KalshiBetting
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(f"Could not import Kalshi modules: {exc}") from exc
+    from plugins.bet_tracker import load_fills_from_kalshi
+    from plugins.kalshi_betting import KalshiBetting
 
     if client is None:
         try:

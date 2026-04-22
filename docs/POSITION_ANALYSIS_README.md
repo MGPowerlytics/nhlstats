@@ -56,7 +56,7 @@ See [docs/POSITION_ANALYSIS.md](docs/POSITION_ANALYSIS.md) for complete details.
 
 ## Requirements
 
-- Kalshi API credentials (`kalshkey` file)
+- Kalshi API credentials via `KALSHI_API_KEY_ID` and `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem`
 - Current Elo ratings in `data/` directory
 - Python 3.8+
 

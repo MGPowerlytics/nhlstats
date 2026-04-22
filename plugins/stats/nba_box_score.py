@@ -22,11 +22,15 @@ from datetime import date
 from typing import Any
 
 import pandas as pd
-from nba_api.stats.endpoints import (
+
+# nba_api is a hard dependency installed via requirements.txt.
+from nba_api.stats.endpoints import (  # type: ignore[import]
     boxscoreadvancedv2,
     boxscoretraditionalv2,
     leaguegamefinder,
 )
+
+_NBA_API_AVAILABLE = True
 
 from plugins.db_manager import DBManager
 from plugins.stats.advanced_stats import compute_basketball_efg, compute_basketball_ts

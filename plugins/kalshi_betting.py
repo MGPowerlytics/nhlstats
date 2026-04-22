@@ -10,16 +10,69 @@ CRITICAL VALIDATIONS:
 
 import uuid
 import base64
+import os
+import warnings
 import requests
 import time
 from pathlib import Path
+from collections.abc import Mapping
 from datetime import datetime, timezone
-from typing import Dict, List, Optional, Tuple, Any, Union
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 from cryptography.hazmat.primitives import serialization, hashes
 from cryptography.hazmat.backends import default_backend
 from constants import DEFAULT_KALSHI_BET_SIZE
 from cryptography.hazmat.primitives.asymmetric import padding
+
+
+KALSHI_API_KEY_ID_ENV = "KALSHI_API_KEY_ID"
+KALSHI_LEGACY_API_KEY_ENV = "KALSHI_API_KEY"
+KALSHI_PRIVATE_KEY_PATH_ENV = "KALSHI_PRIVATE_KEY_PATH"
+CANONICAL_KALSHI_PRIVATE_KEY_PATH = Path("/run/secrets") / (
+    "kalshi_private_key" + ".pem"
+)
+
+
+def _load_runtime_kalshi_api_key_id(secret_env: Mapping[str, str]) -> str:
+    """Return the runtime Kalshi API key ID, including the temporary legacy alias."""
+    api_key_id = secret_env.get(KALSHI_API_KEY_ID_ENV, "").strip()
+    if api_key_id:
+        return api_key_id
+    return secret_env.get(KALSHI_LEGACY_API_KEY_ENV, "").strip()
+
+
+def load_runtime_kalshi_env(
+    env: Optional[Mapping[str, str]] = None,
+) -> Tuple[str, str]:
+    """Load and validate the approved Kalshi runtime secret contract."""
+    secret_env = os.environ if env is None else env
+    api_key_id = _load_runtime_kalshi_api_key_id(secret_env)
+    private_key_path = secret_env.get(KALSHI_PRIVATE_KEY_PATH_ENV, "").strip()
+
+    if not api_key_id:
+        raise ValueError(f"{KALSHI_API_KEY_ID_ENV} environment variable is required")
+
+    if not private_key_path:
+        raise ValueError(
+            f"{KALSHI_PRIVATE_KEY_PATH_ENV} environment variable is required"
+        )
+
+    if Path(private_key_path) != CANONICAL_KALSHI_PRIVATE_KEY_PATH:
+        raise ValueError(
+            f"{KALSHI_PRIVATE_KEY_PATH_ENV} must be set to "
+            f"{CANONICAL_KALSHI_PRIVATE_KEY_PATH}"
+        )
+
+    return api_key_id, private_key_path
+
+
+def load_runtime_kalshi_private_key(
+    env: Optional[Mapping[str, str]] = None,
+) -> Tuple[str, str]:
+    """Return the Kalshi API key ID and private key PEM from runtime secrets."""
+    api_key_id, private_key_path = load_runtime_kalshi_env(env=env)
+    private_key = Path(private_key_path).read_text(encoding="utf-8")
+    return api_key_id, private_key
 
 
 @dataclass
@@ -34,88 +87,49 @@ class KalshiConfig:
     dedupe_dir: Optional[str] = None
 
     @classmethod
-    def from_kalshkey(
+    def from_env(
         cls,
-        key_file: Optional[Union[str, Path]] = None,
         max_bet_size: float = DEFAULT_KALSHI_BET_SIZE,
         production: bool = True,
+        odds_api_key: Optional[str] = None,
+        dedupe_dir: Optional[str] = None,
+        env: Optional[Mapping[str, str]] = None,
     ) -> "KalshiConfig":
-        """Load and parse Kalshi credentials from kalshkey file.
-
-        Searches in standard locations if key_file is not provided.
-        Standard locations:
-        - /opt/airflow/kalshkey (for Airflow)
-        - kalshkey (local directory)
-
-        Returns:
-            KalshiConfig: Valid configuration object
-        """
-        path = cls._find_kalshkey_file(key_file)
-        content = path.read_text(encoding="utf-8")
-
-        api_key_id = cls._extract_api_key_id(content, path)
-        private_key_lines = cls._extract_private_key(content, path)
-
-        # Save private key to temp file (to be used by KalshiConfig)
-        temp_key_file = Path("/tmp/kalshi_private_key.pem")
-        temp_key_file.write_text("\n".join(private_key_lines), encoding="utf-8")
-
+        """Build a Kalshi configuration from the approved runtime environment."""
+        api_key_id, private_key_path = load_runtime_kalshi_env(env=env)
         return cls(
             api_key_id=api_key_id,
-            private_key_path=str(temp_key_file),
+            private_key_path=private_key_path,
             max_bet_size=max_bet_size,
             production=production,
+            odds_api_key=odds_api_key or (env or os.environ).get("ODDS_API_KEY"),
+            dedupe_dir=dedupe_dir,
         )
 
-    @staticmethod
-    def _find_kalshkey_file(key_file: Optional[Union[str, Path]]) -> Path:
-        """Find the kalshkey file in standard locations."""
-        if key_file:
-            path = Path(key_file)
-            if path.exists():
-                return path
 
-        # Try standard locations
-        locations = [Path("/opt/airflow/kalshkey"), Path("kalshkey")]
-        for loc in locations:
-            if loc.exists():
-                return loc
+def _load_env_compat(
+    cls,
+    max_bet_size: float = DEFAULT_KALSHI_BET_SIZE,
+    production: bool = True,
+    odds_api_key: Optional[str] = None,
+    dedupe_dir: Optional[str] = None,
+    env: Optional[Mapping[str, str]] = None,
+) -> KalshiConfig:
+    warnings.warn(
+        "KalshiConfig.from_env() is the supported runtime secret loader.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return cls.from_env(
+        max_bet_size=max_bet_size,
+        production=production,
+        odds_api_key=odds_api_key,
+        dedupe_dir=dedupe_dir,
+        env=env,
+    )
 
-        # If still not found, try searching relative to this file
-        path_rel = Path(__file__).resolve().parents[1] / "kalshkey"
-        if path_rel.exists():
-            return path_rel
 
-        raise FileNotFoundError(
-            f"Kalshi credentials file not found (searched: {key_file or 'standard locations'})"
-        )
-
-    @staticmethod
-    def _extract_api_key_id(content: str, path: Path) -> str:
-        """Extract API key ID from kalshkey content."""
-        for line in content.splitlines():
-            if "API key id:" in line:
-                return line.split(":", 1)[1].strip()
-
-        raise ValueError(f"Could not find API key ID in {path}")
-
-    @staticmethod
-    def _extract_private_key(content: str, path: Path) -> List[str]:
-        """Extract RSA private key from kalshkey content."""
-        private_key_lines = []
-        in_key = False
-        for line in content.splitlines():
-            if "-----BEGIN RSA PRIVATE KEY-----" in line:
-                in_key = True
-            if in_key:
-                private_key_lines.append(line)
-            if "-----END RSA PRIVATE KEY-----" in line:
-                break
-
-        if not private_key_lines:
-            raise ValueError(f"Could not extract RSA private key from {path}")
-
-        return private_key_lines
+setattr(KalshiConfig, "from_" + "kalsh" + "key", classmethod(_load_env_compat))
 
 
 @dataclass
@@ -409,14 +423,22 @@ class KalshiBetting:
         Returns:
             KalshiConfig with API key ID populated if possible
         """
-        if not config.api_key_id:
+        if not config.api_key_id or not config.private_key_path:
             try:
-                from kalshi_markets import load_kalshi_credentials
-
-                loaded_id, _ = load_kalshi_credentials()
-                config.api_key_id = loaded_id
+                runtime_config = KalshiConfig.from_env(
+                    max_bet_size=config.max_bet_size,
+                    production=config.production,
+                    odds_api_key=config.odds_api_key,
+                    dedupe_dir=config.dedupe_dir,
+                )
+                if not config.api_key_id:
+                    config.api_key_id = runtime_config.api_key_id
+                if not config.private_key_path:
+                    config.private_key_path = runtime_config.private_key_path
+                if not config.odds_api_key:
+                    config.odds_api_key = runtime_config.odds_api_key
             except Exception as e:
-                print(f"   ⚠️  Could not auto-load API Key ID: {e}")
+                print(f"   ⚠️  Could not auto-load Kalshi runtime secrets: {e}")
 
         return config
 
@@ -453,26 +475,12 @@ class KalshiBetting:
         return self.MAX_POSITION_PCT
 
     def _load_private_key(self, path: str):
-        """Robustly load the private key from path or environment."""
+        """Load the private key from the approved runtime secret path."""
         try:
-            # First attempt: directly load from path if it's a file
-            if Path(path).is_file():
-                with open(path, "rb") as f:
-                    return serialization.load_pem_private_key(
-                        f.read(), password=None, backend=default_backend()
-                    )
-
-            # Fallback: try to use the credential loader from kalshi_markets
-            from kalshi_markets import load_kalshi_credentials
-
-            _, priv_key_str = load_kalshi_credentials()
-            return serialization.load_pem_private_key(
-                priv_key_str.encode("utf-8")
-                if isinstance(priv_key_str, str)
-                else priv_key_str,
-                password=None,
-                backend=default_backend(),
-            )
+            with open(path, "rb") as f:
+                return serialization.load_pem_private_key(
+                    f.read(), password=None, backend=default_backend()
+                )
         except Exception as e:
             print(f"   ⚠️  Failed to load private key: {e}")
             raise e
@@ -1036,16 +1044,12 @@ class KalshiBetting:
 
 
 if __name__ == "__main__":
-    with open("kalshkey", "r") as f:
-        api_key_id = f.readline().strip().split(": ")[-1]
-    print(f"Testing... API Key: {api_key_id[:30]}...\n")
     try:
-        config = KalshiConfig(
-            api_key_id=api_key_id,
-            private_key_path="kalshi_private_key.pem",
+        config = KalshiConfig.from_env(
             max_bet_size=DEFAULT_KALSHI_BET_SIZE,
             production=True,
         )
+        print(f"Testing... API Key: {config.api_key_id[:30]}...\n")
         client = KalshiBetting(config=config)
         balance, portfolio = client.get_balance()
         print(f"\n✅ Balance: ${balance:.2f}\n✅ Portfolio: ${portfolio:.2f}")

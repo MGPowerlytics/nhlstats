@@ -1,0 +1,476 @@
+plan_id: remediation-20260420-085817
+variant: c
+objective: Produce a wave-based remediation plan that reduces current-state security, schema, CI, runtime, documentation, and Airflow risk without interrupting operations.
+created_at: 2026-04-20T08:58:17Z
+created_by: gem-team:gem-planner
+status: pending_approval
+source_prd: docs/prd.yaml
+research_confidence: medium
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 7
+  risk_score: high
+
+tldr: |
+  Current repo state shows live secret material and file-mounted credentials at the repo root,
+  schema ownership split across helper-driven CREATE TABLE statements, a broken default pytest
+  collection path, no repository CI workflows, bind-mounted runtime surfaces in docker-compose,
+  and Airflow setup guidance that still assumes mutable live-container intervention. This plan
+  front-loads the highest-risk decisions that can be made in parallel, then converges runtime
+  and Airflow remediation, and finishes by reconciling operator documentation once the target
+  operating model is stable.
+
+open_questions:
+  - Which secret backend should become the non-local source of truth for runtime and CI after file-based credentials are retired?
+  - Which governed migration mechanism should own PostgreSQL change rollout for this repo: Alembic, SQL-first migrations, or an equivalent tracked migration runner?
+
+wave_ordering_rationale:
+  - Wave 1 isolates the fastest risk reducers that can be assessed safely in parallel: secrets, schema governance, validation gates, and immutable runtime direction.
+  - Wave 2 applies the approved runtime and secret boundaries to Airflow bootstrap so environment cleanup does not drift from deployment hardening.
+  - Wave 3 updates runbooks only after the technical target state is fixed, preventing another round of docs/runtime divergence.
+
+pre_mortem:
+  overall_risk_level: high
+  critical_failure_modes:
+    - scenario: Secret handling is partially remediated while bind-mounted credentials remain active, creating dual paths and accidental credential exposure during cutover.
+      likelihood: high
+      impact: critical
+      mitigation: Freeze new secret entry points, inventory every secret consumer first, and require a staged cutover with rollback checkpoints before runtime changes ship.
+    - scenario: Schema ownership remains split between helper functions and shared schema managers, so migrations drift and future releases recreate conflicting tables.
+      likelihood: high
+      impact: critical
+      mitigation: Name one canonical schema authority, require governed migrations for structural changes, and define explicit retirement rules for ad hoc CREATE TABLE paths.
+    - scenario: CI gates are strengthened before the default local validation path is repaired, leaving maintainers blocked by failing merges without trustworthy feedback.
+      likelihood: medium
+      impact: high
+      mitigation: Reproduce and scope the default pytest failure first, then define a staged gate set that mirrors the local default path before adding stricter merge protections.
+    - scenario: Airflow cleanup is planned independently from runtime hardening, leaving operators with bootstrap steps that mutate live containers and diverge from the built image.
+      likelihood: medium
+      impact: high
+      mitigation: Make Airflow bootstrap consume the runtime hardening blueprint and require docs updates only after both plans agree on the target environment contract.
+  assumptions:
+    - PostgreSQL remains the runtime system of record and schema remediation should preserve existing operational data.
+    - GitHub remains the repository host and is the expected CI control plane unless a documented exception is approved.
+    - Local development may keep limited convenience paths, but production-like runtime behavior should move toward immutable artifacts and non-repo secret sources.
+
+implementation_specification:
+  code_structure: Centralize future remediation work around one canonical schema/migration path, one approved secret-loading boundary per environment, one default validation command path, and one immutable build/bootstrap flow for Airflow-backed runtime services.
+  affected_areas:
+    - docker-compose.yaml
+    - Dockerfile
+    - .env.example
+    - plugins/kalshi_markets.py
+    - plugins/db_manager.py
+    - plugins/the_odds_api.py
+    - plugins/database_schema_manager.py
+    - plugins/bet_tracker.py
+    - scripts/backfill_team_game_stats.py
+    - plugins/stats/__init__.py
+    - setup.cfg
+    - .github/workflows
+    - docs/AIRFLOW_SETUP.md
+    - docs/OPERATIONS_RUNBOOK.md
+    - docs/deployment_protocol.md
+  component_details:
+    - component: Secret and configuration boundary
+      responsibility: Define where secrets may originate, how they enter local dev, CI, and runtime, and how unsafe file-based handling is retired without service interruption.
+      interfaces:
+        - Approved secret inventory mapped to environment, owner, consumer, and rotation trigger
+        - Secret injection contract for local development, CI, and container runtime
+    - component: Schema authority and migration governance
+      responsibility: Establish one source of truth for PostgreSQL structure and a governed rollout path for structural changes.
+      interfaces:
+        - Canonical schema ownership decision record
+        - Migration workflow covering apply, verify, rollback, and deprecation of conflicting DDL helpers
+    - component: Default validation and CI gates
+      responsibility: Restore dependable pytest collection and define the minimum merge-blocking checks that mirror the supported developer path.
+      interfaces:
+        - Default local validation contract
+        - CI workflow matrix and merge gate policy
+    - component: Runtime deployment hardening
+      responsibility: Move runtime services away from mutable bind-mounted drift toward reproducible images, controlled state volumes, and explicit rollback points.
+      interfaces:
+        - Immutable image/build policy
+        - Mutable surface allowlist and drift detection/removal policy
+    - component: Airflow environment bootstrap
+      responsibility: Make Airflow dependency installation, pool/bootstrap steps, and health checks consistent with the hardened runtime contract.
+      interfaces:
+        - Airflow bootstrap checklist
+        - Service health and operability verification contract
+    - component: Operator documentation and runbooks
+      responsibility: Keep deployment, Airflow, and incident response documentation aligned with the planned runtime state and verification steps.
+      interfaces:
+        - Runbook parity checklist
+        - Documentation ownership and update cadence
+  dependencies:
+    - component: Airflow environment bootstrap
+      relationship: Depends on secret and runtime decisions so bootstrap steps do not reintroduce mutable container behavior or unsafe credential handling.
+    - component: Operator documentation and runbooks
+      relationship: Depends on the outputs of secret, schema, CI, runtime, and Airflow planning so docs reflect the approved target state rather than current drift.
+    - component: Default validation and CI gates
+      relationship: Feeds operator and maintainer procedures because merge gating and release checks become part of the supported workflow.
+  integration_points:
+    - Container build and compose definitions that currently mount code, data, and secret files into Airflow services
+    - Database initialization paths split between schema manager helpers and feature-specific table creation helpers
+    - Default pytest collection path rooted in setup.cfg and repository test/module imports
+    - Operator-facing documentation for deployment, Airflow setup, and troubleshooting
+
+contracts:
+  - from_task: rem-secrets-boundary
+    to_task: rem-airflow-bootstrap
+    interface: Approved secret sources, prohibited storage patterns, and staged cutover constraints for Airflow services
+    format: Secret source matrix with migration checklist
+  - from_task: rem-runtime-hardening
+    to_task: rem-airflow-bootstrap
+    interface: Immutable image policy, bind-mount reduction plan, and allowed persistent-state surfaces
+    format: Runtime hardening blueprint
+  - from_task: rem-secrets-boundary
+    to_task: rem-docs-runbooks
+    interface: Sanitized secret-handling procedures and operator-safe rotation guidance
+    format: Runbook delta summary
+  - from_task: rem-schema-governance
+    to_task: rem-docs-runbooks
+    interface: Canonical schema authority, migration workflow, and verification checkpoints
+    format: Schema governance ADR plus migration policy
+  - from_task: rem-pytest-ci-gates
+    to_task: rem-docs-runbooks
+    interface: Default validation contract, CI workflow expectations, and release gate checklist
+    format: CI gate specification
+  - from_task: rem-runtime-hardening
+    to_task: rem-docs-runbooks
+    interface: Build/deploy flow, mutable surface policy, and rollback checkpoints
+    format: Deployment runbook outline
+  - from_task: rem-airflow-bootstrap
+    to_task: rem-docs-runbooks
+    interface: Bootstrap order, dependency checklist, and health-check expectations
+    format: Airflow bootstrap checklist
+
+tasks:
+  - id: rem-secrets-boundary
+    title: Define safe secret sources and staged credential migration
+    objective: Replace unsafe repo/file-based secret handling with an approved, environment-specific secret boundary and no-downtime migration approach.
+    description: |
+      Audit current credential usage across root secret files, .env-driven configuration,
+      docker-compose environment injection, and plugin-level file reads. Produce a
+      remediation approach that names approved secret sources for local dev, CI, and
+      runtime; defines handling boundaries; sequences credential rotation and cutover;
+      and preserves operational continuity while unsafe secret paths are retired.
+    wave: 1
+    agent: gem-reviewer
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - rem-runtime-hardening
+      - rem-airflow-bootstrap
+    target_surfaces:
+      - .env
+      - .env.example
+      - docker-compose.yaml
+      - kalshkey
+      - kalshi_private_key.pem
+      - odds_api_key
+      - plugins/kalshi_markets.py
+      - plugins/db_manager.py
+      - plugins/the_odds_api.py
+    context_files:
+      - docker-compose.yaml: Current Airflow services bind-mount credential files and inject SMTP env variables directly.
+      - .env.example: Documents current env-based configuration surface for local setup.
+      - plugins/kalshi_markets.py: Reads credential material from repo-local and container-local file paths.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: security
+    verification:
+      - Secret inventory covers repo files, environment variables, compose injection points, and runtime consumers.
+      - Remediation approach names approved source-of-truth locations for each secret by environment.
+      - Cutover plan includes rotation order, rollback trigger, and operator-safe validation steps.
+    acceptance_criteria:
+      - Secret planning explicitly names required secret sources, handling boundaries, and migration expectations.
+      - Unsafe repo/file-based credential paths are classified as deprecated, transitional, or retained only for local-only use with guardrails.
+      - The plan preserves continuity by defining a staged rollout rather than a one-step credential cutover.
+    failure_modes:
+      - scenario: A hidden credential consumer is missed and fails after the approved source changes.
+        likelihood: medium
+        impact: high
+        mitigation: Require code and runtime consumer inventory plus a validation checklist before any secret source is retired.
+      - scenario: Local-dev convenience exceptions expand into permanent production behavior.
+        likelihood: medium
+        impact: high
+        mitigation: Separate local-only fallbacks from runtime-approved paths and require explicit expiry/ownership for exceptions.
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: true
+
+  - id: rem-schema-governance
+    title: Establish canonical schema ownership and migration governance
+    objective: Remove conflicting PostgreSQL table definitions by choosing one schema authority and a governed migration path.
+    description: |
+      Inventory the current schema creation paths and overlapping DDL ownership,
+      especially shared schema helpers versus feature-local CREATE TABLE logic.
+      Produce the migration strategy that designates a single source of truth,
+      defines how conflicting table definitions are retired, sequences rollout to
+      preserve existing data, and sets verification/rollback rules for future
+      structural changes.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    target_surfaces:
+      - plugins/database_schema_manager.py
+      - plugins/bet_tracker.py
+      - plugins/db_loader.py
+      - tests/test_team_game_stats_schema.py
+      - tests/test_schema_integrity.py
+    context_files:
+      - plugins/database_schema_manager.py: Central shared schema helper defining unified and stats tables.
+      - plugins/bet_tracker.py: Feature-local helper creates placed_bets independently of the shared schema manager.
+      - plugins/db_loader.py: Initializes schema through a separate loader path that must align with the canonical owner.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: database-governance
+    verification:
+      - Conflicting table-definition owners are mapped to a canonical authority decision.
+      - Migration workflow defines apply, verify, rollback, and deprecation steps.
+      - Data-preservation and compatibility constraints are documented for existing runtime tables.
+    acceptance_criteria:
+      - Database planning establishes a single source of truth for schema ownership.
+      - Governed migrations are required for structural change and ad hoc conflicting DDL paths are scheduled for retirement.
+      - The strategy defines verification checkpoints that confirm live schema and code agree before future releases.
+    failure_modes:
+      - scenario: The chosen canonical schema owner does not cover all currently managed tables.
+        likelihood: medium
+        impact: critical
+        mitigation: Produce a table-by-table ownership map before ratifying the migration path.
+      - scenario: Structural cleanup assumes safe recreation instead of preserving live data.
+        likelihood: medium
+        impact: critical
+        mitigation: Require backward-compatible migration sequencing and explicit rollback checkpoints for every destructive step.
+
+  - id: rem-pytest-ci-gates
+    title: Restore dependable default pytest collection and define merge gates
+    objective: Repair the default validation path and specify the minimum CI gates required to prevent regression drift.
+    description: |
+      Reproduce the current default pytest collection failure, identify the import/
+      packaging contract it exposes, and define the least-surprising repair path
+      for local developers. From that baseline, specify merge-blocking CI gates,
+      workflow scope, failure visibility, and regression enforcement so the repo
+      has a dependable default validation path before merge.
+    wave: 1
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    target_surfaces:
+      - setup.cfg
+      - tests/test_backfill_script.py
+      - scripts/backfill_team_game_stats.py
+      - plugins/stats/__init__.py
+      - .github/workflows
+    context_files:
+      - setup.cfg: Defines the default pytest collection path for the repository.
+      - tests/test_backfill_script.py: Current default collection stops here with an import failure.
+      - scripts/backfill_team_game_stats.py: Imports optional fetchers directly and exposes the current collection contract gap.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 160
+    focus_area: validation
+    verification:
+      - Default pytest collection failure is reproduced and traced to a concrete contract mismatch.
+      - Planned CI gates mirror the supported local developer path rather than a separate special-case environment.
+      - Merge requirements specify at least default pytest collection and visible failure reporting.
+    acceptance_criteria:
+      - Test/CI planning restores dependable default validation.
+      - The plan requires passing default pytest collection and stronger CI merge gates.
+      - CI scope stays targeted to remediation needs and avoids unrelated feature/test expansion.
+    failure_modes:
+      - scenario: CI gates are defined around a non-representative environment and still miss the default local failure mode.
+        likelihood: medium
+        impact: high
+        mitigation: Use the default repository invocation path as the primary acceptance baseline before adding any extra jobs.
+      - scenario: Overly broad initial gates create noise and block remediation progress.
+        likelihood: medium
+        impact: medium
+        mitigation: Start with the minimum merge-blocking checks needed for confidence, then stage stricter gates after the default path is stable.
+    tech_stack:
+      - pytest
+      - coverage.py
+      - GitHub Actions
+    test_coverage: Default pytest collection plus targeted smoke/import checks for optional dependency boundaries and workflow health.
+
+  - id: rem-runtime-hardening
+    title: Define immutable deployment and runtime drift containment
+    objective: Replace mutable bind-mounted runtime behavior with a reproducible build/deploy model and explicit drift controls.
+    description: |
+      Assess the current container build, compose mounts, mutable runtime surfaces,
+      and live-container dependency assumptions. Produce the hardening blueprint for
+      immutable images, allowed persistent state, secret injection boundaries,
+      deployment verification, rollback, and drift detection/elimination so future
+      runtime changes stop depending on bind-mounted code or ad hoc in-container mutation.
+    wave: 1
+    agent: gem-devops
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - rem-secrets-boundary
+      - rem-airflow-bootstrap
+    target_surfaces:
+      - docker-compose.yaml
+      - Dockerfile
+      - requirements.txt
+      - requirements_dashboard.txt
+      - config/
+      - data/
+    context_files:
+      - docker-compose.yaml: Current services mount code, data, and credential files directly into runtime containers.
+      - Dockerfile: Current build installs requirements into the Airflow base image and is the anchor for an immutable-image strategy.
+      - requirements.txt: Runtime dependency set that must be baked into the image instead of installed into live containers.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: runtime
+    verification:
+      - Plan classifies every mounted surface as immutable, stateful, or removable.
+      - Hardening blueprint defines deployment verification, rollback, and drift detection/removal checkpoints.
+      - Runtime changes are sequenced to preserve service continuity while mutable paths are retired.
+    acceptance_criteria:
+      - Runtime planning targets reproducible deployments.
+      - The plan requires immutable build/deploy expectations and drift detection or elimination.
+      - Runtime hardening scope is limited to deployment reproducibility and does not expand into unrelated feature redesign.
+    failure_modes:
+      - scenario: Essential runtime state is mistaken for mutable application drift and removed without a persistence replacement.
+        likelihood: medium
+        impact: critical
+        mitigation: Separate stateful volumes from code/config mounts and require rollback checkpoints before removing any mount.
+      - scenario: Build immutability is planned without aligning secret injection, forcing operators back to live-container edits.
+        likelihood: medium
+        impact: high
+        mitigation: Consume the secret-boundary output as a hard constraint before finalizing runtime cutover steps.
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: rem-airflow-bootstrap
+    title: Clean up Airflow environment completeness and bootstrap flow
+    objective: Align Airflow dependency installation, service bootstrap, and operability checks with the hardened runtime model.
+    description: |
+      Using the approved secret boundary and runtime hardening blueprint, define how
+      Airflow images, bootstrap/init steps, dependency readiness, pool creation, and
+      health checks should work so operators no longer rely on mutable live-container
+      actions. The output should cover bootstrap order, environment completeness,
+      operability verification, and failure-isolation expectations for scheduler,
+      worker, and API services.
+    wave: 2
+    agent: gem-devops
+    priority: high
+    status: pending
+    dependencies:
+      - rem-secrets-boundary
+      - rem-runtime-hardening
+    parallelizable: false
+    conflicts_with:
+      - rem-runtime-hardening
+    target_surfaces:
+      - docker-compose.yaml
+      - Dockerfile
+      - docs/AIRFLOW_SETUP.md
+      - docs/OPERATIONS_RUNBOOK.md
+      - dags/
+    context_files:
+      - docker-compose.yaml: Defines Airflow service topology, startup order, and mounted runtime surfaces.
+      - Dockerfile: Must become the single dependency-installation path for Airflow services.
+      - docs/AIRFLOW_SETUP.md: Current setup still assumes manual pool/bootstrap actions and needs alignment with the target environment contract.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 190
+    focus_area: airflow-operations
+    verification:
+      - Bootstrap plan names required dependencies, init order, and health checks for scheduler, worker, triggerer, and API services.
+      - Operability checklist removes instructions that mutate running containers to recover missing dependencies.
+      - Airflow-specific steps inherit runtime and secret constraints instead of redefining them locally.
+    acceptance_criteria:
+      - Airflow planning closes environment completeness gaps.
+      - The plan requires dependency, config, and operability checks for scheduler/task reliability.
+      - Manual bootstrap actions are reduced to controlled, documented steps that match the target runtime model.
+    failure_modes:
+      - scenario: Airflow pool/bootstrap automation is planned without validating service readiness dependencies, causing partial startup failures.
+        likelihood: medium
+        impact: high
+        mitigation: Require explicit health-gated bootstrap sequencing and environment readiness checks before any automation assumptions are approved.
+      - scenario: Operators retain mutable emergency fixes because the hardened bootstrap path is incomplete.
+        likelihood: medium
+        impact: high
+        mitigation: Document supported break-glass actions and ensure the default recovery path uses rebuilt artifacts, not live-container mutation.
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: rem-docs-runbooks
+    title: Reconcile operator docs and runbooks with the approved remediation target state
+    objective: Eliminate documentation drift by updating runbooks only after secret, schema, CI, runtime, and Airflow decisions are aligned.
+    description: |
+      Reconcile deployment, Airflow, and operations documentation with the approved
+      remediation outputs from earlier waves. Update runbooks to reflect the target
+      secret boundary, canonical schema workflow, default validation/CI contract,
+      immutable runtime model, and Airflow bootstrap expectations, including
+      ownership, verification cadence, and break-glass guidance.
+    wave: 3
+    agent: gem-documentation-writer
+    priority: medium
+    status: pending
+    dependencies:
+      - rem-secrets-boundary
+      - rem-schema-governance
+      - rem-pytest-ci-gates
+      - rem-runtime-hardening
+      - rem-airflow-bootstrap
+    parallelizable: false
+    conflicts_with: []
+    target_surfaces:
+      - docs/OPERATIONS_RUNBOOK.md
+      - docs/AIRFLOW_SETUP.md
+      - docs/deployment_protocol.md
+      - README.md
+    context_files:
+      - docs/OPERATIONS_RUNBOOK.md: Current operational guidance must match the approved runtime and Airflow model.
+      - docs/AIRFLOW_SETUP.md: Airflow bootstrap instructions need to align with hardened image/build assumptions.
+      - docs/deployment_protocol.md: Deployment checks should reflect the restored CI gate and immutable runtime workflow.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 140
+    focus_area: documentation
+    verification:
+      - Every remediation theme has a matching operator-facing procedure or ownership note.
+      - Deprecated runtime and bootstrap guidance is clearly marked or removed.
+      - Docs define verification steps that map to the approved CI, schema, runtime, and Airflow plans.
+    acceptance_criteria:
+      - Documentation planning aligns operator docs with actual runtime.
+      - The plan requires runbook and environment documentation parity with deployed behavior.
+      - The reconciliation scope stays focused on remediation-related docs and does not broaden into feature documentation.
+    failure_modes:
+      - scenario: Documentation is updated before technical decisions stabilize and immediately drifts again.
+        likelihood: medium
+        impact: medium
+        mitigation: Keep docs in the final wave and require earlier-wave outputs as formal inputs before updating runbooks.
+      - scenario: Break-glass procedures remain implicit and operators fall back to outdated mutable recovery steps.
+        likelihood: medium
+        impact: high
+        mitigation: Add explicit supported recovery paths, ownership, and escalation points tied to the approved runtime model.
+    task_type: update
+    audience: developers
+    coverage_matrix:
+      - Secret handling and rotation guidance
+      - Canonical schema and migration workflow
+      - Default validation and CI gate checklist
+      - Immutable deployment and rollback procedure
+      - Airflow bootstrap, health checks, and incident triage

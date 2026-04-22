@@ -116,16 +116,11 @@ class NBAEloRating(BaseEloRating):
 
         auc = 0.5
         if not df.empty and "prediction" in df.columns and "home_won" in df.columns:
-            try:
-                from sklearn.metrics import roc_auc_score
+            from sklearn.metrics import roc_auc_score
 
-                # Ensure we have both classes
-                if len(df["home_won"].unique()) > 1:
-                    auc = roc_auc_score(df["home_won"].astype(int), df["prediction"])
-            except ImportError:
-                pass
-            except Exception:
-                pass
+            # Ensure we have both classes
+            if len(df["home_won"].unique()) > 1:
+                auc = roc_auc_score(df["home_won"].astype(int), df["prediction"])
 
         return {
             "accuracy": accuracy,

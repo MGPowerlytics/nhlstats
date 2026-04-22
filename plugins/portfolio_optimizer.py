@@ -246,6 +246,34 @@ class OpportunityParser(ABC):
             return default
         return float(val)
 
+    @staticmethod
+    def _resolve_bet_direction(
+        home_team: str, away_team: str, bet_on: str, side: Optional[str] = None
+    ) -> str:
+        """Resolve whether a recommendation targets the home or away side.
+
+        ``bet_recommendations.bet_on`` has historically been persisted in two
+        formats:
+        1. ``home`` / ``away`` from the loader's normalized storage contract.
+        2. Team name strings from older recommendation producers.
+
+        The portfolio loaders must accept either representation.
+        """
+        normalized_side = str(side).lower() if side else ""
+        if normalized_side in {"home", "away"}:
+            return normalized_side
+
+        normalized_bet_on = str(bet_on).lower()
+        if normalized_bet_on in {"home", "away"}:
+            return normalized_bet_on
+
+        if bet_on == home_team:
+            return "home"
+        if bet_on == away_team:
+            return "away"
+
+        return "home"
+
 
 class DatabaseRowParser(OpportunityParser):
     """Parse bet opportunities from database row (pandas Series)."""
@@ -293,10 +321,10 @@ class DatabaseRowParser(OpportunityParser):
             return team, opponent, "home"
 
         bet_on_team = row.get("bet_on", "")
-        if bet_on_team == home_team:
+        bet_direction = self._resolve_bet_direction(home_team, away_team, bet_on_team)
+        if bet_direction == "home":
             return home_team, away_team, "home"
-        else:
-            return away_team, home_team, "away"
+        return away_team, home_team, "away"
 
     def _parse_prices(
         self, row: pd.Series, sport: str, bet_direction: str
@@ -619,7 +647,8 @@ class PortfolioOptimizer:
         opportunities = []
         skipped_stale = 0
 
-        sports_list = ", ".join([f"'{sport}'" for sport in sports])
+        normalized_sports = [sport.upper() for sport in sports]
+        sports_list = ", ".join([f"'{sport}'" for sport in normalized_sports])
         query = f"""
             SELECT sport, ticker, bet_on, home_team, away_team,
                    home_rating, away_rating, elo_prob, market_prob,

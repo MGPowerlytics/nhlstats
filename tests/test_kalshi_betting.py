@@ -9,11 +9,63 @@ from unittest.mock import patch, MagicMock, mock_open
 sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 
 # Import KalshiBetting classes for use in tests
-from kalshi_betting import KalshiBetting, KalshiConfig, BettingConfig
+from kalshi_betting import (
+    BettingConfig,
+    KalshiBetting,
+    KalshiConfig,
+    load_runtime_kalshi_env,
+)
 
 
 class TestKalshiConfig:
     """Test KalshiConfig and initialization with it."""
+
+    def test_from_env_uses_runtime_secret_contract(self):
+        """KalshiConfig.from_env should read the approved env vars."""
+        config = KalshiConfig.from_env(
+            env={
+                "KALSHI_API_KEY_ID": "runtime_key",
+                "KALSHI_PRIVATE_KEY_PATH": "/run/secrets/kalshi_private_key.pem",
+                "ODDS_API_KEY": "odds_key",
+            },
+            production=False,
+        )
+
+        assert config.api_key_id == "runtime_key"
+        assert config.private_key_path == "/run/secrets/kalshi_private_key.pem"
+        assert config.odds_api_key == "odds_key"
+        assert config.production is False
+
+    def test_from_env_accepts_legacy_api_key_alias_during_migration(self):
+        """KalshiConfig.from_env should accept the legacy key env name as a fallback."""
+        config = KalshiConfig.from_env(
+            env={
+                "KALSHI_API_KEY": "legacy_runtime_key",
+                "KALSHI_PRIVATE_KEY_PATH": "/run/secrets/kalshi_private_key.pem",
+            }
+        )
+
+        assert config.api_key_id == "legacy_runtime_key"
+        assert config.private_key_path == "/run/secrets/kalshi_private_key.pem"
+
+    def test_load_runtime_kalshi_env_requires_api_key_id_or_legacy_alias(self):
+        """Runtime loader should still fail when neither API key env name is present."""
+        with pytest.raises(ValueError, match="KALSHI_API_KEY_ID"):
+            load_runtime_kalshi_env(
+                env={
+                    "KALSHI_PRIVATE_KEY_PATH": "/run/secrets/kalshi_private_key.pem",
+                }
+            )
+
+    def test_from_env_rejects_non_runtime_private_key_path(self):
+        """KalshiConfig.from_env should reject non-canonical key paths."""
+        with pytest.raises(ValueError, match="KALSHI_PRIVATE_KEY_PATH"):
+            KalshiConfig.from_env(
+                env={
+                    "KALSHI_API_KEY_ID": "runtime_key",
+                    "KALSHI_PRIVATE_KEY_PATH": "/opt/airflow/private_key.pem",
+                }
+            )
 
     @patch("kalshi_betting.serialization.load_pem_private_key")
     @patch("builtins.open", mock_open(read_data=b"test_private_key"))
@@ -298,9 +350,7 @@ class TestProcessBetRecommendations:
     @pytest.fixture
     def mock_client(self):
         """Create a mock Kalshi client."""
-        with patch(
-            "kalshi_betting.serialization.load_pem_private_key"
-        ) as mock_load_key:
+        with patch("kalshi_betting.KalshiBetting._load_private_key") as mock_load_key:
             mock_load_key.return_value = MagicMock()
             config = KalshiConfig(
                 api_key_id="test_key",

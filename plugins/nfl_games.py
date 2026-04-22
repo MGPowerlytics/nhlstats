@@ -1,24 +1,18 @@
 #!/usr/bin/env python3
 """
 Download NFL game data using nfl-data-py library.
-
-Note: nfl_data_py requires pandas<2.0 which conflicts with other dependencies.
-This module will gracefully degrade if nfl_data_py is not available.
 """
 
 from pathlib import Path
 from datetime import datetime
 import pandas as pd
-
-# Try to import nfl_data_py, but don't fail if unavailable
 try:
     import nfl_data_py as nfl
 
     NFL_DATA_AVAILABLE = True
-except ImportError:
+except ImportError:  # pragma: no cover - exercised in import-only environments
     nfl = None
     NFL_DATA_AVAILABLE = False
-    print("⚠️  nfl_data_py not available - NFL data fetching disabled")
 
 
 from plugins.base_games import BaseGamesFetcher
@@ -29,6 +23,16 @@ class NFLGames(BaseGamesFetcher):
 
     SPORT = "nfl"
 
+    @staticmethod
+    def _require_nfl_data_py():
+        """Raise a clear error when the optional nfl_data_py dependency is missing."""
+        if not NFL_DATA_AVAILABLE or nfl is None:
+            raise ImportError(
+                "nfl_data_py is required to download NFL games. "
+                "Install it to enable NFL schedule ingestion."
+            )
+        return nfl
+
     def _get_season_year(self, date_obj):
         """Determine NFL season year (season starts in September)."""
         if date_obj.month >= 9:
@@ -37,8 +41,9 @@ class NFLGames(BaseGamesFetcher):
 
     def _download_and_save_schedule(self, season_year, date_obj, date_str):
         """Download and save schedule for a specific date."""
+        nfl_api = self._require_nfl_data_py()
         # Get schedule for the season
-        schedule = nfl.import_schedules([season_year])
+        schedule = nfl_api.import_schedules([season_year])
 
         # Filter games for the specific date
         schedule["gameday"] = pd.to_datetime(schedule["gameday"])
@@ -60,7 +65,8 @@ class NFLGames(BaseGamesFetcher):
         """Download and save play-by-play data for these games."""
         print("  Downloading play-by-play data...")
         try:
-            pbp = nfl.import_pbp_data([season_year], downcast=False)
+            nfl_api = self._require_nfl_data_py()
+            pbp = nfl_api.import_pbp_data([season_year], downcast=False)
 
             # Filter to just these games
             date_pbp = pbp[pbp["game_id"].isin(game_ids)]
@@ -84,7 +90,8 @@ class NFLGames(BaseGamesFetcher):
     def _download_and_save_weekly_stats(self, season_year, week, date_str):
         """Download and save weekly stats for the given week."""
         try:
-            weekly = nfl.import_weekly_data([season_year])
+            nfl_api = self._require_nfl_data_py()
+            weekly = nfl_api.import_weekly_data([season_year])
             date_weekly = weekly[
                 (weekly["season"] == season_year) & (weekly["week"] == week)
             ]
@@ -103,18 +110,13 @@ class NFLGames(BaseGamesFetcher):
         Download games for a specific date.
         Date format: YYYY-MM-DD
         """
-        if not NFL_DATA_AVAILABLE:
-            print(
-                f"⚠️  nfl_data_py not available - skipping NFL download for {date_str}"
-            )
-            return 0
-
         print(f"Downloading NFL games for {date_str}...")
 
         date_obj = datetime.strptime(date_str, "%Y-%m-%d")
         season_year = self._get_season_year(date_obj)
 
         try:
+            self._require_nfl_data_py()
             date_games = self._download_and_save_schedule(
                 season_year, date_obj, date_str
             )

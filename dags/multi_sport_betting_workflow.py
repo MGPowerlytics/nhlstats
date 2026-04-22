@@ -966,15 +966,30 @@ def _load_glicko2_games_df(sport: str) -> Any:
         """
     elif sport in ["mlb", "nfl"]:
         table_name = f"{sport}_games"
-        query = f"""
-            SELECT game_date, home_team, away_team,
-                   CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
-            FROM {table_name}
-            WHERE game_date IS NOT NULL
-              AND home_score IS NOT NULL
-              AND away_score IS NOT NULL
-            ORDER BY game_date
-        """
+        if sport == "mlb":
+            # Mirror _get_mlb_query: exclude spring training (S), exhibitions (E),
+            # and All-Star (A) games so Glicko-2 ratings stay aligned with Elo.
+            query = f"""
+                SELECT game_date, home_team, away_team,
+                       CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+                FROM {table_name}
+                WHERE game_date IS NOT NULL
+                  AND home_score IS NOT NULL
+                  AND away_score IS NOT NULL
+                  AND game_type IN ('R', 'D', 'L', 'W', 'F')
+                  AND status IN ('Final', 'Game Over', 'Completed Early')
+                ORDER BY game_date
+            """
+        else:
+            query = f"""
+                SELECT game_date, home_team, away_team,
+                       CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+                FROM {table_name}
+                WHERE game_date IS NOT NULL
+                  AND home_score IS NOT NULL
+                  AND away_score IS NOT NULL
+                ORDER BY game_date
+            """
     else:
         return pd.DataFrame()
 

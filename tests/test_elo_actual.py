@@ -52,7 +52,8 @@ class TestMLBEloRating:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        assert elo.config.k_factor == 20
+        assert elo.config.k_factor == 4.0
+        assert elo.config.home_advantage == 20.0
 
     def test_predict(self):
         from plugins.elo import MLBEloRating
@@ -141,7 +142,8 @@ class TestEPLEloRating:
         from plugins.elo import EPLEloRating
 
         elo = EPLEloRating()
-        assert elo.config.k_factor == 20
+        assert elo.config.k_factor == 40.0
+        assert elo.config.home_advantage == 80.0
 
     def test_predict(self):
         from plugins.elo import EPLEloRating

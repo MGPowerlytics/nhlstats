@@ -18,38 +18,35 @@ docker compose down
 echo "3. Rebuilding Docker images..."
 docker compose build
 
-# Step 4: Start services
-echo "4. Starting Airflow services..."
-docker compose up -d
+# Step 4: Start backing services
+echo "4. Starting PostgreSQL and Redis..."
+docker compose up -d postgres redis
 
-# Step 5: Wait for services to be healthy
-echo "5. Waiting for services to be healthy..."
-sleep 30
+# Step 5: Run repo-controlled bootstrap flow
+echo "5. Running Airflow preflight..."
+docker compose run --rm airflow-preflight
 
-# Step 6: Check service status
-echo "6. Checking service status..."
+echo "6. Running Airflow bootstrap-admin..."
+docker compose run --rm airflow-bootstrap-admin
+
+# Step 7: Start steady-state Airflow services
+echo "7. Starting Airflow services..."
+docker compose up -d airflow-apiserver airflow-scheduler airflow-dag-processor airflow-worker airflow-triggerer dashboard
+
+# Step 8: Verify the runtime
+echo "8. Running Airflow verification..."
+docker compose run --rm airflow-verify
+
+# Step 9: Check service status
+echo "9. Checking service status..."
 docker compose ps
 
-# Step 7: Initialize Airflow database (if needed)
-echo "7. Initializing Airflow database..."
-docker compose exec airflow-scheduler airflow db init 2>/dev/null || true
-
-# Step 8: Create admin user (if needed)
-echo "8. Creating admin user..."
-docker compose exec airflow-scheduler airflow users create \
-    --username admin \
-    --firstname Admin \
-    --lastname User \
-    --role Admin \
-    --email admin@example.com \
-    --password admin 2>/dev/null || true
-
-# Step 9: Wait for DAG to be loaded
-echo "9. Waiting for DAG to be loaded..."
+# Step 10: Wait for DAG to be loaded
+echo "10. Waiting for DAG to be loaded..."
 sleep 20
 
-# Step 10: List DAGs
-echo "10. Listing available DAGs..."
+# Step 11: List DAGs
+echo "11. Listing available DAGs..."
 docker compose exec airflow-scheduler airflow dags list
 
 echo ""
@@ -58,7 +55,8 @@ echo "✅ Rebuild and deployment complete!"
 echo ""
 echo "Next steps:"
 echo "1. Access Airflow UI at: http://localhost:8080"
-echo "2. Login with: admin / admin"
+echo "2. Login with the bootstrap admin credentials configured via"
+echo "   _AIRFLOW_WWW_USER_USERNAME / _AIRFLOW_WWW_USER_PASSWORD"
 echo "3. Find 'multi_sport_betting_workflow' DAG"
 echo "4. Trigger the DAG manually"
 echo "5. Monitor logs for 'Rating Changes' output"

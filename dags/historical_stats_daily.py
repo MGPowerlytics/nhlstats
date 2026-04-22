@@ -78,7 +78,7 @@ def _yesterday_from_context(context: dict[str, Any]) -> date:
 
 
 def _query_games_for_date(sport: str, game_date: date) -> list[str]:
-    """Return game_ids from ``unified_games`` for a given sport and date.
+    """Return game_ids for a given sport and date.
 
     Args:
         sport: Upper-case sport identifier (e.g. ``"NBA"``, ``"NHL"``).
@@ -90,11 +90,23 @@ def _query_games_for_date(sport: str, game_date: date) -> list[str]:
     from plugins.db_manager import DBManager
 
     db = DBManager()
-    df = db.fetch_df(
-        "SELECT game_id FROM unified_games WHERE sport = :sport AND game_date = :gdate",
-        {"sport": sport, "gdate": str(game_date)},
-    )
-    return df["game_id"].tolist() if not df.empty else []
+    sport = sport.upper()
+    if sport == "MLB":
+        df = db.fetch_df(
+            """
+            SELECT CAST(game_id AS VARCHAR) AS game_id
+            FROM mlb_games
+            WHERE game_date = :gdate
+            ORDER BY game_id
+        """,
+            {"gdate": str(game_date)},
+        )
+    else:
+        df = db.fetch_df(
+            "SELECT game_id FROM unified_games WHERE sport = :sport AND game_date = :gdate",
+            {"sport": sport, "gdate": str(game_date)},
+        )
+    return [str(game_id) for game_id in df["game_id"].tolist()] if not df.empty else []
 
 
 def _run_sport_fetch(

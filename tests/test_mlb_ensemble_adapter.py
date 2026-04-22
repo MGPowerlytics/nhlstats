@@ -176,6 +176,32 @@ def test_populate_from_db_populates_recent_form_tracker():
     assert form.win_pct("Red Sox") == pytest.approx(1 / 3)
 
 
+def test_populate_from_db_filters_out_spring_training():
+    """Adapter's mlb_games query must restrict to regular/postseason game_types.
+
+    Spring training (S), exhibition (E), and All-Star (A) games inflate
+    pythagorean stats and pollute the form tracker. The main MLB Elo training
+    query already filters via ``_get_mlb_query``; the adapter must do the same
+    so the ensemble's side information stays consistent with the team Elo
+    backbone.
+    """
+    games = _make_games_df([])
+    venues = _make_venues_df([])
+    db = _FakeDB(games, venues)
+    adapter = MLBEnsembleAdapter()
+    adapter.populate_from_db(db, reference_date=date(2026, 4, 5))
+
+    mlb_calls = [q for q, _ in db.calls if "FROM mlb_games" in q]
+    assert mlb_calls, "Adapter must query mlb_games"
+    query = mlb_calls[0]
+    assert "game_type IN" in query, (
+        "Adapter mlb_games query must filter game_type to exclude spring "
+        "training / exhibitions / All-Star games"
+    )
+    for code in ("'R'", "'D'", "'L'", "'W'", "'F'"):
+        assert code in query, f"Allowed game_type {code} missing from filter"
+
+
 def test_populate_from_db_form_is_idempotent():
     """Re-populating must not double-count results into the form tracker."""
     games = _make_games_df(

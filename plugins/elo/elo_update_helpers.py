@@ -11,16 +11,7 @@ from pathlib import Path
 from datetime import datetime, date
 from typing import Dict, Any
 
-try:
-    # Try direct import first (works when plugins/elo is in Python path, common in Airflow)
-    from elo_update_config import SportEloConfig, get_sport_config
-except ImportError:
-    try:
-        # Try absolute import (works when plugins is in Python path)
-        from plugins.elo.elo_update_config import SportEloConfig, get_sport_config
-    except ImportError:
-        # Fall back to relative import
-        from .elo_update_config import SportEloConfig, get_sport_config
+from plugins.elo.elo_update_config import SportEloConfig, get_sport_config
 
 
 def load_previous_ratings(sport: str) -> Dict[str, float]:
@@ -167,7 +158,7 @@ def _collect_update_kwargs(game: pd.Series, sport_id: str) -> dict[str, Any]:
         update_kwargs["is_neutral"] = game["neutral"]
 
     if sport_id == "tennis" and "tour" in game:
-        update_kwargs["tour"] = game["tour"]
+        update_kwargs["tour"] = None if pd.isna(game["tour"]) else game["tour"]
 
     return update_kwargs
 

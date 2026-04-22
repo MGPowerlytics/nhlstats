@@ -161,6 +161,7 @@ class MLBEnsembleAdapter:
               AND game_date < :ref
               AND home_score IS NOT NULL
               AND away_score IS NOT NULL
+              AND game_type IN ('R', 'D', 'L', 'W', 'F')
               AND status IN ('Final', 'Game Over', 'Completed Early')
             ORDER BY game_date
         """

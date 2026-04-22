@@ -3,7 +3,7 @@
 Writes portfolio value snapshots into PostgreSQL for the Streamlit dashboard.
 
 This DAG is intentionally small and safe:
-- Reads Kalshi auth from `kalshkey` (same pattern as other DAGs)
+- Reads Kalshi auth from runtime environment secrets
 - Upserts a single row per UTC hour into PostgreSQL
 - Does not trigger any downstream betting logic
 """
@@ -29,7 +29,7 @@ def snapshot_portfolio_value() -> None:
     from portfolio_snapshots import upsert_hourly_snapshot
 
     # Load credentials using the centralized helper
-    config = KalshiConfig.from_kalshkey(production=True)
+    config = KalshiConfig.from_env(production=True)
     client = KalshiBetting(config=config)
 
     balance, portfolio_value = client.get_balance()

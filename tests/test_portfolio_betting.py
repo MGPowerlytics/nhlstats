@@ -18,7 +18,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 from kalshi_betting import KalshiBetting, KalshiConfig, BettingConfig
 
 from portfolio_betting import PortfolioBettingManager
-from portfolio_optimizer import BetOpportunity, PortfolioAllocation
+from portfolio_optimizer import BetOpportunity, PortfolioAllocation, PortfolioConfig
 
 
 class TestPortfolioBettingErrorHandling:
@@ -372,6 +372,74 @@ class TestKalshiBettingNoneTicker:
 
         # Should return None without attempting reservation or API call
         assert result is None
+
+
+class TestPortfolioBettingPricing:
+    """Test price selection and probability calculations in portfolio betting."""
+
+    @pytest.fixture
+    def mock_kalshi_client(self):
+        """Create a mocked KalshiBetting client."""
+        with patch("kalshi_betting.serialization.load_pem_private_key"):
+            with patch("builtins.open", mock_open(read_data=b"fake_key")):
+                client = KalshiBetting(
+                    config=KalshiConfig(api_key_id="test", private_key_path="test.pem")
+                )
+                client.get_balance = Mock(return_value=(1000.0, 0.0))
+                client.get_market_details = Mock()
+                client.place_bet = Mock()
+                return client
+
+    def test_calculate_bet_line_probability_matches_yes_price(self, mock_kalshi_client):
+        manager = PortfolioBettingManager(
+            kalshi_client=mock_kalshi_client,
+            config=PortfolioConfig(bankroll=1000.0),
+            dry_run=True,
+        )
+
+        assert manager._calculate_bet_line_probability("yes", 37) == pytest.approx(0.37)
+
+    def test_place_optimized_bets_prefers_live_market_yes_ask(self, mock_kalshi_client):
+        mock_kalshi_client.get_market_details.return_value = {
+            "status": "active",
+            "ticker": "VALID-TICKER",
+            "close_time": "2099-12-31T00:00:00Z",
+            "yes_ask": 62,
+        }
+
+        manager = PortfolioBettingManager(
+            kalshi_client=mock_kalshi_client,
+            config=PortfolioConfig(bankroll=1000.0),
+            dry_run=True,
+        )
+
+        opp = BetOpportunity(
+            sport="mlb",
+            ticker="VALID-TICKER",
+            bet_on="home",
+            team="Chicago Cubs",
+            opponent="St. Louis Cardinals",
+            home_team="Chicago Cubs",
+            away_team="St. Louis Cardinals",
+            elo_prob=0.62,
+            market_prob=0.47,
+            edge=0.15,
+            confidence="HIGH",
+            yes_ask=47,
+            no_ask=53,
+        )
+        allocations = [
+            PortfolioAllocation(
+                opportunity=opp, bet_size=10.0, kelly_fraction=0.25, allocation_pct=0.01
+            )
+        ]
+
+        results = manager._place_optimized_bets(allocations, "2026-04-21")
+
+        assert len(results["placed_bets"]) == 1
+        placed_bet = results["placed_bets"][0]
+        assert placed_bet["price"] == 62
+        assert placed_bet["bet_line_prob"] == pytest.approx(0.62)
 
 
 if __name__ == "__main__":

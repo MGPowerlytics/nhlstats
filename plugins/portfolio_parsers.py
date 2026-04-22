@@ -73,6 +73,26 @@ class OpportunityParser(ABC):
         except (ValueError, TypeError):
             return default
 
+    @staticmethod
+    def _resolve_bet_direction(
+        home_team: str, away_team: str, bet_on: str, side: Optional[str] = None
+    ) -> str:
+        """Resolve home/away from either normalized or legacy recommendation fields."""
+        normalized_side = str(side).lower() if side else ""
+        if normalized_side in {"home", "away"}:
+            return normalized_side
+
+        normalized_bet_on = str(bet_on).lower()
+        if normalized_bet_on in {"home", "away"}:
+            return normalized_bet_on
+
+        if bet_on == home_team:
+            return "home"
+        if bet_on == away_team:
+            return "away"
+
+        return "home"
+
 
 class DatabaseRowParser(OpportunityParser):
     """Parse bet opportunities from database row (pandas Series)."""
@@ -112,11 +132,13 @@ class DatabaseRowParser(OpportunityParser):
         home_team = row.get("home_team", "")
         away_team = row.get("away_team", "")
         bet_on = row.get("bet_on", "home")
+        bet_direction = self._resolve_bet_direction(
+            home_team, away_team, bet_on, row.get("side")
+        )
 
-        if bet_on == "home":
+        if bet_direction == "home":
             return home_team, away_team, "home"
-        else:
-            return away_team, home_team, "away"
+        return away_team, home_team, "away"
 
     def _parse_prices(
         self, row: pd.Series, sport: str, bet_direction: str
@@ -199,11 +221,13 @@ class JsonFileParser(OpportunityParser):
         home_team = data.get("home_team", "")
         away_team = data.get("away_team", "")
         bet_on = data.get("bet_on", "home")
+        bet_direction = self._resolve_bet_direction(
+            home_team, away_team, bet_on, data.get("side")
+        )
 
-        if bet_on == "home":
+        if bet_direction == "home":
             return home_team, away_team, "home"
-        else:
-            return away_team, home_team, "away"
+        return away_team, home_team, "away"
 
     def _parse_prices(
         self, data: Dict, sport: str, bet_direction: str

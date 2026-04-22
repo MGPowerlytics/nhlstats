@@ -45,7 +45,7 @@ class TestNHLGameEventsInit:
 class TestNHLMakeRequest:
     """Test HTTP request handling."""
 
-    @patch("nhl_game_events.requests.get")
+    @patch("plugins.base_games.requests.get")
     def test_make_request_success(self, mock_get, tmp_path):
         """Test successful request."""
         from nhl_game_events import NHLGameEvents
@@ -60,8 +60,8 @@ class TestNHLMakeRequest:
 
         assert result == {"data": "test"}
 
-    @patch("nhl_game_events.requests.get")
-    @patch("nhl_game_events.time.sleep")
+    @patch("plugins.base_games.requests.get")
+    @patch("plugins.base_games.time.sleep")
     def test_make_request_rate_limited_then_success(
         self, mock_sleep, mock_get, tmp_path
     ):

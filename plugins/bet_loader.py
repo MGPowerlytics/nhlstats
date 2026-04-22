@@ -326,9 +326,13 @@ class BetLoader:
         if bets is None:
             return 0
 
+        # Normalize sport casing to uppercase so that bet_recommendations stays
+        # consistent with placed_bets (which derives sport from the ticker).
+        normalized_sport = sport.upper()
+
         loaded = 0
         for i, bet in enumerate(bets):
-            context = BetContext(sport=sport, date_str=date_str, index=i)
+            context = BetContext(sport=normalized_sport, date_str=date_str, index=i)
             recommendation = BetRecommendation.from_dict(bet, context)
             params = self._process_bet_params(recommendation, context)
 
@@ -336,7 +340,7 @@ class BetLoader:
                 self._upsert_bet(self.db, params)
                 loaded += 1
 
-        print(f"✓ Loaded {loaded} {sport.upper()} bets for {date_str}")
+        print(f"✓ Loaded {loaded} {normalized_sport} bets for {date_str}")
         return loaded
 
     def _load_bets_from_file(
@@ -363,29 +367,11 @@ class BetLoader:
     ) -> Dict[str, Any]:
         """Process bet recommendation and return cleaned SQL parameters."""
         params = recommendation.to_sql_params()
-
-        # NUCLEAR OPTION: Log what we got from to_sql_params()
-        print(f"🔍 NUCLEAR DEBUG _process_bet_params: params from to_sql_params(): {list(params.keys())}")
-        if "date_str" in params:
-            print(f"🚨 NUCLEAR DEBUG _process_bet_params: date_str is in params! Value: {params['date_str']}")
-        if "recommendation_date" in params:
-            print(f"🔍 NUCLEAR DEBUG _process_bet_params: recommendation_date is in params! Value: {params['recommendation_date']}")
-
-        # Ensure recommendation_date is present
         params = self._ensure_recommendation_date(params, context)
-
-        # Remove date_str if present (database column is recommendation_date)
         params = self._remove_date_str_from_params(params)
-
-        # FINAL NUCLEAR OPTION: Remove date_str no matter what
-        if "date_str" in params:
-            print(f"🚨 FINAL NUCLEAR OPTION: date_str STILL in params after all cleaning! Removing...")
-            del params["date_str"]
-        params.pop("date_str", None)  # Use pop with default for safety
-
-        # FINAL CHECK: Log final params
-        print(f"🔍 NUCLEAR DEBUG _process_bet_params: FINAL params: {list(params.keys())}")
-
+        # Defense in depth: the database column is `recommendation_date`; never
+        # leak `date_str` into the INSERT regardless of upstream behavior.
+        params.pop("date_str", None)
         return params
 
     def _ensure_recommendation_date(

@@ -307,10 +307,25 @@ class TestBuildFetcher:
     def test_correct_class_instantiated(self, sport_key: str, expected_class_name: str):
         """build_fetcher must return the expected fetcher class for each sport."""
         mock_db = MagicMock()
-        fetcher = build_fetcher(sport_key, mock_db)
+
+        def _init(self, db, **kwargs):
+            self.db = db
+            self.kwargs = kwargs
+
+        fake_fetcher_class = type(expected_class_name, (), {"__init__": _init})
+
+        with patch.object(
+            bfill.stats_package,
+            "resolve_fetcher_class",
+            return_value=fake_fetcher_class,
+        ) as mock_resolve:
+            fetcher = build_fetcher(sport_key, mock_db)
+
+        mock_resolve.assert_called_once_with(expected_class_name)
         assert (
             type(fetcher).__name__ == expected_class_name
         ), f"Sport {sport_key!r}: expected {expected_class_name}, got {type(fetcher).__name__}"
+        assert fetcher.db is mock_db
 
     def test_soccer_epl_sport_attribute(self):
         """SoccerBoxScoreFetcher for 'epl' must have SPORT='EPL'."""
@@ -336,6 +351,49 @@ class TestBuildFetcher:
         """build_fetcher must raise ValueError for an unrecognised sport."""
         with pytest.raises(ValueError, match="Unknown sport"):
             build_fetcher("cricket", MagicMock())
+
+    def test_resolves_fetcher_class_lazily_via_stats_package(self):
+        """build_fetcher should resolve optional fetchers only when requested."""
+
+        class FakeFetcher:
+            def __init__(self, db):
+                self.db = db
+
+        mock_db = MagicMock()
+        with patch.object(
+            bfill.stats_package,
+            "resolve_fetcher_class",
+            return_value=FakeFetcher,
+        ) as mock_resolve:
+            fetcher = build_fetcher("nba", mock_db)
+
+        mock_resolve.assert_called_once_with("NBABoxScoreFetcher")
+        assert isinstance(fetcher, FakeFetcher)
+        assert fetcher.db is mock_db
+
+    def test_missing_optional_dependency_only_fails_for_requested_sport(self):
+        """Unavailable optional SDKs should fail only for the requested sport."""
+
+        class FakeFetcher:
+            def __init__(self, db):
+                self.db = db
+
+        def resolve_fetcher_class(name: str):
+            if name == "NBABoxScoreFetcher":
+                raise ImportError("nba_api is not installed")
+            return FakeFetcher
+
+        with patch.object(
+            bfill.stats_package,
+            "resolve_fetcher_class",
+            side_effect=resolve_fetcher_class,
+        ):
+            nhl_fetcher = build_fetcher("nhl", MagicMock())
+
+            with pytest.raises(ImportError, match="nba.*NBABoxScoreFetcher"):
+                build_fetcher("nba", MagicMock())
+
+        assert isinstance(nhl_fetcher, FakeFetcher)
 
 
 # ===========================================================================

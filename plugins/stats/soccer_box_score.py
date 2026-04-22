@@ -296,11 +296,7 @@ class SoccerBoxScoreFetcher(BoxScoreFetcher):
         Returns:
             Rows with ``ext`` fields updated where FBRef data was available.
         """
-        try:
-            from bs4 import BeautifulSoup  # optional dep
-        except ImportError:
-            logger.debug("BeautifulSoup not installed — skipping FBRef enrichment")
-            return rows
+        from bs4 import BeautifulSoup  # noqa: F401  (used by future enrichment)
 
         headers = {"User-Agent": _FBREF_USER_AGENT}
         # Group rows by game_id for batch lookup

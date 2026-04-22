@@ -233,6 +233,9 @@ def translate_sql(sql):
                 pass
 
     # CASE 5: Generic translations
+    if "NOW()" in sql_upper:
+        sql = re.sub(r"\bNOW\(\)", "CURRENT_TIMESTAMP", sql, flags=re.IGNORECASE)
+
     if sql_upper == "SHOW TABLES":
         return "SELECT name FROM sqlite_master WHERE type='table'"
 

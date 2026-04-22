@@ -73,13 +73,17 @@ class DatabaseLoaderBase:
     """Base class for database loading operations with connection management."""
 
     def __init__(
-        self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None, sport: Optional[str] = None
+        self,
+        db_path: Optional[str] = None,
+        db_manager: Optional[DBManager] = None,
+        sport: Optional[str] = None,
+        db: Optional[DBManager] = None,
     ) -> None:
         # Store db_path for tests that check loader.db_path
         self.db_path = Path(db_path) if db_path else Path("data/nhlstats.duckdb")
         self._conn = None
         self._schema_initialized = False
-        self.db = db_manager or default_db
+        self.db = db_manager or db or default_db
         self.sport = sport.lower() if sport else None
 
     @property
@@ -129,15 +133,26 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
     """Load sports data into PostgreSQL"""
 
     def __init__(
-        self, db_path: Optional[str] = None, db_manager: Optional[DBManager] = None
+        self,
+        db_path: Optional[str] = None,
+        db_manager: Optional[DBManager] = None,
+        sport: Optional[str] = None,
+        db: Optional[DBManager] = None,
     ) -> None:
         """Initialize NHL database loader with schema manager.
 
         Args:
             db_path: Optional database path (for backward compatibility)
             db_manager: Optional database manager instance
+            sport: Optional sport override for multi-sport loading
+            db: Backward-compatible alias for db_manager
         """
-        super().__init__(db_path, db_manager)
+        super().__init__(
+            db_path=db_path,
+            db_manager=db_manager,
+            sport=sport,
+            db=db,
+        )
         self.schema_manager = DatabaseSchemaManager(self.db)
 
         # Create CSV history loader for CSV data processing
@@ -223,6 +238,9 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
 
     def load_date(self, date_str: str, data_dir: Path = Path("data")) -> int:
         """Load all sports data for a specific date"""
+        data_dir = Path(data_dir)
+        if not data_dir.exists():
+            return 0
         games_loaded = 0
 
         # Primary sports with structured JSON directories
@@ -251,8 +269,24 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
 
         return games_loaded
 
+    # MLB Stats API gameType codes we keep in our warehouse.
+    # R=Regular, F=Wild Card, D=Division, L=League Championship, W=World Series.
+    # Spring training (S), exhibition (E) and All-Star (A) games contaminate
+    # Elo ratings if persisted, so they are filtered at write-time.
+    _MLB_VALID_GAME_TYPES = frozenset({"R", "D", "L", "W", "F"})
+
+    # MLB Stats API abstractGameState values that indicate the score is final.
+    _MLB_FINAL_STATUSES = frozenset({"Final", "Game Over", "Completed Early"})
+
     def _load_mlb_schedule(self, file_path: Path):
-        """Load MLB schedule JSON into PostgreSQL"""
+        """Load MLB schedule JSON into PostgreSQL.
+
+        Hygiene rules enforced here (see tests/test_mlb_schedule_loader.py):
+        * Skip rows whose ``gameType`` is not regular season or postseason.
+        * Persist scores as NULL whenever the game is not yet final, so that
+          the MLB Stats API's literal ``score: 0`` for un-played games does
+          not get interpreted by downstream Elo training as an away win.
+        """
         with open(file_path) as f:
             data = json.load(f)
 
@@ -261,16 +295,28 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
 
         for game in data["dates"][0].get("games", []):
             try:
+                game_type = game["gameType"]
+                if game_type not in self._MLB_VALID_GAME_TYPES:
+                    continue
+
+                status = game["status"]["abstractGameState"]
+                is_final = status in self._MLB_FINAL_STATUSES
+                home_score = game["teams"]["home"].get("score") if is_final else None
+                away_score = game["teams"]["away"].get("score") if is_final else None
+
+                game_pk = str(game["gamePk"])
+                home_team = game["teams"]["home"]["team"]
+                away_team = game["teams"]["away"]["team"]
                 params = {
-                    "game_id": game["gamePk"],
+                    "game_id": int(game_pk),
                     "game_date": game["officialDate"],
                     "season": int(game["season"]),
-                    "game_type": game["gameType"],
-                    "home_team": game["teams"]["home"]["team"]["name"],
-                    "away_team": game["teams"]["away"]["team"]["name"],
-                    "home_score": game["teams"]["home"].get("score"),
-                    "away_score": game["teams"]["away"].get("score"),
-                    "status": game["status"]["abstractGameState"],
+                    "game_type": game_type,
+                    "home_team": home_team["name"],
+                    "away_team": away_team["name"],
+                    "home_score": home_score,
+                    "away_score": away_score,
+                    "status": status,
                 }
 
                 self.db.execute(
@@ -285,6 +331,50 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                         status = EXCLUDED.status
                 """,
                     params,
+                )
+
+                self.db.execute(
+                    """
+                    INSERT INTO unified_games (
+                        game_id, sport, game_date, season, status,
+                        home_team_id, home_team_name, away_team_id, away_team_name,
+                        home_score, away_score, commence_time, venue
+                    ) VALUES (
+                        :game_id, :sport, :game_date, :season, :status,
+                        :home_team_id, :home_team_name, :away_team_id, :away_team_name,
+                        :home_score, :away_score, :commence_time, :venue
+                    )
+                    ON CONFLICT (game_id) DO UPDATE SET
+                        game_date = EXCLUDED.game_date,
+                        season = EXCLUDED.season,
+                        status = EXCLUDED.status,
+                        home_team_id = EXCLUDED.home_team_id,
+                        home_team_name = EXCLUDED.home_team_name,
+                        away_team_id = EXCLUDED.away_team_id,
+                        away_team_name = EXCLUDED.away_team_name,
+                        home_score = EXCLUDED.home_score,
+                        away_score = EXCLUDED.away_score,
+                        commence_time = COALESCE(
+                            EXCLUDED.commence_time,
+                            unified_games.commence_time
+                        ),
+                        venue = COALESCE(EXCLUDED.venue, unified_games.venue)
+                """,
+                    {
+                        "game_id": game_pk,
+                        "sport": "MLB",
+                        "game_date": game["officialDate"],
+                        "season": int(game["season"]),
+                        "status": status,
+                        "home_team_id": str(home_team.get("id", "")) or None,
+                        "home_team_name": home_team["name"],
+                        "away_team_id": str(away_team.get("id", "")) or None,
+                        "away_team_name": away_team["name"],
+                        "home_score": home_score,
+                        "away_score": away_score,
+                        "commence_time": game.get("gameDate"),
+                        "venue": game.get("venue", {}).get("name"),
+                    },
                 )
             except Exception as e:
                 print(f"    Error loading MLB game {game.get('gamePk')}: {e}")
@@ -441,6 +531,14 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
             return json.load(f)
 
     @staticmethod
+    def _determine_sport_from_game_id(game_id: str) -> str:
+        """Infer sport from common upstream game-id formats."""
+        normalized = str(game_id)
+        if normalized.startswith("002"):
+            return "NBA"
+        return "NHL"
+
+    @staticmethod
     def _extract_game_params(game_id: str, data: Dict[str, Any]) -> Dict[str, Any]:
         """Extract game parameters from boxscore JSON data.
 
@@ -564,8 +662,11 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
 
     def _load_boxscore(self, game_id: str, file_path: Path):
         """Load game info and stats from boxscore JSON into PostgreSQL"""
-        # Load data from file
-        data = self._load_boxscore_data(file_path)
+        try:
+            data = self._load_boxscore_data(file_path)
+        except FileNotFoundError:
+            print(f"  Boxscore file not found for {game_id}: {file_path}")
+            return
 
         # Extract game parameters
         params = NHLDatabaseLoader._extract_game_params(game_id, data)

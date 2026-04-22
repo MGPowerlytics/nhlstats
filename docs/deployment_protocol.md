@@ -1,174 +1,128 @@
 # Deployment Protocol & Validation Checklist
 
-## Overview
-Standardized deployment protocol for the Multi-Sport Betting System to ensure reliable, repeatable deployments with zero manual interventions.
+This protocol reflects the remediated deployment surface only. It documents the
+supported validation, bootstrap, and runtime topology contracts.
 
-## Pre-Deployment Validation
+## 1. Pre-deployment validation
 
-### 1. Code Quality Checks
-- [ ] **Static Analysis**: Run ruff check and fix
-- [ ] **Dead Code Detection**: Run vulture with min-confidence 80
-- [ ] **Type Checking**: Run mypy on critical modules (optional)
-- [ ] **Security Scanning**: Check for known vulnerabilities
+Run the required validation commands from the repo root:
 
-### 2. Test Validation
-- [ ] **Unit Tests**: All unit tests pass (pytest tests/ -x)
-- [ ] **Smoke Tests**: Comprehensive smoke tests pass (pytest tests/smoke/)
-- [ ] **Integration Tests**: Integration tests pass (pytest tests/integration/)
-- [ ] **Coverage**: Maintain >85% test coverage
-
-### 3. Database Validation
-- [ ] **Schema Consistency**: All tables have primary keys
-- [ ] **Foreign Key Integrity**: No orphaned records
-- [ ] **Data Quality**: Critical tables have minimum row counts
-- [ ] **Migration Scripts**: Any schema changes have migration scripts
-
-### 4. Configuration Validation
-- [ ] **Environment Variables**: All required env vars are set
-- [ ] **API Credentials**: Kalshi API credentials valid
-- [ ] **Database Connections**: PostgreSQL connection successful
-- [ ] **File Permissions**: Key files have correct permissions
-
-## Deployment Process
-
-### Blue-Green Deployment Pattern
-1. **Prepare New Environment**
-   - Build new Docker images
-   - Run migrations on new database (if needed)
-   - Validate new environment with smoke tests
-
-2. **Traffic Switch**
-   - Update load balancer to point to new environment
-   - Monitor for errors
-   - Have rollback plan ready
-
-3. **Post-Deployment Validation**
-   - Run comprehensive smoke tests
-   - Verify all services are healthy
-   - Monitor error rates for 15 minutes
-
-### Docker Compose Deployment
 ```bash
-# 1. Pull latest changes
-git pull origin main
+pytest --collect-only -q
+pytest -q
+bash scripts/verify_stats_schema_migrations.sh
+```
 
-# 2. Run pre-deployment validation
-./ci_cd_pipeline.sh --validate-only
+Dashboard browser coverage is opt-in:
 
-# 3. Build new images
+```bash
+RUN_DASHBOARD_E2E=1 pytest -q
+```
+
+Before deployment, confirm the runtime contract is still true:
+
+- secrets are injected via environment variables and `/run/secrets` only
+- `KALSHI_API_KEY_ID`, `KALSHI_PRIVATE_KEY_PATH`, and `ODDS_API_KEY` are the
+  supported betting credentials
+- no repo-root secret files or `/tmp` secret copies are required
+- the image contains `/opt/airflow/migrations/stats_schema`
+- persistence uses named volumes only
+
+## 2. Supported deployment sequence
+
+Build the image-baked runtime:
+
+```bash
 docker compose build
-
-# 4. Deploy with zero downtime
-docker compose up -d --scale airflow-worker=2
-
-# 5. Wait for services to be healthy
-sleep 30
-
-# 6. Run post-deployment validation
-python scripts/validate_deployment.py
-
-# 7. Remove old containers
-docker system prune -f
 ```
 
-## Post-Deployment Verification
+Start backing services:
 
-### Service Health Checks
-- [ ] **Airflow Scheduler**: Responds to health check
-- [ ] **Airflow Webserver**: API endpoints accessible
-- [ ] **PostgreSQL**: Database queries successful
-- [ ] **Redis**: Cache operations working
-- [ ] **Dashboard**: Streamlit app accessible
-
-### Functional Verification
-- [ ] **DAG Parsing**: All DAGs parse successfully
-- [ ] **Elo Engine**: All sport Elo classes initialize
-- [ ] **Kalshi API**: Can connect to Kalshi (sandbox)
-- [ ] **Data Pipeline**: Can download and process game data
-
-### Performance Verification
-- [ ] **Response Times**: API responses < 2 seconds
-- [ ] **Database Queries**: Critical queries < 1 second
-- [ ] **Memory Usage**: Services within limits
-- [ ] **Disk Space**: Adequate free space
-
-## Rollback Procedure
-
-### Automatic Rollback Triggers
-- Any service fails health check for 3 consecutive minutes
-- Error rate exceeds 5% for 5 minutes
-- Smoke tests fail on new deployment
-- Database migration fails
-
-### Manual Rollback Steps
 ```bash
-# 1. Switch back to previous version
-git checkout HEAD~1
-
-# 2. Restart with previous version
-docker compose down
-docker compose up -d
-
-# 3. Verify rollback successful
-python scripts/validate_deployment.py
+docker compose up -d postgres redis
 ```
 
-## Monitoring & Alerting
+Run the supported one-shot bootstrap stages:
 
-### Critical Metrics to Monitor
-1. **Error Rates**: API error percentage
-2. **Latency**: 95th percentile response times
-3. **Throughput**: Requests per minute
-4. **Resource Usage**: CPU, memory, disk
-5. **Queue Lengths**: Airflow task queue sizes
+```bash
+docker compose run --rm airflow-preflight
+docker compose run --rm airflow-bootstrap-admin
+```
 
-### Alert Thresholds
-- **P1 Critical**: Service down > 5 minutes
-- **P2 High**: Error rate > 10% for 10 minutes
-- **P3 Medium**: Latency > 5 seconds for 15 minutes
-- **P4 Low**: Resource usage > 80% for 30 minutes
+Start the steady-state services:
 
-## Success Criteria
+```bash
+docker compose up -d \
+  airflow-apiserver \
+  airflow-scheduler \
+  airflow-dag-processor \
+  airflow-worker \
+  airflow-triggerer \
+  dashboard
+```
 
-### Deployment Success Definition
-- Zero manual interventions during deployment
-- All smoke tests pass post-deployment
-- Error rate remains below 1% for first hour
-- No user-reported issues for 24 hours
+Verify the runtime:
 
-### Continuous Improvement
-- Track deployment success rate (target: 99%)
-- Measure mean time to recovery (MTTR)
-- Document all deployment failures and root causes
-- Update this protocol based on lessons learned
+```bash
+docker compose run --rm airflow-verify
+```
 
-## Emergency Procedures
+## 3. Runtime topology guardrails
 
-### Database Recovery
-1. **Point-in-Time Recovery**: Use PostgreSQL WAL archiving
-2. **Backup Restoration**: Daily backups stored in S3/equivalent
-3. **Data Validation**: Verify data integrity after recovery
+The deployment is supported only when these guardrails remain intact:
 
-### Service Recovery
-1. **Container Restart**: `docker compose restart [service]`
-2. **Full Restart**: `docker compose down && docker compose up -d`
-3. **Resource Scaling**: Increase CPU/memory allocation if needed
+- no `_PIP_ADDITIONAL_REQUIREMENTS`
+- no runtime package installation in live containers
+- no steady-state repo/code/config bind mounts
+- no repo-root `./data` mount
+- migrations are image-baked under `/opt/airflow/migrations`
+- pool definitions come from `config/airflow_pools.json`
+- schema readiness is enforced by `plugins.schema_migrations apply/verify`
+  against `/opt/airflow/migrations/stats_schema`
 
-## Appendix
+## 4. Post-deployment verification
 
-### Required Tools
-- Docker & Docker Compose
-- Git
-- Python 3.10+
-- PostgreSQL client tools
-- Monitoring dashboard (Grafana/Prometheus)
+Confirm service health:
 
-### Contact Information
-- **Primary On-Call**: [Team Lead]
-- **Secondary On-Call**: [Backup Engineer]
-- **Escalation Path**: [Engineering Manager]
+```bash
+docker compose ps
+docker compose exec airflow-scheduler airflow dags list
+docker compose run --rm airflow-bootstrap-admin
+```
 
-### Change Log
-- **2026-01-24**: Initial deployment protocol created
-- **2026-01-24**: Added blue-green deployment pattern
-- **2026-01-24**: Enhanced validation checklist
+Confirm the governed schema ledger:
+
+```bash
+bash scripts/verify_stats_schema_migrations.sh
+```
+
+Open the Airflow UI at `http://localhost:8080` and sign in with the configured
+`_AIRFLOW_WWW_USER_*` bootstrap admin environment variables. Confirm **Admin** →
+**Pools** matches `config/airflow_pools.json`.
+
+## 5. Rollback
+
+Rollback uses the same image-baked/bootstrap flow:
+
+1. Restore the prior image or checkout the prior revision.
+2. Rebuild the image: `docker compose build`
+3. Start backing services: `docker compose up -d postgres redis`
+4. Re-run:
+   - `docker compose run --rm airflow-preflight`
+   - `docker compose run --rm airflow-bootstrap-admin`
+5. Start steady-state services again.
+6. Run `docker compose run --rm airflow-verify`
+
+Named volumes preserve database and Airflow state across the rollback unless you
+explicitly remove them.
+
+## 6. Unsupported deployment patterns
+
+Do not use these as operator guidance:
+
+- `airflow-init` as the bootstrap instruction
+- manual `docker compose exec` bootstrap or pool-seeding flows
+- live-container `pip install`
+- repo-mounted secret/bootstrap workflows
+- repo-root `kalshkey`, `odds_api_key`, or PEM guidance
+- `/tmp` secret-copy patterns

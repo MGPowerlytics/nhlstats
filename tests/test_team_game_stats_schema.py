@@ -11,10 +11,8 @@ Marked with @pytest.mark.integration for tests that require a live PostgreSQL
 connection. These are skipped automatically when the DB is unavailable.
 """
 
-import subprocess
 import sys
 from pathlib import Path
-from typing import Generator
 
 import pytest
 
@@ -45,6 +43,23 @@ ALL_STATS_TABLES = [
     "bet_reconciliation_audit",
 ]
 
+GOVERNED_LEGACY_TABLES = [
+    "games",
+    "teams",
+    "mlb_games",
+    "nfl_games",
+    "epl_games",
+    "ligue1_games",
+    "tennis_games",
+    "ncaab_games",
+    "wncaab_games",
+    "unrivaled_games",
+    "cba_games",
+    "game_odds",
+    "diagnostic_results",
+    "placed_bets",
+]
+
 
 def _db_available() -> bool:
     """Return True if a PostgreSQL connection can be established."""
@@ -61,6 +76,18 @@ def _db_available() -> bool:
         return False
 
 
+def _build_live_connection_string() -> str:
+    """Build the direct PostgreSQL connection string used by live-db tests."""
+    import os
+
+    user = os.getenv("POSTGRES_USER", "airflow")
+    password = os.getenv("POSTGRES_PASSWORD", "airflow")
+    host = os.getenv("POSTGRES_HOST", "postgres")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    db_name = os.getenv("POSTGRES_DB", "airflow")
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+
+
 requires_live_db = pytest.mark.skipif(
     not _db_available(),
     reason="Requires live PostgreSQL connection (pytest.mark.integration)",
@@ -75,31 +102,19 @@ pytestmark = pytest.mark.integration
 
 @pytest.fixture(scope="module")
 def schema_manager():
-    """Return an initialised DatabaseSchemaManager connected to the live DB.
-
-    Bypasses the conftest SQLite mock by constructing a direct PostgreSQL
-    connection string so the fixture always targets the real Postgres instance.
-    """
-    import os
-
-    from database_schema_manager import DatabaseSchemaManager
+    """Return a migration runner connected to the live PostgreSQL instance."""
     from sqlalchemy import create_engine
     from db_manager import DBManager
+    from plugins.schema_migrations import SchemaMigrationRunner
 
-    user = os.getenv("POSTGRES_USER", "airflow")
-    password = os.getenv("POSTGRES_PASSWORD", "airflow")
-    host = os.getenv("POSTGRES_HOST", "postgres")
-    port = os.getenv("POSTGRES_PORT", "5432")
-    db_name = os.getenv("POSTGRES_DB", "airflow")
-    conn_str = f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+    conn_str = _build_live_connection_string()
 
     db = DBManager.__new__(DBManager)
     db.connection_string = conn_str
     db.engine = create_engine(conn_str)
-    mgr = DatabaseSchemaManager(db)
-    mgr._schema_initialized = False
-    mgr.initialize_schema()
-    return mgr
+    runner = SchemaMigrationRunner(db)
+    runner.apply()
+    return runner
 
 
 @pytest.fixture()
@@ -261,6 +276,180 @@ def test_bet_reconciliation_audit_ddl() -> None:
     assert "serial" in ddl_lower, "audit_id should be SERIAL"
 
 
+def test_governed_chain_contains_legacy_schema_tables() -> None:
+    """Checked-in migrations own the legacy production tables and placed_bets."""
+    from db_manager import DBManager
+    from plugins.schema_migrations import SchemaMigrationRunner
+
+    db = DBManager.__new__(DBManager)
+    db.engine = None  # type: ignore[assignment]
+    runner = SchemaMigrationRunner(db)
+
+    combined_sql = "\n".join(
+        migration.sql.lower() for migration in runner.discover_migrations()
+    )
+
+    for table in GOVERNED_LEGACY_TABLES:
+        assert table in combined_sql, f"Missing governed migration for table: {table}"
+
+
+def test_initialize_schema_uses_governed_chain_for_postgres(monkeypatch) -> None:
+    """PostgreSQL initialization must flow through apply+verify, not helper DDL."""
+    import database_schema_manager as schema_module
+
+    calls: list[str] = []
+
+    class RunnerStub:
+        def __init__(self, db) -> None:
+            assert db is fake_db
+            calls.append("init")
+
+        def apply(self):
+            calls.append("apply")
+            return []
+
+        def assert_verified(self):
+            calls.append("verify")
+            return {}
+
+    class FakeDB:
+        class Engine:
+            class Dialect:
+                name = "postgresql"
+
+            dialect = Dialect()
+
+        engine = Engine()
+
+        def execute(self, _sql: str) -> None:
+            raise AssertionError("PostgreSQL schema init should not execute helper DDL")
+
+    fake_db = FakeDB()
+    monkeypatch.setattr(schema_module, "SchemaMigrationRunner", RunnerStub)
+
+    mgr = schema_module.DatabaseSchemaManager(fake_db)
+    mgr.initialize_schema()
+
+    assert calls == ["init", "apply", "verify"]
+    assert mgr.is_schema_initialized() is True
+
+
+def test_initialize_schema_keeps_local_compatibility_for_sqlite(monkeypatch) -> None:
+    """Non-PostgreSQL test/local paths may still materialize compatibility DDL."""
+    from database_schema_manager import DatabaseSchemaManager
+
+    executed: list[str] = []
+
+    class FakeDB:
+        class Engine:
+            class Dialect:
+                name = "sqlite"
+
+            dialect = Dialect()
+
+        engine = Engine()
+
+        def execute(self, sql: str) -> None:
+            executed.append(sql)
+
+    mgr = DatabaseSchemaManager(FakeDB())
+    monkeypatch.setattr(
+        mgr,
+        "_get_table_definitions",
+        lambda: [
+            "CREATE TABLE alpha (id INTEGER PRIMARY KEY)",
+            "CREATE TABLE beta (id INTEGER PRIMARY KEY)",
+        ],
+    )
+
+    mgr.initialize_schema()
+
+    assert executed == [
+        "CREATE TABLE alpha (id INTEGER PRIMARY KEY)",
+        "CREATE TABLE beta (id INTEGER PRIMARY KEY)",
+    ]
+    assert mgr.is_schema_initialized() is True
+
+
+def test_migration_runner_fresh_apply_records_ledger(tmp_path: Path) -> None:
+    """A fresh migration apply creates tables and ledger rows."""
+    from sqlalchemy import create_engine, text
+    from db_manager import DBManager
+    from plugins.schema_migrations import SchemaMigrationRunner
+
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "V001__create_alpha.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS alpha (id INTEGER PRIMARY KEY, value TEXT);",
+        encoding="utf-8",
+    )
+    (migration_dir / "V002__create_beta.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS beta (id INTEGER PRIMARY KEY, alpha_id INTEGER);",
+        encoding="utf-8",
+    )
+
+    db_file = tmp_path / "migration_runner.sqlite"
+    db = DBManager.__new__(DBManager)
+    db.connection_string = f"sqlite:///{db_file}"
+    db.engine = create_engine(db.connection_string)
+
+    runner = SchemaMigrationRunner(
+        db=db,
+        migrations_dir=migration_dir,
+        expected_tables=("schema_migrations", "alpha", "beta"),
+    )
+
+    applied = runner.apply()
+    status = runner.verify()
+
+    assert [migration.version for migration in applied] == ["V001", "V002"]
+    assert status["missing_versions"] == []
+    assert status["missing_tables"] == []
+
+    with db.engine.connect() as conn:
+        rows = conn.execute(
+            text("SELECT version FROM schema_migrations ORDER BY version")
+        ).fetchall()
+    assert [row[0] for row in rows] == ["V001", "V002"]
+
+
+def test_migration_runner_rerun_is_idempotent(tmp_path: Path) -> None:
+    """Re-running the same migration chain should not duplicate ledger rows."""
+    from sqlalchemy import create_engine, text
+    from db_manager import DBManager
+    from plugins.schema_migrations import SchemaMigrationRunner
+
+    migration_dir = tmp_path / "migrations"
+    migration_dir.mkdir()
+    (migration_dir / "V001__create_alpha.sql").write_text(
+        "CREATE TABLE IF NOT EXISTS alpha (id INTEGER PRIMARY KEY, value TEXT);",
+        encoding="utf-8",
+    )
+
+    db_file = tmp_path / "migration_runner.sqlite"
+    db = DBManager.__new__(DBManager)
+    db.connection_string = f"sqlite:///{db_file}"
+    db.engine = create_engine(db.connection_string)
+
+    runner = SchemaMigrationRunner(
+        db=db,
+        migrations_dir=migration_dir,
+        expected_tables=("schema_migrations", "alpha"),
+    )
+
+    first_apply = runner.apply()
+    second_apply = runner.apply()
+
+    assert [migration.version for migration in first_apply] == ["V001"]
+    assert second_apply == []
+
+    with db.engine.connect() as conn:
+        ledger_count = conn.execute(
+            text("SELECT COUNT(*) FROM schema_migrations")
+        ).scalar()
+    assert ledger_count == 1
+
+
 # ---------------------------------------------------------------------------
 # Task 5d — No db_loader import in plugins/stats/
 # ---------------------------------------------------------------------------
@@ -292,7 +481,7 @@ def test_no_db_loader_import_in_stats_package() -> None:
 
 @requires_live_db
 def test_tables_exist_in_information_schema(schema_manager) -> None:
-    """After initialize_schema(), all stats tables appear in information_schema."""
+    """After applying the migration chain, all stats tables exist in public."""
     from sqlalchemy import text
 
     with schema_manager.db.engine.connect() as conn:
@@ -306,6 +495,16 @@ def test_tables_exist_in_information_schema(schema_manager) -> None:
 
     for table in ALL_STATS_TABLES:
         assert table in existing, f"Table '{table}' not found in information_schema"
+
+
+@requires_live_db
+def test_schema_migrations_ledger_matches_checked_in_chain(schema_manager) -> None:
+    """The live ledger records every checked-in stats migration version."""
+    status = schema_manager.verify()
+    assert status["expected_versions"] == ["V001", "V002", "V003"]
+    assert status["missing_versions"] == []
+    assert status["checksum_mismatches"] == []
+    assert status["missing_tables"] == []
 
 
 @requires_live_db

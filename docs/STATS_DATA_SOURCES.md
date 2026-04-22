@@ -102,10 +102,10 @@ unless explicitly noted.
 | Property | Value |
 |---|---|
 | Base URL | `https://trading-api.kalshi.com/trade-api/v2/` |
-| Auth | **RSA private-key** (`KalshiConfig.from_kalshkey()`); key stored in `kalshkey` file |
+| Auth | `KALSHI_API_KEY_ID` via env plus `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem` |
 | Rate limit | See Kalshi API docs; ~10 req / s for market data |
 | Key endpoints | `/markets`, `/portfolio/positions`, `/portfolio/orders` |
-| Notes | Credentials loaded from `kalshkey` (local) or `/opt/airflow/kalshkey` (Docker) |
+| Notes | Runtime credentials are injected through env vars and `/run/secrets`; legacy repo-root credential files and container-local secret paths are unsupported |
 
 ---
 

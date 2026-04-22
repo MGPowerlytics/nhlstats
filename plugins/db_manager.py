@@ -88,14 +88,59 @@ class DBManager:
     ) -> pd.DataFrame:
         """
         Execute a query and return the result as a Pandas DataFrame.
+
+        Note:
+            We deliberately avoid ``pandas.read_sql`` here because pandas 3.x
+            no longer recognises SQLAlchemy 1.4 ``Connection`` objects (Airflow
+            pins ``sqlalchemy<2.0``) and falls back to the DBAPI code path,
+            which raises ``TypeError: Query must be a string unless using
+            sqlalchemy``. Executing through SQLAlchemy directly and constructing
+            the DataFrame from the result keeps this function compatible with
+            both the SQLA 1.4 / pandas 3.x and SQLA 2.x stacks.
         """
+        if not isinstance(query, str):
+            raise TypeError(
+                f"fetch_df requires a SQL string, got {type(query).__name__}"
+            )
         try:
             with self.engine.connect() as conn:
-                df = pd.read_sql(text(query), conn, params=params)
-                return df
+                result = conn.execute(text(query), params or {})
+                rows = result.fetchall()
+                columns = list(result.keys())
+                return pd.DataFrame(rows, columns=columns)
         except Exception as e:
             logger.error(
                 f"Error fetching DataFrame: {query}\nParams: {params}\nError: {e}"
+            )
+            raise
+
+    def fetch_scalar(
+        self, query: str, params: Optional[Dict[str, Any]] = None
+    ) -> Any:
+        """
+        Execute a query and return the first column of the first row, or None.
+
+        Args:
+            query: SQL query string. Must return at least one column.
+            params: Optional dict of bound parameters.
+
+        Returns:
+            The scalar value from the first row/first column, or None if no rows.
+        """
+        if not isinstance(query, str):
+            raise TypeError(
+                f"fetch_scalar requires a SQL string, got {type(query).__name__}"
+            )
+        try:
+            with self.engine.connect() as conn:
+                result = conn.execute(text(query), params or {})
+                row = result.fetchone()
+                if row is None:
+                    return None
+                return row[0]
+        except Exception as e:
+            logger.error(
+                f"Error fetching scalar: {query}\nParams: {params}\nError: {e}"
             )
             raise
 

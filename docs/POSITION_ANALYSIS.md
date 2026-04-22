@@ -82,7 +82,9 @@ Recent settled markets with final analysis
 ## Requirements
 
 - Python 3.8+
-- Access to Kalshi API (requires `kalshkey` file)
+- Access to Kalshi API via:
+  - `KALSHI_API_KEY_ID`
+  - `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem`
 - Elo ratings files in `data/` directory:
   - `nba_current_elo_ratings.csv`
   - `ncaab_current_elo_ratings.csv`
@@ -174,7 +176,8 @@ Three-tier matching system:
 
 ### Empty Report
 
-- Verify Kalshi credentials in `kalshkey` file
+- Verify `KALSHI_API_KEY_ID` is set
+- Verify `KALSHI_PRIVATE_KEY_PATH` points to `/run/secrets/kalshi_private_key.pem`
 - Check that you have recent trading activity
 - Try increasing `--days` parameter
 

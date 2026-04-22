@@ -1,5 +1,6 @@
 """Tests for Kalshi Markets API module."""
 
+import importlib
 import pytest
 import sys
 from pathlib import Path
@@ -11,36 +12,30 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "plugins"))
 class TestLoadKalshiCredentials:
     """Test load_kalshi_credentials function."""
 
-    def test_load_credentials_standard_format(self, tmp_path):
-        """Test loading credentials from standard format."""
-
-        key_content = """API key id: test_api_key_12345
-
------BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA...
------END RSA PRIVATE KEY-----
-"""
-        key_file = tmp_path / "kalshkey"
-        key_file.write_text(key_content)
-
-        # Test that the function can parse credentials from file
-        # We just test the parsing logic here
-        api_key_id = None
-        for line in key_content.split("\n"):
-            if "API key id:" in line:
-                api_key_id = line.split(":", 1)[1].strip()
-                break
-
-        assert api_key_id == "test_api_key_12345"
-
-    def test_load_credentials_file_not_found(self):
-        """Test error when credentials file not found."""
+    def test_load_credentials_from_runtime_env(self):
+        """Test loading credentials from the approved runtime env vars."""
         from kalshi_markets import load_kalshi_credentials
 
-        with patch("kalshi_markets.Path") as mock_path:
-            mock_path.return_value.exists.return_value = False
+        with patch.dict(
+            "os.environ",
+            {
+                "KALSHI_API_KEY_ID": "test_api_key_12345",
+                "KALSHI_PRIVATE_KEY_PATH": "/run/secrets/kalshi_private_key.pem",
+            },
+            clear=True,
+        ):
+            with patch("kalshi_markets.Path.read_text", return_value="test-private-key"):
+                api_key_id, private_key = load_kalshi_credentials()
 
-            with pytest.raises(FileNotFoundError):
+        assert api_key_id == "test_api_key_12345"
+        assert private_key == "test-private-key"
+
+    def test_load_credentials_file_not_found(self):
+        """Test error when runtime credentials are not configured."""
+        from kalshi_markets import load_kalshi_credentials
+
+        with patch.dict("os.environ", {}, clear=True):
+            with pytest.raises(ValueError, match="KALSHI_API_KEY_ID"):
                 load_kalshi_credentials()
 
 
@@ -272,26 +267,23 @@ class TestFetchNCAABMarkets:
 class TestFetchTennisMarkets:
     """Test fetch_tennis_markets function."""
 
-    @patch("kalshi_markets.load_kalshi_credentials")
-    @patch("kalshi_markets.KalshiAPI")
-    def test_fetch_tennis_markets_success(self, mock_api_class, mock_creds):
+    @patch("kalshi_markets.TheOddsAPI")
+    def test_fetch_tennis_markets_success(self, mock_odds_api):
         """Test fetching Tennis markets successfully."""
         from kalshi_markets import fetch_tennis_markets
 
-        mock_creds.return_value = ("key", "pem")
-        mock_api = MagicMock()
-        mock_api.get_markets.return_value = {
-            "markets": [
-                {"ticker": "ATP1", "status": "active"},
-                {"ticker": "WTA1", "status": "active"},
-            ]
-        }
-        mock_api_class.return_value = mock_api
+        mock_api = mock_odds_api.return_value
+        mock_api.fetch_markets.return_value = [
+            {"ticker": "ATP1", "status": "active"},
+            {"ticker": "WTA1", "status": "active"},
+        ]
+        mock_api.save_to_db.return_value = 2
 
         markets = fetch_tennis_markets()
 
-        # Should fetch both ATP and WTA
-        assert len(markets) >= 2
+        assert len(markets) == 2
+        mock_api.fetch_markets.assert_called_once_with("tennis")
+        mock_api.save_to_db.assert_called_once_with(markets)
 
 
 class TestFetchEPLMarkets:
@@ -368,3 +360,146 @@ class TestMarketFiltering:
         ]
 
         assert len(active_markets) == 1
+
+
+class TestMLBCompactTickerParsing:
+    """Regression coverage for compact MLB Kalshi team payloads."""
+
+    @pytest.mark.parametrize(
+        ("ticker", "title", "expected_home", "expected_away"),
+        [
+            (
+                "KXMLBGAME-24APR21LADSF-LAD",
+                "Los Angeles Dodgers at San Francisco Giants",
+                "San Francisco Giants",
+                "Los Angeles Dodgers",
+            ),
+            (
+                "KXMLBGAME-24APR21CWSAZ-CWS",
+                "Chicago White Sox at Arizona Diamondbacks",
+                "Arizona Diamondbacks",
+                "Chicago White Sox",
+            ),
+            (
+                "KXMLBGAME-24APR21SDCOL-SD",
+                "San Diego Padres at Colorado Rockies",
+                "Colorado Rockies",
+                "San Diego Padres",
+            ),
+            (
+                "KXMLBGAME-24APR21BALKC-BAL",
+                "Baltimore Orioles at Kansas City Royals",
+                "Kansas City Royals",
+                "Baltimore Orioles",
+            ),
+            (
+                "KXMLBGAME-24APR21CINTB-CIN",
+                "Cincinnati Reds at Tampa Bay Rays",
+                "Tampa Bay Rays",
+                "Cincinnati Reds",
+            ),
+        ],
+    )
+    def test_parse_market_handles_five_character_mlb_team_payloads(
+        self, ticker, title, expected_home, expected_away
+    ):
+        from kalshi_markets import _parse_market
+
+        parsed = _parse_market(ticker, title, "mlb")
+
+        assert parsed is not None
+        assert parsed.game_date == "2024-04-21"
+        assert parsed.home_team == expected_home
+        assert parsed.away_team == expected_away
+
+    def test_parse_market_rejects_unvalidated_five_character_mlb_team_payload(self):
+        from kalshi_markets import _parse_market
+
+        parsed = _parse_market(
+            "KXMLBGAME-24APR21CWSAZ-CWS",
+            "Chicago Cubs at Arizona Diamondbacks",
+            "mlb",
+        )
+
+        assert parsed is None
+
+    @pytest.mark.parametrize(
+        ("ticker", "title", "expected_home", "expected_away"),
+        [
+            (
+                "KXMLBGAME-26APR221310CINTB-TB",
+                "Cincinnati vs Tampa Bay Winner?",
+                "Tampa Bay Rays",
+                "Cincinnati Reds",
+            ),
+            (
+                "KXMLBGAME-26APR222145LADSF-SF",
+                "Los Angeles D vs San Francisco Winner?",
+                "San Francisco Giants",
+                "Los Angeles Dodgers",
+            ),
+            (
+                "KXMLBGAME-26APR221410BALKC-KC",
+                "Baltimore vs Kansas City Winner?",
+                "Kansas City Royals",
+                "Baltimore Orioles",
+            ),
+            (
+                "KXMLBGAME-26APR222040SDCOL-SD",
+                "San Diego vs Colorado Winner?",
+                "Colorado Rockies",
+                "San Diego Padres",
+            ),
+            (
+                "KXMLBGAME-26APR222140CWSAZ-AZ",
+                "Chicago WS vs Arizona Winner?",
+                "Arizona Diamondbacks",
+                "Chicago White Sox",
+            ),
+        ],
+    )
+    def test_parse_market_handles_live_abbreviated_mlb_titles(
+        self, ticker, title, expected_home, expected_away
+    ):
+        from kalshi_markets import _parse_market
+
+        parsed = _parse_market(ticker, title, "mlb")
+
+        assert parsed is not None
+        assert parsed.game_date == "2026-04-22"
+        assert parsed.home_team == expected_home
+        assert parsed.away_team == expected_away
+
+    def test_parse_market_rejects_ambiguous_live_abbreviated_mlb_title(self):
+        from kalshi_markets import _parse_market
+
+        parsed = _parse_market(
+            "KXMLBGAME-26APR222140CWSAZ-AZ",
+            "Chicago vs Arizona Winner?",
+            "mlb",
+        )
+
+        assert parsed is None
+
+
+class TestOptionalKalshiImportGuard:
+    """Module should still import cleanly when kalshi_python is absent."""
+
+    def test_module_imports_without_kalshi_python(self):
+        original_module = sys.modules.pop("kalshi_markets", None)
+        original_sdk = sys.modules.pop("kalshi_python", None)
+        sys.modules["kalshi_python"] = None
+
+        try:
+            module = importlib.import_module("kalshi_markets")
+
+            assert module.KALSHI_AVAILABLE is False
+            with pytest.raises(ImportError, match="kalshi_python"):
+                module.KalshiAPI("test_key", "test_pem")
+        finally:
+            sys.modules.pop("kalshi_markets", None)
+            sys.modules.pop("kalshi_python", None)
+            if original_sdk is not None:
+                sys.modules["kalshi_python"] = original_sdk
+            if original_module is not None:
+                sys.modules["kalshi_markets"] = original_module

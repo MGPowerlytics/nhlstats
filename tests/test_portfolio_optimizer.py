@@ -1,6 +1,8 @@
 import unittest
 import pandas as pd
+from unittest.mock import patch
 from plugins.portfolio_optimizer import (
+    DatabaseRowParser,
     JsonFileParser,
     PortfolioOptimizer,
     PortfolioConfig,
@@ -10,6 +12,7 @@ from plugins.portfolio_optimizer import (
 
 class TestPortfolioOptimizerRefactored(unittest.TestCase):
     def setUp(self):
+        self.db_parser = DatabaseRowParser()
         self.json_parser = JsonFileParser()
         self.config = PortfolioConfig(bankroll=1000.0)
         self.optimizer = PortfolioOptimizer(self.config)
@@ -107,6 +110,67 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
         )
         prob = self.optimizer._extract_prob_from_rows(df, "home")
         self.assertEqual(prob, 0.4)
+
+    def test_database_row_parser_handles_home_away_bet_on_values(self):
+        row = pd.Series(
+            {
+                "sport": "MLB",
+                "ticker": "KXMLBGAME-26APR21CHCSTL-CHC",
+                "bet_on": "home",
+                "home_team": "Chicago Cubs",
+                "away_team": "St. Louis Cardinals",
+                "home_rating": 1512.0,
+                "away_rating": 1497.0,
+                "elo_prob": 0.61,
+                "market_prob": 0.55,
+                "edge": 0.06,
+                "confidence": "MEDIUM",
+                "yes_ask": 55,
+                "no_ask": 45,
+                "bet_id": "MLB_2026-04-21_KXMLBGAME-26APR21CHCSTL-CHC_home",
+            }
+        )
+
+        opp = self.db_parser.parse(row, "mlb")
+
+        self.assertIsNotNone(opp)
+        self.assertEqual(opp.bet_on, "home")
+        self.assertEqual(opp.team, "Chicago Cubs")
+        self.assertEqual(opp.opponent, "St. Louis Cardinals")
+
+    def test_load_opportunities_from_database_normalizes_sport_filter(self):
+        rows = pd.DataFrame(
+            [
+                {
+                    "sport": "MLB",
+                    "ticker": "KXMLBGAME-26APR21CHCSTL-CHC",
+                    "bet_on": "home",
+                    "home_team": "Chicago Cubs",
+                    "away_team": "St. Louis Cardinals",
+                    "home_rating": 1512.0,
+                    "away_rating": 1497.0,
+                    "elo_prob": 0.61,
+                    "market_prob": 0.55,
+                    "edge": 0.06,
+                    "confidence": "MEDIUM",
+                    "yes_ask": 55,
+                    "no_ask": 45,
+                    "bet_id": "MLB_2026-04-21_KXMLBGAME-26APR21CHCSTL-CHC_home",
+                }
+            ]
+        )
+
+        with patch("plugins.db_manager.default_db.fetch_df", return_value=rows) as mock_fetch:
+            opportunities = self.optimizer.load_opportunities_from_database(
+                "2026-04-21", sports=["mlb"]
+            )
+
+        query = mock_fetch.call_args[0][0]
+        self.assertIn("'MLB'", query)
+        self.assertEqual(len(opportunities), 1)
+        self.assertEqual(opportunities[0].sport, "MLB")
+        self.assertEqual(opportunities[0].bet_on, "home")
+        self.assertEqual(opportunities[0].team, "Chicago Cubs")
 
     def test_derive_market_prob_from_asks_home_yes_ask_available(self):
         """Test market probability calculation for home bet when yes_ask is available."""

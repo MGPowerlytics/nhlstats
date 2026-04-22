@@ -20,10 +20,7 @@ from dataclasses import dataclass
 
 sys.path.append(os.path.dirname(__file__))
 
-try:
-    from plugins.db_manager import default_db
-except ImportError:
-    from plugins.db_manager import default_db
+from plugins.db_manager import default_db
 
 import pandas as pd
 

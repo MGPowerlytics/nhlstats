@@ -1,131 +1,153 @@
 # Airflow Setup Guide
 
-This document covers all manual setup steps required before certain DAGs can
-run.  Pools must be created once per Airflow installation (they are not
-version-controlled in the database).
+This runbook documents the supported Airflow bootstrap flow after the remediation
+cutover. It is limited to the implemented runtime, schema, and validation
+contracts.
 
----
+## 1. Runtime inputs
 
-## Table of Contents
+### Supported secret inputs
 
-1. [Airflow Pools — historical_stats_daily](#1-airflow-pools--historical_stats_daily)
-2. [Legacy DuckDB Writer Pool](#2-legacy-duckdb-writer-pool-deprecated)
-3. [Verification Checklist](#3-verification-checklist)
-4. [Troubleshooting](#4-troubleshooting)
+- `KALSHI_API_KEY_ID` via environment variable
+- `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem`
+- `ODDS_API_KEY` via environment variable
+- Airflow bootstrap admin credentials via:
+  - `_AIRFLOW_WWW_USER_USERNAME`
+  - `_AIRFLOW_WWW_USER_PASSWORD`
+  - `_AIRFLOW_WWW_USER_FIRSTNAME`
+  - `_AIRFLOW_WWW_USER_LASTNAME`
+  - `_AIRFLOW_WWW_USER_EMAIL`
 
----
+### Unsupported patterns
 
-## 1. Airflow Pools — `historical_stats_daily`
+Do not use:
 
-The `historical_stats_daily` DAG assigns each sport task to a dedicated pool
-that enforces the source-appropriate rate limit.  These pools **must** be
-created before the DAG can be enabled.
+- repo-root `kalshkey`
+- repo-root `odds_api_key`
+- repo-root PEM files or PEM mount guidance
+- `/tmp` secret-copy workflows
+- manual secret creation inside running containers
 
-| Pool name | Slots | Source | Effective rate |
-|---|---|---|---|
-| `stats_nba_pool` | 3 | NBA Stats API | ~1 req / s |
-| `stats_nhl_pool` | 1 | NHL API | ~0.5 req / s |
-| `stats_mlb_pool` | 2 | MLB Stats API | ~1 req / s |
-| `stats_nfl_pool` | 2 | nfl_data_py parquet | Bulk download |
-| `stats_fbref_pool` | 1 | FBRef / Sports-Reference | 1 req / 4 s |
-| `stats_cbb_pool` | 2 | Sports-Reference CBB | 1 req / 4 s |
-| `stats_tennis_pool` | 1 | Tennis Abstract GitHub CSV | Bulk download |
+## 2. Runtime topology
 
-### Option A — Airflow UI (recommended for one-time setup)
+The supported Airflow runtime is image-baked and named-volume-backed:
 
-1. Open the Airflow UI at `http://localhost:8080`.
-2. Navigate to **Admin → Pools**.
-3. Click **+** and create each pool from the table above.
+- no `_PIP_ADDITIONAL_REQUIREMENTS`
+- no runtime `pip install`
+- no steady-state repo/code/config bind mounts
+- no repo-root `./data` mount
+- migrations are baked into the image at `/opt/airflow/migrations`
+- persistent state lives in named Docker volumes
 
-### Option B — Airflow CLI (scriptable)
+## 3. Canonical bootstrap sources
 
-```bash
-# Run from within any Airflow container, e.g. the scheduler:
-docker compose exec airflow-scheduler bash -c "
-  airflow pools set stats_nba_pool    3 'NBA Stats API — ~1 req/s'
-  airflow pools set stats_nhl_pool    1 'NHL API — ~0.5 req/s'
-  airflow pools set stats_mlb_pool    2 'MLB Stats API — ~1 req/s'
-  airflow pools set stats_nfl_pool    2 'nfl_data_py parquet download'
-  airflow pools set stats_fbref_pool  1 'FBRef / Sports-Reference — 1 req/4s'
-  airflow pools set stats_cbb_pool    2 'Sports-Reference CBB — 1 req/4s'
-  airflow pools set stats_tennis_pool 1 'Tennis Abstract GitHub CSV'
-"
-```
+- Pool definitions: `config/airflow_pools.json`
+- Governed migrations: `/opt/airflow/migrations/stats_schema`
+- Bootstrap entrypoint: `scripts/airflow_bootstrap.py`
 
-### Option C — Docker Compose one-liner
+`airflow-bootstrap-admin` imports the checked-in pool config and applies the
+governed schema migration chain idempotently. Manual `docker compose exec`
+pool/bootstrap steps are not part of the supported setup flow.
 
-```bash
-docker compose exec airflow-apiserver airflow pools import /dev/stdin <<'EOF'
-[
-  {"name": "stats_nba_pool",    "slots": 3, "description": "NBA Stats API — ~1 req/s"},
-  {"name": "stats_nhl_pool",    "slots": 1, "description": "NHL API — ~0.5 req/s"},
-  {"name": "stats_mlb_pool",    "slots": 2, "description": "MLB Stats API — ~1 req/s"},
-  {"name": "stats_nfl_pool",    "slots": 2, "description": "nfl_data_py parquet download"},
-  {"name": "stats_fbref_pool",  "slots": 1, "description": "FBRef / Sports-Reference — 1 req/4s"},
-  {"name": "stats_cbb_pool",    "slots": 2, "description": "Sports-Reference CBB — 1 req/4s"},
-  {"name": "stats_tennis_pool", "slots": 1, "description": "Tennis Abstract GitHub CSV"}
-]
-EOF
-```
+## 4. Supported bootstrap flow
 
-### Verify pools were created
+Start backing services first:
 
 ```bash
-docker compose exec airflow-scheduler airflow pools list
+docker compose up -d postgres redis
 ```
 
-Expected output (columns: Pool | Slots | Running | Queued | Scheduled | Open | Description):
-
-```
-stats_nba_pool     | 3 | ...
-stats_nhl_pool     | 1 | ...
-stats_mlb_pool     | 2 | ...
-stats_nfl_pool     | 2 | ...
-stats_fbref_pool   | 1 | ...
-stats_cbb_pool     | 2 | ...
-stats_tennis_pool  | 1 | ...
-```
-
----
-
-## 2. Legacy DuckDB Writer Pool (deprecated)
-
-> ⚠️ The project has migrated to PostgreSQL.  The `duckdb_writer` pool is no
-> longer used by any active DAG.  This section is kept for historical reference
-> only.  Do **not** create it in new installations.
-
-The original `AIRFLOW_POOL_SETUP.md` (now superseded by this file) described a
-single-slot `duckdb_writer` pool used by `dags/nhl_daily_download.py` to
-serialize DuckDB writes.  That DAG is archived.
-
----
-
-## 3. Verification Checklist
-
-Run the following after completing setup to confirm everything is ready:
+Run the first two one-shot bootstrap stages:
 
 ```bash
-# 1. All 7 stats pools exist
-docker compose exec airflow-scheduler airflow pools list | grep stats_
-
-# 2. DAG parses without error
-docker compose exec airflow-scheduler python /opt/airflow/dags/historical_stats_daily.py
-
-# 3. DAG is visible and not paused
-docker compose exec airflow-scheduler airflow dags list | grep historical_stats_daily
+docker compose run --rm airflow-preflight
+docker compose run --rm airflow-bootstrap-admin
 ```
 
----
+After those succeed, start the steady-state services:
 
-## 4. Troubleshooting
+```bash
+docker compose up -d \
+  airflow-apiserver \
+  airflow-scheduler \
+  airflow-dag-processor \
+  airflow-worker \
+  airflow-triggerer \
+  dashboard
+```
 
-| Symptom | Likely cause | Fix |
+Then run the final verification stage:
+
+```bash
+docker compose run --rm airflow-verify
+```
+
+`airflow-verify` is part of the supported bootstrap flow, but it requires the
+API server and scheduler to be healthy first.
+
+## 5. Schema validation
+
+Production schema evolution is owned by the governed migration chain plus the
+`schema_migrations` ledger. Use the supported wrappers when operating the schema
+outside the one-shot bootstrap flow:
+
+```bash
+bash scripts/apply_stats_schema_migrations.sh
+bash scripts/verify_stats_schema_migrations.sh
+```
+
+Ledger-based verification is authoritative:
+
+```sql
+SELECT version, name, checksum, applied_at
+FROM schema_migrations
+ORDER BY version;
+```
+
+`DatabaseSchemaManager` and `bet_tracker` helpers remain compatibility paths for
+non-PostgreSQL and local-only scenarios; they do not own production schema
+evolution.
+
+## 6. Pool validation
+
+`config/airflow_pools.json` is the canonical pool source. To confirm the running
+environment matches the checked-in contract:
+
+```bash
+docker compose run --rm airflow-bootstrap-admin
+```
+
+The bootstrap stage is idempotent and re-imports the canonical pool
+definitions. After it completes, use **Admin** → **Pools** in the Airflow UI to
+confirm the active pool set matches `config/airflow_pools.json`.
+
+## 7. UI access
+
+Open `http://localhost:8080` and sign in with the configured bootstrap admin
+environment variables. Do not rely on hard-coded default credentials in
+operator workflows.
+
+## 8. Supported validation commands
+
+Use the implemented local and CI validation commands:
+
+```bash
+pytest --collect-only -q
+pytest -q
+```
+
+Dashboard/Playwright browser tests are opt-in only:
+
+```bash
+RUN_DASHBOARD_E2E=1 pytest -q
+```
+
+## 9. Troubleshooting
+
+| Symptom | Likely cause | Supported response |
 |---|---|---|
-| Task stuck in `queued` indefinitely | Pool not created or has 0 slots | Create the pool (§1) |
-| `KeyError: 'stats_nba_pool'` in logs | Pool missing | Create the pool |
-| DAG not visible in UI | Parse error or not yet scanned | Run `python dags/historical_stats_daily.py` locally to check |
-| `NotImplementedError` in task logs | Expected — stubs not yet implemented | Track in plan.yaml Wave 2 |
-
----
-
-*Last updated: 2026-04-17*
+| `airflow-preflight` fails secret validation | `KALSHI_PRIVATE_KEY_PATH` does not resolve to `/run/secrets/kalshi_private_key.pem` or the file is missing | Fix the runtime secret injection and re-run `docker compose run --rm airflow-preflight` |
+| `airflow-bootstrap-admin` fails schema verification | Migration chain or ledger state is incomplete | Run `bash scripts/apply_stats_schema_migrations.sh`, then `bash scripts/verify_stats_schema_migrations.sh` |
+| Required pools are missing or wrong | Runtime diverged from `config/airflow_pools.json` | Re-run `docker compose run --rm airflow-bootstrap-admin` |
+| Airflow UI login fails | Bootstrap admin env vars do not match the intended user | Update `_AIRFLOW_WWW_USER_*` env vars and re-run `docker compose run --rm airflow-bootstrap-admin` |
+| Optional dependency missing in a worker image | Image does not contain the required package | Rebuild the image and redeploy; live-container `pip install` is unsupported |

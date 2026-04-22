@@ -4,6 +4,14 @@ This document covers day-to-day operational procedures for the multi-sport
 betting system, with emphasis on the **placed-bets reconciliation** pipeline
 and the **historical stats backfill / daily stats ingestion** pipeline.
 
+Supported runtime guardrails for all procedures in this runbook:
+
+- secrets are provided through environment variables and `/run/secrets` only
+- the Airflow runtime is image-baked; live-container `pip install` is unsupported
+- persistent state uses named volumes rather than repo-root bind mounts
+- production schema readiness is governed by checked-in migrations plus the
+  `schema_migrations` ledger
+
 ---
 
 ## Table of Contents
@@ -198,8 +206,8 @@ docker exec nhlstats-postgres-1 pg_isready -U airflow
 ### "Could not construct default KalshiBetting client"
 
 Check that `KALSHI_API_KEY_ID` / `KALSHI_PRIVATE_KEY_PATH` environment
-variables are set (or the `kalshkey` / `kalshi_private_key.pem` files are
-present in the project root):
+variables are set and that `KALSHI_PRIVATE_KEY_PATH` points at the runtime
+secret mount under `/run/secrets`:
 
 ```bash
 docker exec $(docker ps -qf "name=airflow-scheduler") \
@@ -234,18 +242,25 @@ ORDER  BY bet_id, field_changed, reconciled_at;
 
 ### Schema initialisation
 
-The `bet_reconciliation_audit` table is created by
-`plugins/database_schema_manager.py`.  Run the schema manager if the table
-is missing:
+Production schema ownership belongs to the governed migration chain and the
+`schema_migrations` ledger. Use the checked-in migration wrappers if schema
+verification fails or a local runtime needs to be brought into compliance:
 
 ```bash
-docker exec $(docker ps -qf "name=airflow-worker") python -c "
-from plugins.database_schema_manager import DatabaseSchemaManager
-from plugins.db_manager import DBManager
-mgr = DatabaseSchemaManager(DBManager())
-mgr.initialize_schema()
-"
+bash scripts/apply_stats_schema_migrations.sh
+bash scripts/verify_stats_schema_migrations.sh
 ```
+
+Verify the authoritative ledger directly:
+
+```sql
+SELECT version, name, checksum, applied_at
+FROM schema_migrations
+ORDER BY version;
+```
+
+`DatabaseSchemaManager` and `bet_tracker` helpers remain compatibility-only for
+non-PostgreSQL and local paths; they no longer own production schema evolution.
 
 ### Archiving old audit rows
 
@@ -452,21 +467,15 @@ backfill to re-populate.
 
 ## 9. Stats DAG Pool Setup
 
-The `historical_stats_daily` DAG requires 7 Airflow pools to be created once
-per Airflow installation. Full documentation: `docs/AIRFLOW_SETUP.md`.
+The `historical_stats_daily` DAG depends on the canonical pool definitions in
+`config/airflow_pools.json`. Pools are seeded by the supported bootstrap flow in
+`docs/AIRFLOW_SETUP.md`.
 
-### Quick-create via CLI (recommended)
+### Supported bootstrap path
 
 ```bash
-docker compose exec airflow-scheduler bash -c "
-  airflow pools set stats_nba_pool    3 'NBA Stats API'
-  airflow pools set stats_nhl_pool    1 'NHL API'
-  airflow pools set stats_mlb_pool    2 'MLB Stats API'
-  airflow pools set stats_nfl_pool    2 'nfl_data_py parquet download'
-  airflow pools set stats_fbref_pool  1 'FBRef / Sports-Reference'
-  airflow pools set stats_cbb_pool    2 'Sports-Reference CBB'
-  airflow pools set stats_tennis_pool 1 'Tennis Abstract GitHub CSV'
-"
+docker compose run --rm airflow-preflight
+docker compose run --rm airflow-bootstrap-admin
 ```
 
 ### Pool reference table
@@ -483,8 +492,13 @@ docker compose exec airflow-scheduler bash -c "
 
 ### Verify pools
 
+Use `config/airflow_pools.json` as the source of truth and confirm the active
+pool set in **Admin** → **Pools** after bootstrap.
+
+If the running pool set diverges from `config/airflow_pools.json`, re-run:
+
 ```bash
-docker compose exec airflow-scheduler airflow pools list | grep stats_
+docker compose run --rm airflow-bootstrap-admin
 ```
 
 ---
@@ -515,10 +529,9 @@ The DAG tasks carry `retries=2, retry_exponential_backoff=True` with a
 
 If persistent 429s occur, reduce concurrency by lowering the pool slot count:
 
-```bash
-docker compose exec airflow-scheduler \
-    airflow pools set stats_nba_pool 1 'NBA Stats API — reduced slots'
-```
+1. Update `config/airflow_pools.json`.
+2. Rebuild the image if needed.
+3. Re-run `docker compose run --rm airflow-bootstrap-admin`.
 
 ### Failed reconciliation audit entry
 
@@ -539,11 +552,14 @@ because `diff_bet` will re-detect the same discrepancies.
 
 The DAG tasks gracefully degrade for missing optional packages
 (`nba_api`, `nfl_data_py`). They log a WARNING and exit success.
-Install the missing package and restart the worker:
+Add the missing package to the image build inputs and redeploy. Do not install
+packages into a live container:
 
 ```bash
-docker compose exec airflow-worker pip install nba_api
-docker compose restart airflow-worker
+docker compose build
+docker compose run --rm airflow-preflight
+docker compose run --rm airflow-bootstrap-admin
+docker compose up -d airflow-worker
 ```
 
 ### DAG schedule note

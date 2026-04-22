@@ -8,8 +8,8 @@ class TestMLBEloRating:
         from plugins.elo import MLBEloRating
 
         elo = MLBEloRating()
-        assert elo.k_factor == 20
-        assert elo.home_advantage == 50
+        assert elo.k_factor == 4.0
+        assert elo.home_advantage == 20.0
 
     def test_init_custom(self):
         from plugins.elo import MLBEloRating

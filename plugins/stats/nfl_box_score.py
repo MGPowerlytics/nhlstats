@@ -39,15 +39,10 @@ try:
     import nfl_data_py as nfl  # type: ignore[import]
 
     _NFL_DATA_AVAILABLE = True
-except ImportError:  # pragma: no cover
-    nfl = None  # type: ignore[assignment]
+except ImportError:  # pragma: no cover - covered in import-only environments
+    nfl = None
     _NFL_DATA_AVAILABLE = False
-    logger.warning("⚠️  nfl_data_py not available — NFL box-score fetching disabled")
-
-try:
-    import pandas as pd
-except ImportError:  # pragma: no cover
-    pd = None  # type: ignore[assignment]
+import pandas as pd
 
 # Module-level season caches (reset only by tests via ``_clear_caches()``)
 _schedule_cache: dict[int, Any] = {}

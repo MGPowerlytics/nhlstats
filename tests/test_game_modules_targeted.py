@@ -165,7 +165,7 @@ class TestAPIRequestMocking:
     def test_nhl_api_request(self):
         from nhl_game_events import NHLGameEvents
 
-        with patch("nhl_game_events.requests") as mock_requests:
+        with patch("plugins.base_games.requests") as mock_requests:
             mock_response = Mock()
             mock_response.status_code = 200
             mock_response.json.return_value = {"gameWeek": []}

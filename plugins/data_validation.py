@@ -1295,11 +1295,15 @@ def _print_kalshi_file_status(filepath: str, data: Any) -> None:
 
 
 def _validate_kalshi_credentials() -> None:
-    """Validate Kalshi API credentials file."""
-    if Path("kalshkey").exists():
-        print("✅ kalshkey: API credentials file exists")
-    else:
-        print("❌ kalshkey: API credentials file not found")
+    """Validate runtime Kalshi credential wiring."""
+    required_vars = ("KALSHI_API_KEY_ID", "KALSHI_PRIVATE_KEY_PATH")
+    missing_vars = [name for name in required_vars if not os.getenv(name)]
+
+    if missing_vars:
+        print(f"❌ Missing Kalshi runtime environment variables: {', '.join(missing_vars)}")
+        return
+
+    print("✅ Kalshi runtime environment variables are configured")
 
 
 def generate_summary(reports: Dict[str, "DataValidationReport"]) -> bool:

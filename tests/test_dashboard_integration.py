@@ -20,17 +20,31 @@ import sys
 from pathlib import Path
 import re
 import pytest
-from playwright.sync_api import sync_playwright
+
+playwright_sync = pytest.importorskip(
+    "playwright.sync_api",
+    reason="Dashboard integration tests require the optional playwright dependency",
+)
+sync_playwright = playwright_sync.sync_playwright
 
 sys.path.append(str(Path(__file__).parent.parent))
 
 from plugins.db_manager import DBManager
 
 # Skip these tests unless running against production database
-pytestmark = pytest.mark.skipif(
-    os.environ.get("POSTGRES_HOST") != "postgres",
-    reason="Integration tests require production PostgreSQL database",
-)
+pytestmark = [
+    pytest.mark.skipif(
+        os.environ.get("POSTGRES_HOST") != "postgres",
+        reason="Integration tests require production PostgreSQL database",
+    ),
+    pytest.mark.skipif(
+        not bool(os.environ.get("RUN_DASHBOARD_E2E")),
+        reason=(
+            "Dashboard Playwright tests are quarantined from default pytest. "
+            "Set RUN_DASHBOARD_E2E=1 after provisioning the dashboard and browsers."
+        ),
+    ),
+]
 
 
 def test_financial_performance_shows_correct_portfolio_value():

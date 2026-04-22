@@ -92,17 +92,17 @@ def test_kalshi_names_resolve_to_expected_canonical_names(
     ("sport", "required_names"),
     [
         ("epl", {"West Ham", "Wolves", "Liverpool", "Fulham"}),
-        ("nba", {"ATL", "MIA", "CLE"}),
+        ("nba", {"ATL", "BOS", "CLE"}),
         (
             "mlb",
             {
                 "Los Angeles Dodgers",
-                "Texas Rangers",
                 "Houston Astros",
-                "Seattle Mariners",
+                "Atlanta Braves",
+                "Boston Red Sox",
             },
         ),
-        ("nhl", {"ANA", "TOR", "NYI"}),
+        ("nhl", {"ANA", "BOS", "VGK"}),
     ],
 )
 def test_latest_bet_file_names_resolve_to_current_elo_names(

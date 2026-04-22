@@ -42,11 +42,13 @@ Automated bet placement system for NBA and NCAAB games using Elo predictions and
 - **Account Balance**: $100
 
 ### Kalshi Credentials
-Located in `/mnt/data2/nhlstats/kalshkey`:
-```
-API key id: cc492ea6-f04e-4185-9dbd-5769cd39c7cf
-[Private key - not shown]
-```
+Provide Kalshi credentials through the runtime secret contract:
+
+- `KALSHI_API_KEY_ID` via environment variable
+- `KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem`
+
+Do not use legacy repo-root credential files, tracked PEM files, or copied
+private keys.
 
 ## How It Works
 
@@ -210,7 +212,9 @@ for pos in positions:
 ## Troubleshooting
 
 ### "Authentication failed"
-- Check kalshkey file format
+- Check that `KALSHI_API_KEY_ID` is set
+- Check that `KALSHI_PRIVATE_KEY_PATH` points to `/run/secrets/kalshi_private_key.pem`
+- Verify the private key secret is mounted and readable
 - Verify Kalshi account is active
 - Ensure API access is enabled
 

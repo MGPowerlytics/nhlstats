@@ -1,0 +1,543 @@
+plan_id: remediation-20260420-085817
+variant: a
+objective: >
+  Produce a risk-first remediation plan that closes unsafe secret handling,
+  fragmented schema ownership, broken default pytest/CI validation, mutable
+  bind-mounted runtime drift, documentation/runtime drift, and Airflow
+  operability gaps while preserving operational continuity.
+created_at: "2026-04-20T08:58:17Z"
+created_by: gem-team:gem-planner
+status: pending_approval
+research_confidence: medium
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 11
+  risk_score: high
+
+tldr: |
+  Wave 1 isolates the highest-risk control failures that can be investigated and designed safely in
+  parallel: secret/config boundaries, schema authority, broken default validation, and Airflow bootstrap
+  drift. Wave 2 uses those outputs to define one hardened deployment model and reconcile operator docs to
+  the target runtime. Wave 3 is a final readiness gate so execution can begin without conflicting
+  assumptions or hidden rollback gaps.
+open_questions:
+  - Which secret authority should become canonical for deployment: orchestrator-managed secrets, host env injection, or a dedicated secret manager?
+  - What production migration constraints apply to PostgreSQL cutovers: zero-downtime only, scheduled maintenance window, or phased read/write compatibility?
+
+pre_mortem:
+  overall_risk_level: high
+  critical_failure_modes:
+    - scenario: Secret source cutover is planned without dual-read and rollback boundaries, causing broken Airflow or dashboard credentials during rotation.
+      likelihood: medium
+      impact: critical
+      mitigation: Require inventory, boundary ownership, phased migration sequencing, and rollback criteria before any secret-source change is executed.
+    - scenario: Schema authority is reassigned without a governed migration path, leaving code, docs, and live tables inconsistent and breaking DAG/database writes.
+      likelihood: medium
+      impact: critical
+      mitigation: Establish one canonical schema source, inventory all current writers/readers, and define backward-compatible migration checkpoints plus verification queries.
+    - scenario: CI gates are tightened before the default pytest path is repaired, blocking merges while still missing real regressions in the default developer workflow.
+      likelihood: high
+      impact: high
+      mitigation: Sequence collection repair and baseline validation before merge protection changes, and require the default pytest path to become the first-class gate.
+    - scenario: Runtime hardening ignores current bind-mounted and manual in-container update paths, so mutable drift continues after nominal deployment cleanup.
+      likelihood: high
+      impact: high
+      mitigation: Explicitly retire docker cp/manual pip install flows, define immutable image requirements, and add startup/bootstrap verification to the deployment contract.
+  assumptions:
+    - docs/prd.yaml is the source of truth for remediation scope and acceptance criteria.
+    - PostgreSQL remains the operational system of record and is not being replaced.
+    - Operational continuity matters more than remediation speed, so phased cutovers and rollback paths are required.
+    - Airflow 3.1.6 via Docker Compose remains the current execution environment during remediation.
+
+implementation_specification:
+  code_structure: >
+    Organize remediation as six bounded workstreams anchored in existing operational surfaces: runtime
+    configuration (docker-compose.yaml, Dockerfile, root credential files), database governance
+    (plugins/database_schema_manager.py plus schema docs/migration notes), validation and CI (setup.cfg,
+    tests/, and new .github/workflows/ gates), Airflow bootstrap/runbooks (docs/AIRFLOW_SETUP.md,
+    docs/OPERATIONS_RUNBOOK.md, update_running_containers.sh), and operator documentation. Each workstream
+    should define target-state contracts and acceptance criteria before implementation changes begin.
+  affected_areas:
+    - docker-compose.yaml
+    - Dockerfile
+    - .gitignore
+    - setup.cfg
+    - tests/
+    - .github/workflows/
+    - plugins/database_schema_manager.py
+    - plugins/db_manager.py
+    - plugins/stats/__init__.py
+    - update_running_containers.sh
+    - docs/OPERATIONS_RUNBOOK.md
+    - docs/AIRFLOW_SETUP.md
+    - docs/AIRFLOW_POOL_SETUP.md
+    - docs/DASHBOARD_STARTUP_GUIDE.md
+    - docs/TROUBLESHOOTING.md
+    - docs/database_schema.md
+    - docs/bet_tracker_schema_migration.md
+  component_details:
+    - component: Secret and configuration boundaries
+      responsibility: Define the canonical sources, handling boundaries, git hygiene rules, rotation sequence, and rollback expectations for all runtime credentials and secret-like files.
+      interfaces:
+        - Secret inventory matrix covering source, consumer, mount/env path, owner, and rotation requirement.
+        - Approved secret-loading contract for Airflow, dashboard, and local developer workflows.
+    - component: Schema governance and migrations
+      responsibility: Define one source of truth for PostgreSQL structure, ownership boundaries for schema changes, and the governed migration path that replaces ad hoc CREATE TABLE or manual ALTER behavior.
+      interfaces:
+        - Schema authority map linking canonical definitions, migration scripts, and verification queries.
+        - Backward-compatible migration sequencing for live tables and DAG writers.
+    - component: Default validation and CI gates
+      responsibility: Restore reliable default pytest collection/execution and specify minimum CI/merge gates that enforce the default developer path.
+      interfaces:
+        - Default validation contract for pytest collection, unit tests, and required CI jobs.
+        - Merge-gate policy describing fail-fast behavior and exceptions for optional integrations.
+    - component: Airflow bootstrap and environment completeness
+      responsibility: Remove manual bootstrap drift, define image dependency completeness, and codify required one-time setup versus automated startup behavior.
+      interfaces:
+        - Bootstrap checklist for pools, providers, optional dependencies, and health checks.
+        - Immutable image/bootstrap bill of materials for scheduler, worker, and API server.
+    - component: Deployment hardening
+      responsibility: Consolidate runtime, secret, schema, and validation outputs into one reproducible deployment model with cutover, verification, and rollback requirements.
+      interfaces:
+        - Hardened deployment protocol with immutable artifact rules, migration sequencing, and drift controls.
+        - Post-deploy validation checklist tied to required CI gates and Airflow health signals.
+    - component: Operator documentation and runbooks
+      responsibility: Reconcile docs with the target runtime so operators follow current secret, schema, Airflow, and deployment procedures.
+      interfaces:
+        - Canonical runbook set for startup, troubleshooting, schema changes, and deployment.
+        - Documentation delta list identifying obsolete localhost/default-credential and legacy DuckDB guidance.
+  dependencies:
+    - component: Secret and configuration boundaries
+      relationship: Provides the credential-handling contract consumed by deployment hardening and documentation reconciliation.
+    - component: Schema governance and migrations
+      relationship: Provides migration sequencing and source-of-truth rules consumed by deployment hardening and operator docs.
+    - component: Default validation and CI gates
+      relationship: Provides the quality gate contract that deployment hardening must enforce before merge and release.
+    - component: Airflow bootstrap and environment completeness
+      relationship: Provides the runtime/bootstrap requirements that deployment hardening and docs must adopt.
+    - component: Deployment hardening
+      relationship: Combines upstream workstream outputs into one execution model and supplies the target runtime for docs/runbooks.
+    - component: Operator documentation and runbooks
+      relationship: Publishes the final operator-facing procedures and serves as an input to final readiness review.
+  integration_points:
+    - Runtime secret injection and volume/env handling in docker-compose.yaml
+    - Image dependency installation and immutable build policy in Dockerfile
+    - Default pytest behavior in setup.cfg and tests/
+    - Future CI workflows and branch gates in .github/workflows/
+    - Schema authority and migration governance across plugins/database_schema_manager.py and schema docs
+    - Airflow bootstrap/runbook surfaces in docs/AIRFLOW_SETUP.md, docs/OPERATIONS_RUNBOOK.md, and update_running_containers.sh
+
+contracts:
+  - from_task: secrets-config-remediation-plan
+    to_task: deployment-hardening-plan
+    interface: Approved secret inventory and migration boundary matrix for every runtime credential source and consumer.
+    format: Markdown/YAML matrix covering source, owner, consumer, injection method, rotation path, and rollback notes.
+  - from_task: schema-ownership-migration-strategy
+    to_task: deployment-hardening-plan
+    interface: Canonical schema authority decision plus governed migration sequencing and verification checkpoints.
+    format: Markdown strategy with table ownership map, migration phases, and verification query checklist.
+  - from_task: pytest-ci-gate-repair-plan
+    to_task: deployment-hardening-plan
+    interface: Required default validation jobs and merge-gate enforcement policy.
+    format: CI contract listing required commands, workflow jobs, failure thresholds, and branch-protection expectations.
+  - from_task: airflow-bootstrap-cleanup-plan
+    to_task: deployment-hardening-plan
+    interface: Airflow bootstrap bill of materials and manual-step retirement plan.
+    format: Checklist covering image dependencies, one-time setup automation, health checks, and manual-step removals.
+  - from_task: deployment-hardening-plan
+    to_task: docs-runbook-reconciliation-plan
+    interface: Canonical target deployment and runtime operating model.
+    format: Deployment protocol with startup, verification, rollback, and drift-control steps.
+  - from_task: docs-runbook-reconciliation-plan
+    to_task: remediation-readiness-review
+    interface: Reconciled operator-facing documentation set and obsolete-doc removal list.
+    format: Documentation delta summary with updated file list and unresolved follow-ups.
+
+tasks:
+  - id: secrets-config-remediation-plan
+    title: Define secrets and configuration remediation approach
+    description: |
+      Inventory every current credential and secret-like handling path, then define the target boundary contract and
+      migration sequence that removes unsafe handling without disrupting running services.
+
+      Current state evidence to incorporate:
+        - tracked root credential files exist for .env, kalshkey, and odds_api_key
+        - docker-compose.yaml mounts secret-like files directly into Airflow containers and still carries default credentials
+        - docs reference local file-based secrets and default database passwords
+
+      Deliverables:
+        - canonical secret source decision and ownership matrix
+        - git hygiene/removal plan for tracked secret-like artifacts
+        - phased rotation/cutover strategy with rollback criteria for Airflow and dashboard consumers
+        - explicit boundary rules for env vars, mounted files, and documentation exposure
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - deployment-hardening-plan
+    context_files:
+      - /mnt/data2/nhlstats/docs/prd.yaml: Source-of-truth scope and acceptance criteria.
+      - /mnt/data2/nhlstats/docker-compose.yaml: Secret mounts, env_file usage, and default credentials.
+      - /mnt/data2/nhlstats/.gitignore: Current ignore rules for credential artifacts.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: security
+    verification:
+      - Secret inventory covers Airflow, dashboard, local tooling, and documentation references.
+      - Proposed target state distinguishes canonical secret authority from temporary compatibility paths.
+      - Rotation and rollback expectations are defined before any implementation work begins.
+    acceptance_criteria:
+      - A secret/config matrix names required secret sources, consumers, and handling boundaries.
+      - The plan defines how tracked secret-like files are removed from the operational model and from version control exposure paths.
+      - The plan defines phased migration expectations so Airflow and dashboard credentials can rotate without service interruption.
+    failure_modes:
+      - scenario: Inventory misses one runtime consumer and remediation breaks that path during rotation.
+        likelihood: medium
+        impact: high
+        mitigation: Require consumer-by-consumer mapping and rollback criteria for every secret before execution.
+    tech_stack:
+      - Docker Compose
+      - Airflow 3.1.6
+      - Environment-file and mounted-file secret injection
+    test_coverage: null
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: true
+
+  - id: schema-ownership-migration-strategy
+    title: Establish canonical schema ownership and migration governance
+    description: |
+      Define one authoritative source of truth for PostgreSQL structure and a governed migration strategy that removes
+      conflicting table definitions and ad hoc schema evolution.
+
+      Current state evidence to incorporate:
+        - plugins/database_schema_manager.py creates core runtime tables directly
+        - docs/database_schema.md documents overlapping table contracts
+        - docs/bet_tracker_schema_migration.md records manual schema repair outside a formal migration system
+
+      Deliverables:
+        - table-by-table ownership map for canonical schema definitions
+        - migration governance policy for new tables, altered columns, and rollback
+        - cutover plan for reconciling live schema drift with documented expectations
+        - verification queries/checklists that future CI and deployment steps can reuse
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - deployment-hardening-plan
+    context_files:
+      - /mnt/data2/nhlstats/docs/prd.yaml: Database remediation scope and acceptance criteria.
+      - /mnt/data2/nhlstats/plugins/database_schema_manager.py: Current code-defined DDL authority.
+      - /mnt/data2/nhlstats/docs/database_schema.md: Current documented schema contract.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: database
+    verification:
+      - Every operational table is assigned a canonical ownership path.
+      - The strategy explains how future schema changes are applied, reviewed, and verified.
+      - Backward compatibility and rollback expectations are explicit for live tables.
+    acceptance_criteria:
+      - The plan establishes a single source of truth for schema ownership.
+      - The plan defines governed migrations and removal of conflicting table-definition practices.
+      - The plan specifies verification checkpoints that can be run before and after schema changes.
+    failure_modes:
+      - scenario: Ownership is declared without accounting for existing manual migrations and runtime table drift.
+        likelihood: medium
+        impact: critical
+        mitigation: Include live-schema verification, legacy migration inventory, and phased compatibility checkpoints in the strategy.
+    tech_stack:
+      - PostgreSQL
+      - SQLAlchemy/DBManager
+      - Schema documentation and migration scripts
+    test_coverage: null
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: false
+
+  - id: pytest-ci-gate-repair-plan
+    title: Restore dependable default pytest and CI merge gates
+    description: |
+      Define the remediation path that repairs the broken default pytest collection, then promote that default path into
+      required CI gates and branch protection.
+
+      Current state evidence to incorporate:
+        - setup.cfg defines the default pytest path
+        - default `pytest --collect-only -q` currently fails during tests/test_backfill_script.py import
+        - no active .github/workflows/ CI workflow is present to enforce the default developer path before merge
+
+      Deliverables:
+        - baseline failure inventory for collection and default execution
+        - gate design for required collection/test jobs and failure handling
+        - policy for optional integrations versus mandatory default-path validation
+        - merge-gate rollout sequence that avoids blocking development before the baseline is fixed
+    wave: 1
+    agent: gem-devops
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - deployment-hardening-plan
+    context_files:
+      - /mnt/data2/nhlstats/docs/prd.yaml: Validation and CI requirements.
+      - /mnt/data2/nhlstats/setup.cfg: Current default pytest configuration.
+      - /mnt/data2/nhlstats/plugins/stats/__init__.py: Current import/export behavior implicated in collection failure.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: quality
+    verification:
+      - The plan identifies the current default-collection failure and the command that reproduces it.
+      - Mandatory versus optional validation jobs are distinguished clearly.
+      - Proposed CI gates map to merge protection and release readiness expectations.
+    acceptance_criteria:
+      - The plan requires restoration of passing default pytest collection before stronger merge gates activate.
+      - The plan defines minimum CI jobs that validate the default developer workflow on every merge path.
+      - The plan specifies how regression detection will remain reliable after gates are tightened.
+    failure_modes:
+      - scenario: CI policy treats optional integrations as mandatory and causes chronic false failures.
+        likelihood: medium
+        impact: high
+        mitigation: Separate default-path gates from optional integration jobs and define clear required-status boundaries.
+    tech_stack:
+      - pytest
+      - setup.cfg
+      - GitHub Actions / branch protection
+    test_coverage: null
+    requires_review: true
+    review_depth: standard
+    review_security_sensitive: false
+    environment: development
+    requires_approval: false
+    devops_security_sensitive: false
+
+  - id: airflow-bootstrap-cleanup-plan
+    title: Clean up Airflow environment completeness and bootstrap drift
+    description: |
+      Define the target Airflow bootstrap model that removes mutable runtime drift and closes environment completeness
+      gaps for scheduler, worker, and API server operation.
+
+      Current state evidence to incorporate:
+        - docker-compose.yaml relies on broad bind mounts for dags, plugins, config, data, and secret-like files
+        - update_running_containers.sh copies files into running containers and restarts processes in place
+        - docs/OPERATIONS_RUNBOOK.md recommends manual `pip install` inside airflow-worker for missing dependencies
+        - docs/AIRFLOW_SETUP.md and docs/AIRFLOW_POOL_SETUP.md both describe bootstrap state, including obsolete DuckDB guidance
+
+      Deliverables:
+        - immutable-image/bootstrap bill of materials
+        - explicit split between automated startup steps and one-time operational setup
+        - retirement plan for docker cp/manual pip install/manual drift recovery steps
+        - Airflow operability checklist for pools, dependencies, config, DAG parsing, and health verification
+    wave: 1
+    agent: gem-devops
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with:
+      - deployment-hardening-plan
+    context_files:
+      - /mnt/data2/nhlstats/docker-compose.yaml: Current container mounts and bootstrap configuration.
+      - /mnt/data2/nhlstats/update_running_containers.sh: Mutable in-container update path.
+      - /mnt/data2/nhlstats/docs/OPERATIONS_RUNBOOK.md: Current operator bootstrap and manual dependency steps.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 280
+    focus_area: airflow
+    verification:
+      - The plan distinguishes immutable build concerns from one-time runtime/bootstrap configuration.
+      - All manual drift-inducing operational steps are identified and assigned a retirement path.
+      - Airflow readiness checks cover dependencies, pools, health endpoints, and DAG parseability.
+    acceptance_criteria:
+      - The plan closes Airflow dependency, config, and bootstrap gaps needed for scheduler/task reliability.
+      - The plan defines how mutable bind-mounted and in-container update paths are eliminated or tightly contained.
+      - The plan specifies operability checks that can be reused in deployment and runbook validation.
+    failure_modes:
+      - scenario: Bootstrap cleanup removes manual recovery paths before equivalent automation exists.
+        likelihood: medium
+        impact: high
+        mitigation: Define replacement automation and readiness checks before retiring manual procedures.
+    tech_stack:
+      - Airflow 3.1.6
+      - Docker Compose
+      - Container health checks and bootstrap scripts
+    test_coverage: null
+    requires_review: true
+    review_depth: standard
+    review_security_sensitive: false
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: deployment-hardening-plan
+    title: Define immutable deployment and runtime hardening model
+    description: |
+      Consolidate the outputs of the security, schema, CI, and Airflow workstreams into one deployable operating model
+      that prevents runtime drift and preserves rollback safety.
+
+      Deliverables:
+        - target-state deployment contract for image build, secret injection, schema migration execution, startup verification, and rollback
+        - drift-elimination or drift-detection controls replacing bind-mounted code and in-place container mutation
+        - pre-deploy and post-deploy validation checklist aligned to required CI jobs and Airflow health checks
+        - phased rollout guidance that keeps current operations stable during transition
+    wave: 2
+    agent: gem-devops
+    priority: high
+    status: pending
+    dependencies:
+      - secrets-config-remediation-plan
+      - schema-ownership-migration-strategy
+      - pytest-ci-gate-repair-plan
+      - airflow-bootstrap-cleanup-plan
+    parallelizable: false
+    conflicts_with:
+      - secrets-config-remediation-plan
+      - schema-ownership-migration-strategy
+      - airflow-bootstrap-cleanup-plan
+    context_files:
+      - /mnt/data2/nhlstats/docker-compose.yaml: Current runtime topology and mutable mounts.
+      - /mnt/data2/nhlstats/Dockerfile: Current image build boundary.
+      - /mnt/data2/nhlstats/docs/deployment_protocol.md: Existing deployment process to reconcile.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 320
+    focus_area: runtime
+    verification:
+      - Deployment flow consumes the approved contracts from security, schema, CI, and Airflow workstreams.
+      - The target model defines immutable artifacts, verification steps, and rollback boundaries.
+      - Runtime drift controls are explicit for code, dependencies, and configuration.
+    acceptance_criteria:
+      - The plan targets reproducible deployments with immutable build/deploy expectations.
+      - The plan defines how schema changes, secret changes, and Airflow bootstrap are orchestrated during deployment.
+      - The plan either eliminates mutable drift paths or adds enforced detection/containment before release.
+    failure_modes:
+      - scenario: Deployment hardening is defined without sequencing schema and secret changes, creating unsafe cutovers.
+        likelihood: medium
+        impact: critical
+        mitigation: Require deployment steps to consume upstream contracts explicitly and include rollback checkpoints between stages.
+    tech_stack:
+      - Docker Compose
+      - Airflow 3.1.6
+      - PostgreSQL migrations
+      - GitHub Actions
+    test_coverage: null
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: true
+    environment: staging
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: docs-runbook-reconciliation-plan
+    title: Reconcile runbooks and operator documentation with the target runtime
+    description: |
+      Define the documentation remediation needed so operator instructions match the hardened runtime, schema
+      governance model, and default validation path.
+
+      Current state evidence to incorporate:
+        - docs/AIRFLOW_POOL_SETUP.md still documents legacy DuckDB pool setup
+        - dashboard startup/troubleshooting docs describe localhost/default-password flows that diverge from db_manager defaults and container runtime behavior
+        - docs/OPERATIONS_RUNBOOK.md includes mutable/manual recovery steps that should be retired or rewritten
+
+      Deliverables:
+        - canonical runbook update set for startup, deployment, troubleshooting, schema changes, and secret handling
+        - obsolete-doc retirement list
+        - ownership/update process that keeps docs aligned with future runtime changes
+    wave: 2
+    agent: gem-documentation-writer
+    priority: medium
+    status: pending
+    dependencies:
+      - secrets-config-remediation-plan
+      - schema-ownership-migration-strategy
+      - pytest-ci-gate-repair-plan
+      - airflow-bootstrap-cleanup-plan
+      - deployment-hardening-plan
+    parallelizable: false
+    conflicts_with:
+      - deployment-hardening-plan
+    context_files:
+      - /mnt/data2/nhlstats/docs/OPERATIONS_RUNBOOK.md: Primary operator workflow and troubleshooting surface.
+      - /mnt/data2/nhlstats/docs/AIRFLOW_SETUP.md: Current Airflow setup guidance.
+      - /mnt/data2/nhlstats/docs/DASHBOARD_STARTUP_GUIDE.md: Current dashboard/runtime startup guidance.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: documentation
+    verification:
+      - Documentation deltas map directly to the approved target runtime rather than current drifted procedures.
+      - Obsolete guidance is explicitly retired, redirected, or rewritten.
+      - Operator-facing docs include verification steps consistent with deployment and Airflow plans.
+    acceptance_criteria:
+      - The plan aligns runbooks and environment documentation with deployed behavior.
+      - The plan removes or supersedes legacy guidance that would reintroduce runtime drift or schema confusion.
+      - The plan defines an ownership/update loop so future runtime changes trigger doc updates.
+    failure_modes:
+      - scenario: Documentation is updated before the target runtime contract is finalized, preserving drift in a new form.
+        likelihood: medium
+        impact: medium
+        mitigation: Gate documentation reconciliation on completion of deployment hardening and upstream strategy tasks.
+    task_type: update
+    audience: developers
+    coverage_matrix:
+      - startup and bootstrap
+      - deployment and rollback
+      - schema change process
+      - secret handling and troubleshooting
+      - CI/default validation expectations
+    requires_review: true
+    review_depth: standard
+    review_security_sensitive: false
+
+  - id: remediation-readiness-review
+    title: Review the remediation package for execution readiness
+    description: |
+      Perform a final cross-theme review of the remediation package so execution can start with a coherent scope,
+      verified dependencies, and no PRD gaps.
+
+      Deliverables:
+        - PRD acceptance-criteria traceability across the six remediation themes
+        - unresolved risk register and sequencing warnings
+        - go/no-go recommendation for implementation kickoff
+    wave: 3
+    agent: gem-reviewer
+    priority: medium
+    status: pending
+    dependencies:
+      - deployment-hardening-plan
+      - docs-runbook-reconciliation-plan
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      - /mnt/data2/nhlstats/docs/prd.yaml: Final acceptance criteria and scope guardrails.
+      - /mnt/data2/nhlstats/docs/plan/remediation-20260420-085817/plan_a.yaml: Current remediation plan to validate.
+      - /mnt/data2/nhlstats/docs/OPERATIONS_RUNBOOK.md: Operator surface that must remain consistent with the final package.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: review
+    verification:
+      - Every PRD acceptance criterion maps to at least one remediation deliverable.
+      - Dependency order and rollback assumptions are internally consistent.
+      - Residual security, schema, and operability risks are surfaced before implementation starts.
+    acceptance_criteria:
+      - The review confirms that security, schema, CI, runtime, docs, and Airflow themes are all covered.
+      - The review identifies any remaining blockers or sequence changes needed before implementation waves begin.
+      - The review produces a clear readiness recommendation for execution.
+    failure_modes:
+      - scenario: Review is treated as a formality and misses a dependency gap between runtime hardening and docs.
+        likelihood: low
+        impact: medium
+        mitigation: Require explicit acceptance-traceability and dependency checks instead of summary-only approval.
+    requires_review: false
+    review_depth: full
+    review_security_sensitive: true

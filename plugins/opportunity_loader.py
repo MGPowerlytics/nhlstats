@@ -69,7 +69,8 @@ class OpportunityLoader:
         opportunities = []
         skipped_stale = 0
 
-        sports_list = ", ".join([f"'{sport}'" for sport in sports])
+        normalized_sports = [sport.upper() for sport in sports]
+        sports_list = ", ".join([f"'{sport}'" for sport in normalized_sports])
         query = f"""
             SELECT sport, ticker, bet_on, home_team, away_team,
                    home_rating, away_rating, elo_prob, market_prob,

@@ -177,6 +177,7 @@ class PortfolioBettingManager:
         if not self.dry_run and results["placed_bets"]:
             balance, _ = self.kalshi_client.get_balance()
             self.bankroll = balance
+            results["bankroll"] = self.bankroll
             print(f"💰 Updated bankroll: ${self.bankroll:,.2f}")
 
         return results
@@ -223,6 +224,7 @@ class PortfolioBettingManager:
             "placed_bets": [],
             "skipped_bets": [],
             "errors": [],
+            "bankroll": self.bankroll if hasattr(self, 'bankroll') else 0.0,
         }
 
     def _print_betting_header(self) -> None:
@@ -264,7 +266,13 @@ class PortfolioBettingManager:
 
         # Calculate bet line probability
         side = "yes"  # Since tickers are specific to the outcome, we always buy YES
-        price = opp.yes_ask
+        price = self._resolve_order_price(market_details, allocation, side)
+        if price is None:
+            print("   ❌ No ask price available")
+            results["errors"].append(
+                {"ticker": opp.ticker, "error": "No ask price available"}
+            )
+            return
         bet_line_prob = self._calculate_bet_line_probability(side, price)
 
         # Create placement context
@@ -376,9 +384,36 @@ class PortfolioBettingManager:
         Returns:
             Implied probability as decimal (0.0-1.0)
         """
-        # For Kalshi markets: probability = (100 - price) / 100 for YES side
-        # If we're betting YES at 30¢, implied prob of YES winning = 70%
-        return (100 - price) / 100 if side == "yes" else price / 100
+        # Kalshi yes/no prices are quoted directly in cents of probability for
+        # the side being purchased (e.g. YES at 37c implies 37%).
+        return price / 100
+
+    def _resolve_order_price(
+        self,
+        market_details: Dict,
+        allocation: PortfolioAllocation,
+        side: str,
+    ) -> Optional[int]:
+        """Prefer the live Kalshi ask over the stored recommendation price."""
+        price_keys = {
+            "yes": ("yes_ask", allocation.opportunity.yes_ask),
+            "no": ("no_ask", allocation.opportunity.no_ask),
+        }
+        market_key, fallback_price = price_keys.get(
+            side, ("yes_ask", allocation.opportunity.yes_ask)
+        )
+
+        for candidate in (market_details.get(market_key), fallback_price):
+            if candidate in (None, ""):
+                continue
+            try:
+                candidate_price = int(round(float(candidate)))
+            except (TypeError, ValueError):
+                continue
+            if candidate_price > 0:
+                return candidate_price
+
+        return None
 
     def _place_single_bet(
         self,
@@ -561,10 +596,8 @@ def parse_args():
 
 
 def get_kalshi_client() -> Optional[KalshiBetting]:
-    """Initialize Kalshi client using standard credential loading."""
+    """Initialize Kalshi client using the runtime secret contract."""
     try:
-        # KalshiBetting has internal fallback to load_kalshi_credentials()
-        # so we don't need to manually parse the kalshkey file here.
         return KalshiBetting()
     except Exception as e:
         print(f"❌ Failed to initialize Kalshi client: {e}")

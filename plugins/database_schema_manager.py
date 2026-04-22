@@ -1,10 +1,12 @@
 """
 Database Schema Manager for sports betting system.
-Handles creation and management of database tables for all sports.
+Handles compatibility schema setup for local/test databases and delegates
+PostgreSQL ownership to the governed migration chain.
 """
 
 from typing import List
 from plugins.db_manager import DBManager
+from plugins.schema_migrations import SchemaMigrationRunner
 
 
 class DatabaseSchemaManager:
@@ -20,16 +22,26 @@ class DatabaseSchemaManager:
         self._schema_initialized = False
 
     def initialize_schema(self) -> None:
-        """Initialize all database tables if they don't exist."""
+        """Initialize schema through governed migrations or local compatibility DDL."""
         if self._schema_initialized:
             return
 
-        tables = self._get_table_definitions()
-        for sql in tables:
-            self.db.execute(sql)
+        if self._uses_governed_migrations():
+            runner = SchemaMigrationRunner(self.db)
+            runner.apply()
+            runner.assert_verified()
+        else:
+            tables = self._get_table_definitions()
+            for sql in tables:
+                self.db.execute(sql)
 
         self._schema_initialized = True
-        print("✓ PostgreSQL Schema initialized.")
+        print("✓ Schema initialized.")
+
+    def _uses_governed_migrations(self) -> bool:
+        """Return True when the current DB engine should use the migration ledger."""
+        dialect_name = getattr(getattr(self.db, "engine", None), "dialect", None)
+        return getattr(dialect_name, "name", "") == "postgresql"
 
     def _get_table_definitions(self) -> List[str]:
         """Get SQL definitions for all database tables.

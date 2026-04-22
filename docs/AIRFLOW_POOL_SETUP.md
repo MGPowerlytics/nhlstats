@@ -5,42 +5,22 @@ The `duckdb_writer` pool ensures only ONE Airflow task writes to DuckDB at a tim
 
 ## Setup Instructions
 
-### Option 1: Airflow UI (Recommended)
-1. Open Airflow UI: http://localhost:8080
-2. Go to **Admin** → **Pools**
-3. Click **+** to add a new pool
-4. Configure:
-   - **Pool Name**: `duckdb_writer`
-   - **Slots**: `1` (CRITICAL - only 1 writer allowed!)
-   - **Description**: "Serialize DuckDB write operations"
-5. Click **Save**
-
-### Option 2: Airflow CLI
+### Supported repo bootstrap flow
 ```bash
-# From your Airflow environment
-airflow pools set duckdb_writer 1 "Serialize DuckDB write operations"
-
-# Verify it was created
-airflow pools list
+# Re-apply the checked-in pool contract from config/airflow_pools.json
+docker compose run --rm airflow-bootstrap-admin
 ```
 
-### Option 3: Docker Compose
-```bash
-# If using Docker Compose
-docker compose exec airflow-scheduler airflow pools set duckdb_writer 1 "Serialize DuckDB write operations"
-```
+For this repository, `config/airflow_pools.json` plus
+`docker compose run --rm airflow-bootstrap-admin` is the supported pool bootstrap
+path. Manual scheduler-side pool creation commands are not part of the
+remediation-state runbook.
 
 ## Verification
 
-Check the pool exists and has `slots=1`:
-```bash
-airflow pools list | grep duckdb_writer
-```
-
-Expected output:
-```
-duckdb_writer    | 1/1   | Serialize DuckDB write operations
-```
+Open the Airflow UI at `http://localhost:8080`, go to **Admin** → **Pools**, and
+confirm `duckdb_writer` exists with `slots=1`. The expected definition comes from
+`config/airflow_pools.json`.
 
 ## How It Works
 
@@ -61,7 +41,7 @@ load_db = PythonOperator(
 ## Troubleshooting
 
 If you still see lock errors:
-1. **Verify pool slots**: `airflow pools list` → should show `1` slot
+1. **Re-apply the checked-in pool contract**: `docker compose run --rm airflow-bootstrap-admin`, then confirm `duckdb_writer` shows `slots=1` in **Admin** → **Pools**
 2. **Check running tasks**: Multiple tasks shouldn't show "running" with `pool='duckdb_writer'`
 3. **Restart scheduler**: `docker compose restart airflow-scheduler`
 4. **Clear stale locks**: Remove `/opt/airflow/data/nhlstats.duckdb.wal` if it exists

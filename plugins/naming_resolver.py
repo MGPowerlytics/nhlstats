@@ -448,6 +448,7 @@ class NamingResolver:
         ("nhl", "elo", "winnipeg jets"): "WPG",
         ("nhl", "elo", "winnipeg"): "WPG",
         # MLB mappings - abbreviations to full names
+        ("mlb", "kalshi", "az"): "Arizona Diamondbacks",
         ("mlb", "kalshi", "ari"): "Arizona Diamondbacks",
         ("mlb", "kalshi", "arizona"): "Arizona Diamondbacks",
         ("mlb", "kalshi", "ath"): "Athletics",

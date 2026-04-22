@@ -1,0 +1,772 @@
+plan_id: remediation-20260420-085817
+variant: c
+objective: Produce an implementation-ready remediation plan that applies the approved Wave 1 contracts to concrete repo changes for secrets, runtime topology, schema ownership, CI gates, Airflow bootstrap, and operator docs.
+created_at: 2026-04-20T08:58:17Z
+created_by: gem-team:gem-planner
+status: completed
+source_prd: docs/prd.yaml
+research_confidence: high
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 16
+  risk_score: high
+
+tldr: |
+  Wave 1 is no longer planning work. Its outputs are now fixed contracts that
+  downstream implementation must obey: runtime-only secrets, immutable runtime
+  surfaces, non-repo data persistence, governed PostgreSQL migrations, and
+  plain-pytest merge gates. The remaining plan converts the blocked
+  implementation work into concrete repo-change tasks: refactor secret
+  consumers first, then harden compose and image topology, introduce a
+  versioned migration foundation with a schema_migrations ledger, cut helper-
+  owned production DDL over to that ledger, restore default pytest plus merge-
+  blocking GitHub Actions, encode bootstrap order in compose with one-shot init
+  stages, and only then reconcile docs/runbooks.
+
+open_questions: []
+
+wave_ordering_rationale:
+  - Wave 1 remains as completed ADR/contracts because those decisions are already fixed and must not be reopened.
+  - Wave 2 applies the fixed contracts where parallelism is safe: secret consumer cutover, migration-foundation establishment, and pytest/CI enforcement.
+  - Wave 3 consumes those handoffs: runtime topology hardening waits for secret-consumer cutover before removing repo-mounted secrets, and schema owner cutover waits for the migration foundation before retiring helper-owned DDL.
+  - Wave 4 encodes the approved runtime into compose/bootstrap topology only after the secret, runtime, schema, and validation paths are concrete.
+  - Wave 5 updates operator-facing docs only after the implementation surfaces and verification commands are stable.
+
+fixed_contracts:
+  - id: secret-boundary
+    status: completed
+    summary: Runtime secrets only. Canonical env includes KALSHI_API_KEY_ID, SMTP creds, Airflow UI creds, and Postgres vars. Canonical file secret is KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem.
+    prohibited:
+      - tracked .env
+      - repo-root kalshkey
+      - repo-root odds_api_key
+      - repo-root PEM mounts
+      - /tmp secret copies
+      - manual secret creation in containers
+  - id: runtime-boundary
+    status: completed
+    summary: Immutable code surfaces and rebuild-and-redeploy only. No steady-state whole-repo or code/config bind mounts and no runtime pip installs.
+  - id: data-boundary
+    status: completed
+    summary: Preserved Wave 1 data-boundary ADR/handoff. Repo-root ./data mount is disallowed, and /opt/airflow/data may exist only as a managed non-repo volume/path for approved non-secret artifacts.
+    prohibited:
+      - API keys
+      - PEM/private keys
+      - .env material
+      - copied credentials
+      - any secret-bearing file under /opt/airflow/data
+  - id: schema-governance
+    status: completed
+    summary: Live schema authority moves to an in-repo versioned PostgreSQL migration chain plus schema_migrations ledger. Runtime CREATE TABLE helpers are transitional and must retire from production ownership.
+  - id: test-ci-contract
+    status: completed
+    summary: Plain pytest remains the default path. The optional-fetcher boundary must be repaired and merge-blocking collection-smoke plus default-pytest GitHub Actions jobs must be added.
+
+pre_mortem:
+  overall_risk_level: high
+  critical_failure_modes:
+    - scenario: Compose and code changes remove repo-mounted secrets before every consumer is switched to the runtime-only env and /run/secrets contract.
+      likelihood: medium
+      impact: critical
+      mitigation: Sequence secret-consumer cutover ahead of runtime-topology hardening and bootstrap topology changes, then verify all Kalshi/Odds entrypoints with explicit smoke commands before mount removal.
+    - scenario: A migration chain is added but runtime CREATE TABLE helpers still mutate production schema, creating dual schema owners.
+      likelihood: medium
+      impact: critical
+      mitigation: Make schema_migrations the only production ownership path, demote helpers to local/test compatibility only, and add verification queries for ledger state before app startup.
+    - scenario: Bootstrap automation is encoded in compose before image/runtime hardening is complete, preserving hidden runtime pip installs or manual exec dependencies.
+      likelihood: high
+      impact: high
+      mitigation: Gate bootstrap implementation on removal of _PIP_ADDITIONAL_REQUIREMENTS, removal of repo/code mounts, and green pytest/collection smoke.
+    - scenario: Documentation is updated against an intermediate implementation state and reintroduces manual exec, pool creation, or secret-copy instructions.
+      likelihood: medium
+      impact: high
+      mitigation: Keep docs in the final wave and require all concrete validation commands to be copied from completed implementation tasks only.
+  assumptions:
+    - docs/prd.yaml remains the source of truth for remediation scope and excludes feature work.
+    - Docker Compose remains the local/runtime orchestration surface for this repo during remediation.
+    - GitHub Actions is the required CI gate platform for merge-blocking validation.
+    - PostgreSQL remains the runtime system of record and existing operational data must be preserved.
+
+implementation_specification:
+  code_structure: |
+    Centralize remediation into four enforcement surfaces: runtime secret loading
+    helpers, immutable image/compose topology, in-repo PostgreSQL migrations
+    with a schema_migrations ledger, and merge-blocking CI/bootstrap
+    verification. Completed ADR outputs are inputs, not deliverables.
+  affected_areas:
+    - docker-compose.yaml, Dockerfile, and any new bootstrap/preflight scripts required to encode startup order in-repo
+    - plugins/kalshi_betting.py, plugins/kalshi_markets.py, plugins/update_clv_data.py, and DAG entrypoints that still assume repo-mounted credentials
+    - plugins/database_schema_manager.py, plugins/db_loader.py, plugins/bet_tracker.py, and new migration-chain files for canonical schema ownership
+    - setup.cfg, scripts/backfill_team_game_stats.py, plugins/stats/__init__.py, tests/, and new .github/workflows jobs for default pytest and collection smoke
+    - docs/AIRFLOW_SETUP.md, docs/OPERATIONS_RUNBOOK.md, docs/deployment_protocol.md, and README.md for final runbook parity
+  component_details:
+    - component: Runtime secret consumers
+      responsibility: Replace kalshkey, repo-root PEM, repo-root odds_api_key, and /tmp secret-copy patterns with the approved env and /run/secrets contract.
+      interfaces:
+        - KALSHI_API_KEY_ID environment variable
+        - KALSHI_PRIVATE_KEY_PATH environment variable pointing to /run/secrets/kalshi_private_key.pem
+        - ODDS_API_KEY environment variable for Odds API consumers
+    - component: Immutable runtime topology
+      responsibility: Remove mutable dependency-install and code-mount behavior from Dockerfile and docker-compose while preserving only approved persistent state surfaces.
+      interfaces:
+        - docker compose config as the canonical topology render
+        - image-baked dependency set with no _PIP_ADDITIONAL_REQUIREMENTS support
+        - managed non-repo volume/path for /opt/airflow/data when needed
+    - component: Versioned schema governance
+      responsibility: Introduce an in-repo PostgreSQL migration chain plus schema_migrations ledger and retire helper-owned production DDL.
+      interfaces:
+        - ordered migration files checked into the repo
+        - schema_migrations ledger table queried by startup/bootstrap verification
+        - compatibility boundary for legacy create-table helpers
+    - component: Default validation and merge gates
+      responsibility: Keep plain pytest as the supported local path and enforce collection-smoke plus default-pytest in GitHub Actions.
+      interfaces:
+        - pytest --collect-only -q
+        - pytest -q
+        - merge-blocking GitHub Actions workflows
+    - component: Airflow bootstrap topology
+      responsibility: Encode preflight, one-shot bootstrap-admin, idempotent pool/bootstrap work, and verification into compose/runtime topology rather than manual docker compose exec steps.
+      interfaces:
+        - preflight gate
+        - bootstrap-admin one-shot service
+        - idempotent bootstrap for pools and schema readiness
+        - verification stage for scheduler/API visibility and pool presence
+    - component: Operator documentation set
+      responsibility: Publish the final supported commands only after the code, compose, migration, and CI surfaces are implemented.
+      interfaces:
+        - deployment runbook
+        - Airflow setup/bootstrap guide
+        - remediation-safe troubleshooting steps
+  dependencies:
+    - component: Airflow bootstrap topology
+      relationship: Depends on runtime secret consumers, immutable runtime topology, schema governance, and CI gates so bootstrap automation does not reintroduce mutable behavior.
+    - component: Operator documentation set
+      relationship: Depends on all implementation tasks so docs reflect only supported remediation-state commands.
+    - component: Default validation and merge gates
+      relationship: Must be green before the bootstrap topology is treated as reviewable.
+  integration_points:
+    - docker-compose.yaml services, volumes, health checks, and startup ordering
+    - Dockerfile dependency installation and any entrypoint/bootstrap helpers
+    - Kalshi and Odds API credential loading in plugins/ and dags/
+    - PostgreSQL schema initialization in plugins/database_schema_manager.py, plugins/db_loader.py, and plugins/bet_tracker.py
+    - Root pytest entry path, import boundaries, and .github/workflows merge gates
+
+contracts:
+  - from_task: rem-secrets-boundary
+    to_task: rem-secret-consumer-cutover
+    interface: Authoritative runtime-only secret contract and forbidden secret-handling patterns
+    format: ADR-backed env and file-secret boundary
+  - from_task: rem-secrets-boundary
+    to_task: rem-runtime-topology-hardening
+    interface: Approved secret injection boundary for compose and image design
+    format: Service-to-secret mapping
+  - from_task: rem-secret-consumer-cutover
+    to_task: rem-runtime-topology-hardening
+    interface: All supported secret consumers now run on env plus /run/secrets before mount removal
+    format: Secret-consumer cutover handoff
+  - from_task: rem-runtime-hardening
+    to_task: rem-runtime-topology-hardening
+    interface: Immutable runtime rules, no runtime pip installs, and no steady-state code/config mounts
+    format: Runtime boundary ADR
+  - from_task: rem-schema-governance
+    to_task: rem-schema-migration-foundation
+    interface: Canonical live-schema ownership and requirement for schema_migrations ledger
+    format: Schema governance ADR
+  - from_task: rem-schema-migration-foundation
+    to_task: rem-schema-owner-cutover
+    interface: Migration directory, apply entrypoint, verify entrypoint, and schema_migrations ledger contract
+    format: Migration apply/verify handoff
+  - from_task: rem-pytest-ci-gates
+    to_task: rem-pytest-ci-enforcement
+    interface: Plain-pytest default path and required merge-blocking jobs
+    format: Test and CI contract
+  - from_task: rem-secret-consumer-cutover
+    to_task: rem-airflow-bootstrap-flow
+    interface: Repo consumers now read runtime env and /run/secrets only
+    format: Consumer cutover checklist
+  - from_task: rem-runtime-topology-hardening
+    to_task: rem-airflow-bootstrap-flow
+    interface: Compose/image topology without mutable mounts or runtime pip install paths
+    format: Rendered compose topology plus allowed volume list
+  - from_task: rem-schema-owner-cutover
+    to_task: rem-airflow-bootstrap-flow
+    interface: Migration runner and schema_migrations verification contract
+    format: Migration apply/verify sequence
+  - from_task: rem-pytest-ci-enforcement
+    to_task: rem-airflow-bootstrap-flow
+    interface: Green local/CI validation baseline required before bootstrap review
+    format: Validation command set and workflow names
+  - from_task: rem-secret-consumer-cutover
+    to_task: rem-docs-runbooks
+    interface: Supported secret-loading commands and forbidden recovery patterns
+    format: Secret-handling runbook delta
+  - from_task: rem-runtime-topology-hardening
+    to_task: rem-docs-runbooks
+    interface: Supported build, deploy, volume, and rollback contract
+    format: Deployment command matrix
+  - from_task: rem-schema-owner-cutover
+    to_task: rem-docs-runbooks
+    interface: Supported migration workflow and schema ownership rules
+    format: Migration operator checklist
+  - from_task: rem-pytest-ci-enforcement
+    to_task: rem-docs-runbooks
+    interface: Required local and CI validation commands
+    format: Validation checklist
+  - from_task: rem-airflow-bootstrap-flow
+    to_task: rem-docs-runbooks
+    interface: Supported preflight, bootstrap-admin, pools/bootstrap, and verification stages
+    format: Airflow bootstrap runbook
+
+tasks:
+  - id: rem-secrets-boundary
+    title: Freeze the runtime-only secret boundary as an authoritative ADR
+    description: |
+      Completed Wave 1 output. This task is no longer a pending deliverable.
+      The approved secret boundary is now fixed input for implementation:
+      runtime-only secrets, KALSHI_API_KEY_ID in env, Kalshi private key via
+      KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi_private_key.pem, and no tracked
+      .env, repo-root kalshkey/odds_api_key, repo-root PEM mounts, /tmp secret
+      copies, or manual secret creation inside containers.
+    wave: 1
+    agent: gem-reviewer
+    priority: high
+    status: completed
+    dependencies: []
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      - docs/prd.yaml: Source-of-truth remediation scope and acceptance criteria.
+      - docker-compose.yaml: Current compose surface that downstream tasks must bring into compliance.
+      - plugins/kalshi_betting.py: Current credential-loading path that must consume the frozen contract.
+    estimated_effort: small
+    estimated_files: 1
+    estimated_lines: 40
+    focus_area: security
+    verification:
+      - Downstream tasks treat this output as fixed and do not reopen the boundary decision.
+      - Forbidden secret patterns are explicitly referenced by implementation tasks.
+    acceptance_criteria:
+      - The secret boundary is preserved as a completed contract rather than a pending planning task.
+      - All downstream task descriptions reference env-only plus /run/secrets behavior.
+    failure_modes:
+      - scenario: Implementation tasks reintroduce repo-root or /tmp secret handling despite the completed ADR.
+        likelihood: medium
+        impact: high
+        mitigation: Keep the contract explicit in downstream repo-change scopes and validation commands.
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: true
+
+  - id: rem-schema-governance
+    title: Freeze canonical schema governance as an authoritative ADR
+    description: |
+      Completed Wave 1 output. Live PostgreSQL ownership must move to an in-repo
+      versioned migration chain plus schema_migrations ledger. Existing runtime
+      CREATE TABLE helpers are transitional compatibility code only and must not
+      remain production schema owners after implementation.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: completed
+    dependencies: []
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      - plugins/database_schema_manager.py: Existing helper-owned DDL surface to demote.
+      - plugins/bet_tracker.py: Contains feature-local placed_bets CREATE TABLE logic to move under migrations.
+      - docs/prd.yaml: Canonical acceptance criteria for schema governance.
+    estimated_effort: small
+    estimated_files: 1
+    estimated_lines: 40
+    focus_area: database-governance
+    verification:
+      - Downstream tasks implement an in-repo migration chain and ledger instead of new helper-owned DDL.
+      - Helper retirement is encoded as part of implementation, not deferred indefinitely.
+    acceptance_criteria:
+      - The schema governance ADR is treated as completed and authoritative.
+      - Implementation tasks reference schema_migrations as the canonical live-schema ledger.
+    failure_modes:
+      - scenario: The repo gains a migration directory but helpers still own production schema mutation.
+        likelihood: medium
+        impact: critical
+        mitigation: Make migration adoption include explicit helper demotion and verification commands.
+
+  - id: rem-pytest-ci-gates
+    title: Freeze the default pytest and merge-gate contract as an authoritative ADR
+    description: |
+      Completed Wave 1 output. Plain pytest remains the default developer path.
+      The implementation must repair the optional-fetcher import boundary and add
+      merge-blocking collection-smoke plus default-pytest GitHub Actions jobs.
+    wave: 1
+    agent: gem-implementer
+    priority: high
+    status: completed
+    dependencies: []
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      - setup.cfg: Default pytest invocation surface.
+      - scripts/backfill_team_game_stats.py: Import path exposed by the current collection failure.
+      - plugins/stats/__init__.py: Optional dependency boundary that must remain resilient.
+    estimated_effort: small
+    estimated_files: 1
+    estimated_lines: 40
+    focus_area: validation
+    verification:
+      - Downstream tasks explicitly use pytest --collect-only -q and pytest -q as required validation commands.
+      - GitHub Actions jobs are treated as merge-blocking deliverables, not follow-up ideas.
+    acceptance_criteria:
+      - The test/CI contract is preserved as a completed input contract.
+      - Pending implementation tasks encode repair of the optional-import boundary and workflow creation.
+    failure_modes:
+      - scenario: New CI workflows are added but the local default pytest path still diverges from them.
+        likelihood: medium
+        impact: high
+        mitigation: Keep both local and CI commands identical in downstream validation sections.
+    tech_stack:
+      - pytest
+      - GitHub Actions
+    test_coverage: Default pytest collection and default pytest execution remain the required baseline.
+
+  - id: rem-runtime-hardening
+    title: Freeze the immutable runtime boundary as an authoritative ADR
+    description: |
+      Completed Wave 1 output. Runtime code and dependency surfaces are immutable:
+      rebuild-and-redeploy only, no steady-state whole-repo or code/config bind
+      mounts, no runtime pip install paths, and no repo-root ./data mount. Any
+      /opt/airflow/data usage must be a managed non-repo volume/path for approved
+      non-secret artifacts only.
+    wave: 1
+    agent: gem-devops
+    priority: high
+    status: completed
+    dependencies: []
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      - docker-compose.yaml: Current mutable mount topology that downstream tasks must replace.
+      - Dockerfile: Current image build surface that must become the only dependency-install path.
+      - docs/prd.yaml: Runtime remediation scope and acceptance criteria.
+    estimated_effort: small
+    estimated_files: 1
+    estimated_lines: 40
+    focus_area: runtime
+    verification:
+      - Downstream tasks explicitly remove _PIP_ADDITIONAL_REQUIREMENTS support and repo-root ./data mounting.
+      - Bootstrap tasks depend on this contract rather than redefining runtime rules.
+    acceptance_criteria:
+      - The runtime boundary is preserved as a completed contract.
+      - Pending implementation tasks use immutable runtime assumptions throughout.
+    failure_modes:
+      - scenario: Bootstrap automation reintroduces mutable runtime behavior that violates the completed runtime boundary.
+        likelihood: medium
+        impact: high
+        mitigation: Make runtime hardening a prerequisite for bootstrap-topology implementation.
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: rem-secret-consumer-cutover
+    title: Refactor secret consumers to the approved runtime env and /run/secrets contract
+    description: |
+      Replace repo-root secret discovery and secret-copy behavior in code with the
+      completed secret ADR. Update Kalshi and Odds consumers so they read
+      KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH from the environment, consume
+      /run/secrets/kalshi_private_key.pem as the only supported file-secret path,
+      and stop reading kalshkey, repo-root PEM files, repo-root odds_api_key, or
+      writing private keys into /tmp.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: completed
+    dependencies:
+      - rem-secrets-boundary
+    parallelizable: true
+    conflicts_with:
+      - rem-airflow-bootstrap-flow
+    repo_change_scope:
+      - plugins/kalshi_betting.py, plugins/kalshi_markets.py, and plugins/update_clv_data.py credential loaders
+      - dags/multi_sport_betting_workflow.py and dags/portfolio_hourly_snapshot.py runtime secret consumers
+      - .env.example and any repo-owned env documentation needed to document supported variable names only
+    context_files:
+      - plugins/kalshi_betting.py: Currently reads kalshkey and writes /tmp/kalshi_private_key.pem.
+      - plugins/kalshi_markets.py: Currently falls back to repo-root kalshkey and repo-root PEM files.
+      - dags/multi_sport_betting_workflow.py: Currently initializes Kalshi clients via file-based assumptions.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: security-runtime
+    verification:
+      - All supported Kalshi/Odds consumers read from env and approved secret paths only.
+      - No code path creates or copies secret-bearing files under /tmp or /opt/airflow/data.
+      - Repo-root fallback discovery for kalshkey, odds_api_key, and repo PEM paths is removed from the supported contract.
+    validation_commands:
+      - "python -m compileall plugins dags"
+      - "pytest --collect-only -q tests/test_backfill_script.py tests/test_import_verification.py"
+      - 'rg "kalshkey|/tmp/kalshi_private_key.pem|kalshi_private_key.pem|odds_api_key" plugins dags'
+    acceptance_criteria:
+      - KALSHI_API_KEY_ID and KALSHI_PRIVATE_KEY_PATH are the only supported Kalshi runtime inputs.
+      - The supported file secret path resolves to /run/secrets/kalshi_private_key.pem, not a repo-root or copied path.
+      - No supported code path depends on tracked .env, repo-root kalshkey, repo-root odds_api_key, repo-root PEM mounts, or /tmp secret copies.
+    failure_modes:
+      - scenario: Hidden credential consumers still depend on file discovery and fail after compose mounts are removed.
+        likelihood: medium
+        impact: high
+        mitigation: Search all dags/plugins for forbidden file patterns and validate the main credential-consuming entrypoints before topology changes.
+      - scenario: Odds API behavior regresses because the repo-root odds_api_key fallback disappears without test coverage.
+        likelihood: medium
+        impact: medium
+        mitigation: Keep ODDS_API_KEY as the supported env contract and add smoke coverage for env-only initialization.
+    tech_stack:
+      - Python
+      - Environment variables
+      - Docker secrets
+    test_coverage: Import smoke plus targeted credential-loader tests for env and /run/secrets paths.
+
+  - id: rem-runtime-topology-hardening
+    title: Harden Docker image and compose topology to remove mutable runtime paths
+    description: |
+      Update Dockerfile and docker-compose so the built image is the only
+      dependency-install surface, steady-state code/config mounts are removed,
+      repo-mounted secret files are removed, repo-root ./data is disallowed, and
+      only approved named-volume or managed-path persistence remains. Explicitly
+      remove _PIP_ADDITIONAL_REQUIREMENTS and any supported live-container pip
+      install path from the runtime contract.
+    wave: 3
+    agent: gem-devops
+    priority: high
+    status: completed
+    dependencies:
+      - rem-secrets-boundary
+      - rem-runtime-hardening
+      - rem-secret-consumer-cutover
+    parallelizable: false
+    conflicts_with:
+      - rem-airflow-bootstrap-flow
+    repo_change_scope:
+      - docker-compose.yaml service volumes, secrets, env_file usage, and allowed persistent-state surfaces
+      - Dockerfile and image build inputs for all runtime dependencies
+      - .env.example or compose-adjacent env templates documenting supported runtime variables only
+    context_files:
+      - docker-compose.yaml: Still supports _PIP_ADDITIONAL_REQUIREMENTS, repo secret mounts, repo code mounts, and repo-root ./data.
+      - Dockerfile: Must remain the single dependency-install path.
+      - docs/OPERATIONS_RUNBOOK.md: Currently tells operators to pip install into live containers and will need downstream cleanup.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 240
+    focus_area: runtime-topology
+    verification:
+      - docker compose config renders without _PIP_ADDITIONAL_REQUIREMENTS or repo-mounted secret files.
+      - Runtime services no longer rely on whole-repo or code/config bind mounts for steady-state execution.
+      - /opt/airflow/data, if retained, is backed by a managed non-repo volume/path and contains no secret-bearing files.
+    validation_commands:
+      - "docker compose config"
+      - 'rg "_PIP_ADDITIONAL_REQUIREMENTS|AIRFLOW_PROJ_DIR:-.}/data|AIRFLOW_PROJ_DIR:-.}/plugins|AIRFLOW_PROJ_DIR:-.}/dags|AIRFLOW_PROJ_DIR:-.}:/opt/airflow|kalshkey|odds_api_key|kalshi_private_key.pem" docker-compose.yaml'
+      - "docker compose build"
+    acceptance_criteria:
+      - _PIP_ADDITIONAL_REQUIREMENTS and supported live-container pip install paths are removed from the contract.
+      - Repo-mounted secret files, whole-repo mounts, and steady-state code/config bind mounts are removed from supported runtime services.
+      - Repo-root ./data is not mounted into /opt/airflow/data; any retained /opt/airflow/data path is managed and non-secret.
+    failure_modes:
+      - scenario: Required runtime state is removed along with mutable code mounts, breaking service startup.
+        likelihood: medium
+        impact: critical
+        mitigation: Preserve only explicit state volumes, then verify startup using preflight and verification stages in the next wave.
+      - scenario: Secret mounts are removed before code consumers can handle env plus /run/secrets inputs.
+        likelihood: medium
+        impact: high
+        mitigation: Keep this task explicitly blocked on secret-consumer cutover so mount removal cannot start until env plus /run/secrets consumption is verified.
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: rem-schema-migration-foundation
+    title: Introduce the versioned migration chain, apply path, and schema_migrations ledger
+    description: |
+      Create the canonical in-repo migration directory, introduce the
+      schema_migrations ledger bootstrap, and add explicit apply plus verify
+      entrypoints that operate against PostgreSQL without relying on helper-side
+      effects. This task stops at the migration foundation so the follow-on
+      owner-cutover task can consume a stable, ledger-backed interface.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: completed
+    dependencies:
+      - rem-schema-governance
+    parallelizable: true
+    conflicts_with:
+      - rem-schema-owner-cutover
+      - rem-airflow-bootstrap-flow
+    repo_change_scope:
+      - new migrations/ or equivalent in-repo versioned PostgreSQL migration chain plus schema_migrations ledger bootstrap
+      - in-repo apply/verify harness such as scripts/apply_stats_schema_migrations.sh or an equivalent checked-in runner
+      - schema-focused tests that exercise fresh apply, already-applied reruns, and ledger inspection
+    context_files:
+      - plugins/database_schema_manager.py: Current canonical helper-owned DDL surface.
+      - scripts/apply_stats_schema_migrations.sh: Existing schema apply surface that should become the governed migration entrypoint or be replaced by an equivalent checked-in runner.
+      - plugins/db_manager.py: Existing PostgreSQL connection contract used by migration apply and verify steps.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: schema
+    verification:
+      - A versioned in-repo migration chain exists and can create plus query schema_migrations.
+      - The apply command creates or advances schema_migrations idempotently on repeated runs.
+      - The verify command and direct ledger query both confirm the expected schema_migrations state before runtime services start.
+    validation_commands:
+      - "python -m compileall plugins scripts"
+      - "bash scripts/apply_stats_schema_migrations.sh"
+      - "bash scripts/verify_stats_schema_migrations.sh"
+      - 'docker compose exec postgres psql -U airflow -d airflow -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"'
+      - "pytest -q tests/test_schema_integrity.py tests/test_team_game_stats_schema.py"
+    acceptance_criteria:
+      - Canonical live-schema authority now has a checked-in versioned migration chain plus schema_migrations ledger bootstrap.
+      - A checked-in apply command and a checked-in verify command are available and succeed against the remediation PostgreSQL target.
+      - Ledger inspection is part of the supported validation path, so downstream tasks can prove which migrations were applied.
+    failure_modes:
+      - scenario: A migration directory exists but the apply path still delegates to helper-owned initialize_schema behavior instead of a governed ledger-backed sequence.
+        likelihood: medium
+        impact: critical
+        mitigation: Require the apply and verify entrypoints to show ordered migration state through schema_migrations before owner cutover starts.
+      - scenario: Migration bootstrap is not idempotent and fails during repeated verification or startup rehearsals.
+        likelihood: medium
+        impact: high
+        mitigation: Require ledger-backed idempotency and explicit re-run validation commands.
+    tech_stack:
+      - PostgreSQL
+      - SQL migration files
+      - Python migration runner or equivalent in-repo apply harness
+    test_coverage: Schema integrity tests plus migration smoke covering fresh and already-applied states.
+
+  - id: rem-schema-owner-cutover
+    title: Move placed_bets and helper-owned production DDL under the governed migration chain
+    description: |
+      Consume the migration foundation to move placed_bets and the remaining
+      production schema owners under the governed chain, then demote runtime
+      CREATE TABLE helpers so they no longer own production schema mutation.
+      This task preserves data, keeps reruns safe, and makes bootstrap/runtime
+      verification rely on the ledger-backed apply plus verify path.
+    wave: 3
+    agent: gem-implementer
+    priority: high
+    status: completed
+    dependencies:
+      - rem-schema-migration-foundation
+    parallelizable: false
+    conflicts_with:
+      - rem-airflow-bootstrap-flow
+    repo_change_scope:
+      - plugins/database_schema_manager.py and plugins/db_loader.py ownership changes so helpers stop owning production schema
+      - plugins/bet_tracker.py and any schema-focused tests needed to move placed_bets ownership under migrations
+      - migration files or verification helpers that encode legacy-table ownership under the governed chain
+    context_files:
+      - plugins/database_schema_manager.py: Current helper-owned DDL surface that must be demoted from production ownership.
+      - plugins/bet_tracker.py: Contains placed_bets CREATE TABLE logic that must move under migrations.
+      - plugins/db_loader.py: Currently initializes schema through helper ownership.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: schema
+    verification:
+      - placed_bets and the remaining live tables no longer depend on helper-owned CREATE TABLE in production paths.
+      - The apply plus verify path succeeds after owner cutover and the schema_migrations ledger reflects the expected versions.
+      - Bootstrap-facing checks can confirm ledger state without relying on helper side effects.
+    validation_commands:
+      - "python -m compileall plugins tests"
+      - "bash scripts/apply_stats_schema_migrations.sh"
+      - "bash scripts/verify_stats_schema_migrations.sh"
+      - 'docker compose exec postgres psql -U airflow -d airflow -c "SELECT version, applied_at FROM schema_migrations ORDER BY version;"'
+      - "pytest -q tests/test_schema_integrity.py tests/test_team_game_stats_schema.py"
+      - 'rg "CREATE TABLE IF NOT EXISTS placed_bets|initialize_schema\\(" plugins'
+    acceptance_criteria:
+      - Runtime CREATE TABLE helpers are reduced to transitional or local compatibility and no longer own production schema evolution.
+      - placed_bets and the remaining live production tables are governed by the checked-in migration chain plus schema_migrations ledger.
+      - The supported migration path preserves existing data and exposes apply plus verify behavior that bootstrap automation can consume directly.
+    failure_modes:
+      - scenario: The owner cutover leaves one live table under helper ownership even though the ledger exists.
+        likelihood: medium
+        impact: critical
+        mitigation: Use a table-by-table ownership checklist and block completion until every live owner is reassigned and verified.
+      - scenario: Apply or verify succeeds on a fresh database but fails to represent preserved production data correctly.
+        likelihood: medium
+        impact: high
+        mitigation: Exercise rerun validation plus direct schema_migrations queries against the preserved-data path before handing off to bootstrap.
+    tech_stack:
+      - PostgreSQL
+      - SQL migration files
+      - Python compatibility helpers
+    test_coverage: Schema integrity tests plus migration smoke covering preserved-data reruns and helper retirement checks.
+
+  - id: rem-pytest-ci-enforcement
+    title: Repair the optional-import boundary and add merge-blocking pytest workflows
+    description: |
+      Make plain pytest dependable again by repairing the optional-fetcher import
+      boundary exposed by scripts/backfill_team_game_stats.py and
+      plugins/stats/__init__.py, then add merge-blocking GitHub Actions jobs for
+      collection-smoke and default-pytest. The resulting local and CI paths must
+      be the same supported command set.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: completed
+    dependencies:
+      - rem-pytest-ci-gates
+    parallelizable: true
+    conflicts_with: []
+    repo_change_scope:
+      - scripts/backfill_team_game_stats.py and plugins/stats/__init__.py import boundary for optional fetchers
+      - tests/ coverage for collection smoke and optional dependency resilience
+      - .github/workflows merge-blocking jobs for collection-smoke and default-pytest
+    context_files:
+      - scripts/backfill_team_game_stats.py: Imports optional fetchers through the package boundary.
+      - plugins/stats/__init__.py: Optional import shim that must stay robust during collection.
+      - setup.cfg: Default pytest entrypoint.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: validation-ci
+    verification:
+      - pytest --collect-only -q succeeds from the repo root.
+      - pytest -q remains the supported default developer command path.
+      - Two merge-blocking GitHub Actions jobs exist: collection-smoke and default-pytest.
+    validation_commands:
+      - "pytest --collect-only -q"
+      - "pytest -q"
+      - "python -m compileall scripts plugins tests"
+    acceptance_criteria:
+      - Plain pytest remains the default supported path locally and in CI.
+      - The optional-fetcher import boundary is repaired so default collection does not fail on missing optional SDKs.
+      - GitHub Actions includes merge-blocking collection-smoke and default-pytest jobs.
+    failure_modes:
+      - scenario: CI passes only because workflows use a different environment than local pytest.
+        likelihood: medium
+        impact: high
+        mitigation: Keep workflow commands identical to the local validation commands in this task.
+      - scenario: Optional dependency guards become too broad and hide real import regressions.
+        likelihood: medium
+        impact: medium
+        mitigation: Limit the boundary to truly optional fetchers and keep explicit smoke coverage for the expected exports.
+    tech_stack:
+      - pytest
+      - GitHub Actions
+      - Python import shims
+    test_coverage: Collection smoke, default pytest, and targeted import resilience tests for optional fetchers.
+
+  - id: rem-airflow-bootstrap-flow
+    title: Encode preflight, bootstrap-admin, pool bootstrap, and verification into compose topology
+    description: |
+      Replace manual docker compose exec bootstrap steps with an idempotent,
+      image-based flow encoded directly in repo-controlled topology. Compose
+      should express a preflight gate, migration/bootstrap readiness, a one-shot
+      bootstrap-admin stage, idempotent pool/bootstrap creation, and a
+      verification stage that confirms scheduler/API readiness and required pools
+      before the normal runtime is considered healthy.
+    wave: 4
+    agent: gem-devops
+    priority: high
+    status: completed
+    dependencies:
+      - rem-secret-consumer-cutover
+      - rem-runtime-topology-hardening
+      - rem-schema-owner-cutover
+      - rem-pytest-ci-enforcement
+    parallelizable: false
+    conflicts_with:
+      - rem-runtime-topology-hardening
+    repo_change_scope:
+      - docker-compose.yaml service graph and startup ordering for preflight, bootstrap-admin, bootstrap tasks, and verification
+      - new repo-controlled bootstrap or verification scripts invoked by the built image rather than docker compose exec
+      - docs-adjacent bootstrap references only as implementation notes to be finalized in the later docs wave
+    context_files:
+      - docker-compose.yaml: Current startup order still centers on airflow-init and leaves pools/bootstrap manual.
+      - docs/AIRFLOW_SETUP.md: Current manual pool creation instructions that this task must obsolete.
+      - docs/OPERATIONS_RUNBOOK.md: Current manual exec and live-container recovery flows that reveal the missing topology.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 280
+    focus_area: airflow-bootstrap
+    verification:
+      - Compose includes a preflight gate before steady-state services.
+      - One-shot bootstrap-admin exists and is idempotent.
+      - Required pools and schema readiness are created or verified by image-based bootstrap logic, not docker compose exec.
+      - Verification stage confirms service readiness and required pools after bootstrap.
+    validation_commands:
+      - "docker compose config"
+      - "docker compose run --rm airflow-preflight"
+      - "docker compose run --rm airflow-bootstrap-admin"
+      - "docker compose run --rm airflow-verify"
+    acceptance_criteria:
+      - Bootstrap order is embodied in compose/runtime topology with preflight gate, one-shot bootstrap-admin, and verification stage.
+      - Manual pool creation via docker compose exec is replaced by an idempotent image-based bootstrap flow.
+      - The bootstrap flow consumes the migration ledger, secret boundary, and immutable runtime contract without reintroducing mutable behavior.
+    failure_modes:
+      - scenario: Bootstrap stages are not idempotent and block repeated local or CI startup.
+        likelihood: medium
+        impact: high
+        mitigation: Require every bootstrap stage to pass on both fresh and already-initialized environments.
+      - scenario: Verification checks are too weak and allow runtime services to start without required pools or schema readiness.
+        likelihood: medium
+        impact: high
+        mitigation: Make verification explicitly assert pool presence, scheduler/API health, and applied migration state.
+    environment: development
+    requires_approval: true
+    devops_security_sensitive: true
+
+  - id: rem-docs-runbooks
+    title: Reconcile runbooks with the implemented remediation state
+    description: |
+      Update only remediation-relevant docs after implementation lands. Remove
+      manual docker compose exec bootstrap instructions, live-container pip
+      install guidance, repo-secret references, kalshkey instructions, and any
+      guidance that conflicts with the approved env, /run/secrets, migration
+      chain, CI gates, or compose bootstrap topology.
+    wave: 5
+    agent: gem-documentation-writer
+    priority: medium
+    status: completed
+    dependencies:
+      - rem-secret-consumer-cutover
+      - rem-runtime-topology-hardening
+      - rem-schema-owner-cutover
+      - rem-pytest-ci-enforcement
+      - rem-airflow-bootstrap-flow
+    parallelizable: false
+    conflicts_with: []
+    repo_change_scope:
+      - docs/AIRFLOW_SETUP.md and docs/OPERATIONS_RUNBOOK.md bootstrap, pool, troubleshooting, and recovery guidance
+      - docs/deployment_protocol.md and README.md deployment and validation commands
+      - Any remaining remediation-relevant docs that still mention repo-mounted secrets, runtime pip installs, or manual compose exec bootstrap
+    context_files:
+      - docs/AIRFLOW_SETUP.md: Still instructs manual pool creation via docker compose exec.
+      - docs/OPERATIONS_RUNBOOK.md: Still instructs live-container pip install and file-based secret behavior.
+      - docs/deployment_protocol.md: Must reflect the final validated deployment/bootstrap path.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: documentation
+    verification:
+      - Supported commands in docs match the implemented validation_commands from completed implementation tasks.
+      - Deprecated manual bootstrap, secret-copy, repo-secret, and live-container pip install guidance is removed or clearly marked unsupported.
+      - Docs remain scoped to remediation behavior and do not expand into feature documentation.
+    validation_commands:
+      - 'rg "docker compose exec airflow-scheduler .*pools|pip install nba_api|kalshkey|/tmp/kalshi_private_key.pem|_PIP_ADDITIONAL_REQUIREMENTS" docs README.md'
+      - 'rg "pytest --collect-only -q|pytest -q|bash scripts/apply_stats_schema_migrations.sh|schema_migrations|docker compose run --rm airflow-preflight|docker compose run --rm airflow-bootstrap-admin|docker compose run --rm airflow-verify" docs README.md'
+    acceptance_criteria:
+      - Operator docs describe only the supported remediation-state runtime, schema, CI, and bootstrap workflows.
+      - Removed behaviors include manual pool bootstrap, live-container pip install, repo-secret mounting, repo-root kalshkey, repo-root odds_api_key, repo-root PEM instructions, and /tmp secret copying.
+      - Documentation scope stays focused on remediation and operator parity.
+    failure_modes:
+      - scenario: Outdated break-glass steps remain in docs and operators continue using unsupported mutable flows.
+        likelihood: medium
+        impact: high
+        mitigation: Use grep-based validation against the known banned patterns before closing the task.
+    task_type: update
+    audience: developers
+    coverage_matrix:
+      - Runtime secret injection and forbidden secret patterns
+      - Immutable compose/image topology and allowed persistent state
+      - Migration apply/verify workflow and schema_migrations checks
+      - Merge-blocking pytest and collection-smoke validation
+      - Airflow preflight, bootstrap-admin, pool/bootstrap, and verification stages
