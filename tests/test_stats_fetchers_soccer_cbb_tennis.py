@@ -136,7 +136,7 @@ class TestSoccerBoxScoreFetcherParsing:
         assert home["sport"] == "Ligue1"
 
     def test_game_id_format(self, mock_db):
-        """game_id must follow {league_code}_{YYYYMMDD}_{HA}_{AA} pattern."""
+        """EPL game_id must follow the governed EPL_{YYYYMMDD}_{HOME}_{AWAY} pattern."""
         from plugins.stats.soccer_box_score import SoccerBoxScoreFetcher
 
         fetcher = SoccerBoxScoreFetcher(sport="EPL", db=mock_db)
@@ -144,26 +144,28 @@ class TestSoccerBoxScoreFetcherParsing:
         home, _ = fetcher._build_team_rows(row)
         parts = home["game_id"].split("_")
         assert len(parts) == 4
-        assert parts[0] == "E0"
+        assert parts[0] == "EPL"
         assert len(parts[1]) == 8  # YYYYMMDD
+        assert parts[2] == "ARSENAL"
+        assert parts[3] == "CHELSEA"
 
     def test_season_label_august_match(self, mock_db):
-        """Match in August 2023 should be in season '2023-24'."""
+        """Match in August 2023 should use the governed EPL season code '2324'."""
         from plugins.stats.soccer_box_score import SoccerBoxScoreFetcher
 
         fetcher = SoccerBoxScoreFetcher(sport="EPL", db=mock_db)
         row = self._make_row(Date=pd.Timestamp("2023-08-12"))
         home, _ = fetcher._build_team_rows(row)
-        assert home["season"] == "2023-24"
+        assert home["season"] == "2324"
 
     def test_season_label_february_match(self, mock_db):
-        """Match in February 2024 should be in season '2023-24'."""
+        """Match in February 2024 should use the governed EPL season code '2324'."""
         from plugins.stats.soccer_box_score import SoccerBoxScoreFetcher
 
         fetcher = SoccerBoxScoreFetcher(sport="EPL", db=mock_db)
         row = self._make_row(Date=pd.Timestamp("2024-02-10"))
         home, _ = fetcher._build_team_rows(row)
-        assert home["season"] == "2023-24"
+        assert home["season"] == "2324"
 
 
 class TestSoccerBoxScoreUpsertSkipsMissingGame:
@@ -175,13 +177,13 @@ class TestSoccerBoxScoreUpsertSkipsMissingGame:
 
         fetcher = SoccerBoxScoreFetcher(sport="EPL", db=mock_db)
         row = {
-            "game_id": "E0_20231028_ARS_CHE",
+            "game_id": "EPL_20231028_ARSENAL_CHELSEA",
             "sport": "EPL",
             "team": "Arsenal",
             "opponent": "Chelsea",
             "is_home": True,
             "game_date": date(2023, 10, 28),
-            "season": "2023-24",
+            "season": "2324",
             "points_for": 2,
             "points_against": 1,
             "won": True,
@@ -196,17 +198,17 @@ class TestSoccerBoxScoreUpsertSkipsMissingGame:
         from plugins.stats.soccer_box_score import SoccerBoxScoreFetcher
 
         db = MagicMock()
-        db.execute.return_value.fetchall.return_value = [("E0_20231028_ARS_CHE",)]
+        db.execute.return_value.fetchall.return_value = [("EPL_20231028_ARSENAL_CHELSEA",)]
 
         fetcher = SoccerBoxScoreFetcher(sport="EPL", db=db)
         row = {
-            "game_id": "E0_20231028_ARS_CHE",
+            "game_id": "EPL_20231028_ARSENAL_CHELSEA",
             "sport": "EPL",
             "team": "Arsenal",
             "opponent": "Chelsea",
             "is_home": True,
             "game_date": date(2023, 10, 28),
-            "season": "2023-24",
+            "season": "2324",
             "points_for": 2,
             "points_against": 1,
             "won": True,

@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_mlb_games_row_v1.json",
+  "title": "MLB mlb_games Row Contract",
+  "description": "Canonical persisted row contract for the mlb_games table populated by db_loader._load_mlb_schedule.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "game_date",
+    "season",
+    "game_type",
+    "home_team",
+    "away_team",
+    "home_score",
+    "away_score",
+    "status"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Native MLB Stats API gamePk (canonical MLB game identifier)."
+    },
+    "game_date": {"type": "string", "format": "date"},
+    "season": {"type": "integer", "minimum": 1900},
+    "game_type": {
+      "type": "string",
+      "enum": ["R", "F", "D", "L", "W"]
+    },
+    "home_team": {"type": "string", "minLength": 1},
+    "away_team": {"type": "string", "minLength": 1},
+    "home_score": {"type": ["integer", "null"], "minimum": 0},
+    "away_score": {"type": ["integer", "null"], "minimum": 0},
+    "status": {"type": "string", "minLength": 1},
+    "home_pitcher_id": {"type": ["string", "null"]},
+    "away_pitcher_id": {"type": ["string", "null"]},
+    "home_pitcher_name": {"type": ["string", "null"]},
+    "away_pitcher_name": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL Contract Payload Stub",
+  "type": "object",
+  "required": [
+    "competition",
+    "schema_version",
+    "payload_kind"
+  ],
+  "properties": {
+    "competition": {
+      "const": "EPL"
+    },
+    "schema_version": {
+      "const": "v1"
+    },
+    "payload_kind": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

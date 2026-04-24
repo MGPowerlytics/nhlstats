@@ -1,0 +1,132 @@
+plan_id: 2026-04-24-tennis-contract-testing
+variant: a
+objective: >
+  Full contract testing for the Tennis pipeline covering CSV ingestion
+  (Sackmann + tennis-data), tennis_games + unified_games persistence,
+  tennis_player_match_stats upserts, the Tennis Elo emitter (with Platt
+  calibration), Kalshi market normalization + paired-event aggregation,
+  bet opportunity emission, and recommendation persistence.
+created_at: 2026-04-24T00:00:00Z
+created_by: gem-team:gem-planner
+status: completed
+source_prd: docs/prd.yaml
+research_confidence: high
+
+plan_metrics:
+  total_waves: 9
+  schemas_added: 9
+  fixture_modules_added: 10
+  consumer_tests_added: 7
+  provider_tests_added: 7
+  total_tennis_test_files_added: 14
+  total_tennis_test_ids_collected: 91
+  total_contract_test_ids_collected: 435
+
+tldr: |
+  The Tennis contract initiative mirrors the EPL/MLB contract layout. The
+  shared tests/contracts/ scaffold from prior waves is reused; Tennis adds
+  9 versioned JSON Schemas, 10 deterministic fixture modules, and 14
+  consumer/provider tests covering every Tennis boundary in scope. All
+  green-fix work is Tennis-only and tightly scoped: a structured
+  predict_with_payload + Platt calibration in TennisEloRating, TENNIS
+  branches in plugins/odds_comparator.py (sport tag, recommendation_date
+  parsing, edge clamp, tour surfacing), and TENNIS branches in
+  plugins/bet_loader.py (sport normalisation, stable bet id, synthetic
+  ticker fallback). The default pytest path is the validation surface; no
+  new tooling was introduced.
+
+open_questions: []
+
+wave_ordering_rationale:
+  - Wave 1 reused the existing EPL/MLB contract scaffold under tests/contracts/.
+  - Wave 2 froze Tennis consumer schemas and consumer red tests in parallel.
+  - Wave 3 added Tennis provider red tests against the frozen schemas.
+  - Waves 4-6 turned red contracts green via Tennis-only compatibility fixes in TennisEloRating (Platt calibration), odds_comparator, and bet_loader.
+  - Wave 7 confirmed default pytest collection picks up the new Tennis tests through existing testpaths.
+  - Wave 8 ran a full non-Tennis regression sweep to prove no other sport regressed.
+  - Wave 9 updated CHANGELOG.md, AGENTS.md, and recorded this completion plan.
+
+wave_layout:
+  - wave: 1
+    name: scaffold-reuse
+    summary: Reuse the EPL/MLB contract scaffold (conftest, helpers, schema loaders) under tests/contracts/.
+  - wave: 2
+    name: schemas-and-consumers-red
+    summary: Land 9 tennis_*_v1.json schemas plus 7 consumer red tests covering every Tennis boundary.
+  - wave: 3
+    name: providers-red
+    summary: Land 7 provider red tests that exercise real Tennis producers against the frozen contracts.
+  - wave: 4
+    name: elo-payload-and-platt
+    summary: Add TennisEloRating.predict_with_payload + per-tour Platt calibration loaded from data/calibration/tennis_platt_by_tour.json.
+  - wave: 5
+    name: odds-comparator-tennis-branches
+    summary: TENNIS sport uppercasing, game_id-derived recommendation_date, max_edge clamp extension, and tour surfacing in plugins/odds_comparator.py.
+  - wave: 6
+    name: bet-loader-tennis-branches
+    summary: TENNIS sport normalisation, stable bet id generator, and deterministic synthetic ticker fallback in plugins/bet_loader.py.
+  - wave: 7
+    name: contract-validation-wiring
+    summary: Confirmed pytest auto-collects the new Tennis contract tests under existing testpaths.
+  - wave: 8
+    name: non-tennis-regression-sweep
+    summary: Full non-Tennis regression gauntlet (EPL+MLB contracts, Kalshi smoke, unified_games coverage, odds_comparator/bet_loader/portfolio_types, high-edge disagreement) — all green.
+  - wave: 9
+    name: docs-and-final-review-gate
+    summary: CHANGELOG.md, AGENTS.md, and this completion record; final review gate confirms 435 contract tests pass with zero unexpected xpasses or failures.
+
+schemas:
+  - tests/contracts/schemas/tennis_csv_ingestion_v1.json
+  - tests/contracts/schemas/tennis_tennis_games_row_v1.json
+  - tests/contracts/schemas/tennis_unified_game_row_v1.json
+  - tests/contracts/schemas/tennis_player_match_stats_row_v1.json
+  - tests/contracts/schemas/tennis_elo_prediction_v1.json
+  - tests/contracts/schemas/tennis_kalshi_market_v1.json
+  - tests/contracts/schemas/tennis_kalshi_event_v1.json
+  - tests/contracts/schemas/tennis_bet_opportunity_v1.json
+  - tests/contracts/schemas/tennis_bet_recommendation_row_v1.json
+
+fixtures:
+  - tests/contracts/fixtures/tennis_csv_samples.py
+  - tests/contracts/fixtures/tennis_games_db_samples.py
+  - tests/contracts/fixtures/tennis_unified_samples.py
+  - tests/contracts/fixtures/tennis_stats_samples.py
+  - tests/contracts/fixtures/tennis_elo_samples.py
+  - tests/contracts/fixtures/tennis_kalshi_samples.py
+  - tests/contracts/fixtures/tennis_kalshi_provider_samples.py
+  - tests/contracts/fixtures/tennis_kalshi_event_samples.py
+  - tests/contracts/fixtures/tennis_bet_opportunity_samples.py
+  - tests/contracts/fixtures/tennis_bet_recommendation_samples.py
+
+tests:
+  - tests/contracts/test_tennis_csv_consumer.py
+  - tests/contracts/test_tennis_csv_provider.py
+  - tests/contracts/test_tennis_db_row_consumer.py
+  - tests/contracts/test_tennis_db_row_provider.py
+  - tests/contracts/test_tennis_stats_consumer.py
+  - tests/contracts/test_tennis_stats_provider.py
+  - tests/contracts/test_tennis_elo_consumer.py
+  - tests/contracts/test_tennis_elo_provider.py
+  - tests/contracts/test_tennis_kalshi_consumer.py
+  - tests/contracts/test_tennis_kalshi_provider.py
+  - tests/contracts/test_tennis_bet_opportunity_consumer.py
+  - tests/contracts/test_tennis_bet_opportunity_provider.py
+  - tests/contracts/test_tennis_bet_recommendation_consumer.py
+  - tests/contracts/test_tennis_bet_recommendation_provider.py
+
+green_fix_changes:
+  - plugins/elo/tennis_elo_rating.py: predict_with_payload + _apply_platt_calibration + _load_platt_params
+  - plugins/odds_comparator.py: is_tennis property; TENNIS branches in normalized_sport, recommendation_date, edge clamp; opportunity dict surfaces tour
+  - plugins/bet_loader.py: _is_tennis_sport, TENNIS in _normalize_bet_sport, _synthesize_tennis_ticker, _generate_tennis_bet_id; tennis branches in BetData.generate_id and BetData.to_recommendation
+
+validation:
+  - command: pytest -q tests/contracts -k tennis
+    result: 91 passed
+  - command: pytest -q tests/contracts
+    result: 435 passed (342 EPL/MLB baseline + 91 tennis + 2 scaffold)
+  - command: pytest -q tests/test_kalshi_markets.py tests/test_kalshi_tennis_save.py tests/test_fetch_markets_smoke.py
+    result: 64 passed, 4 skipped
+  - command: pytest -q tests/test_unified_games_coverage.py tests/test_high_edge_disagreement.py
+    result: 16 passed
+  - command: pytest -q tests/ -k 'odds_comparator or bet_loader or portfolio_types'
+    result: 30 passed

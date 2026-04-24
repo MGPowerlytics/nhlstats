@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MLB Ensemble IO v1",
+  "description": "Composite contract for the MLB ensemble boundary. ensemble_input is the bundle delivered to the blender; ensemble_output is the blended probability with per-component weights and provenance.",
+  "$defs": {
+    "ensemble_input": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "home_team",
+        "away_team",
+        "base_elo_prob",
+        "features"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "ensemble_input"},
+        "home_team": {"type": "string", "minLength": 1},
+        "away_team": {"type": "string", "minLength": 1},
+        "base_elo_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "pitcher_prob": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "maximum": 1.0
+        },
+        "features": {
+          "type": "object",
+          "minProperties": 1
+        },
+        "market_prob": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "maximum": 1.0
+        }
+      },
+      "additionalProperties": false
+    },
+    "ensemble_output": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "home_team",
+        "away_team",
+        "blended_prob",
+        "weights",
+        "provenance"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "ensemble_output"},
+        "home_team": {"type": "string", "minLength": 1},
+        "away_team": {"type": "string", "minLength": 1},
+        "blended_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "weights": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {"type": "number"}
+        },
+        "provenance": {
+          "type": "object",
+          "required": ["model_id"],
+          "properties": {
+            "model_id": {"type": "string", "minLength": 1},
+            "components": {
+              "type": "object",
+              "additionalProperties": {"type": "number"}
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

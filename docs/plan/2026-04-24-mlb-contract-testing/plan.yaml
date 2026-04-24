@@ -1,0 +1,198 @@
+plan_id: 2026-04-24-mlb-contract-testing
+variant: a
+objective: >
+  Full contract testing for the MLB pipeline covering the MLB betting
+  pipeline (schedule ingestion, Elo + pitcher Elo, ensemble, Glicko-2,
+  Kalshi market normalization, opportunity emission, recommendation
+  persistence) plus the MLB historical stats pipeline (team game stats
+  and MLB-specific extension rows).
+created_at: 2026-04-24T00:00:00Z
+created_by: gem-team:gem-planner
+status: completed
+source_prd: docs/prd.yaml
+research_confidence: high
+
+plan_metrics:
+  total_waves: 9
+  schemas_added: 13
+  fixture_modules_added: 11
+  consumer_tests_added: 11
+  provider_tests_added: 11
+  total_mlb_test_files_added: 22
+  total_mlb_test_ids_collected: 246
+  total_contract_test_ids_collected: 344
+
+tldr: |
+  The MLB contract initiative mirrors the EPL contract layout. A single
+  shared `tests/contracts/` scaffold from the EPL wave is reused; MLB adds
+  13 versioned JSON Schemas, 11 deterministic fixture modules, and 22
+  consumer/provider tests covering every MLB boundary in scope. All
+  green-fix work is MLB-only and tightly scoped: franchise-code resolution
+  in `_determine_outcome_name`, MLB sport uppercasing + max_edge clamp in
+  `plugins/odds_comparator.py`, stable MLB bet ids and synthetic ticker in
+  `plugins/bet_loader.py`, and structured payload emitters across
+  `MLBEloRating`, `PitcherEloLadder`, `MLBPredictionContext`,
+  `MLBEnsembleModel`, and `MLBGlicko2Rating`. The default pytest path is
+  the validation surface; no new tooling was introduced.
+
+open_questions: []
+
+wave_ordering_rationale:
+  - Wave 1 reused the existing EPL contract scaffold under tests/contracts/ rather than introducing parallel infrastructure.
+  - Wave 2 froze MLB consumer schemas and consumer red tests in parallel.
+  - Wave 3 added MLB provider red tests against the frozen schemas.
+  - Waves 4-6 turned red contracts green via MLB-only compatibility fixes in odds_comparator, bet_loader, and the MLB rating/ensemble producers.
+  - Wave 7 confirmed default pytest collection picks up the new MLB tests through existing testpaths.
+  - Wave 8 ran a full non-MLB regression sweep to prove no other sport regressed.
+  - Wave 9 updated CHANGELOG.md, AGENTS.md, and recorded this completion plan before the final review gate.
+
+wave_layout:
+  - wave: 1
+    name: scaffold-reuse
+    summary: Reuse the EPL contract scaffold (conftest, helpers, schema loaders) under tests/contracts/.
+  - wave: 2
+    name: schemas-and-consumers-red
+    summary: Land 13 mlb_*_v1.json schemas plus 11 consumer red tests covering every MLB boundary.
+  - wave: 3
+    name: providers-red
+    summary: Land 11 provider red tests that exercise real MLB producers against the frozen contracts.
+  - wave: 4
+    name: identity-and-normalization-fixes
+    summary: MLB franchise-code resolution in _determine_outcome_name; MLB sport uppercasing and max_edge clamp in odds_comparator.
+  - wave: 5
+    name: bet-loader-fixes
+    summary: Stable MLB bet ids and deterministic synthetic ticker emission in bet_loader.
+  - wave: 6
+    name: producer-payload-emitters
+    summary: Structured contract-shaped payload emitters added to MLBEloRating, PitcherEloLadder, MLBPredictionContext, MLBEnsembleModel, and MLBGlicko2Rating.
+  - wave: 7
+    name: contract-validation-wiring
+    summary: Confirmed pytest auto-collects the new MLB contract tests under existing testpaths and the existing pytest GitHub Actions workflow runs them with no config changes required.
+  - wave: 8
+    name: non-mlb-regression-sweep
+    summary: Full non-MLB regression gauntlet (EPL contracts, Kalshi smoke, unified games coverage, glicko/odds_comparator/bet_loader/portfolio_types, high-edge disagreement) — all green.
+  - wave: 9
+    name: docs-and-final-review-gate
+    summary: CHANGELOG.md and AGENTS.md updates plus this completion record; final review gate confirms 344 contract tests pass with zero unexpected xpasses or failures.
+
+schemas:
+  - tests/contracts/schemas/mlb_schedule_ingestion_v1.json
+  - tests/contracts/schemas/mlb_mlb_games_row_v1.json
+  - tests/contracts/schemas/mlb_unified_game_row_v1.json
+  - tests/contracts/schemas/mlb_team_game_stats_row_v1.json
+  - tests/contracts/schemas/mlb_team_game_stats_ext_row_v1.json
+  - tests/contracts/schemas/mlb_elo_prediction_v1.json
+  - tests/contracts/schemas/mlb_pitcher_elo_v1.json
+  - tests/contracts/schemas/mlb_ensemble_io_v1.json
+  - tests/contracts/schemas/mlb_features_v1.json
+  - tests/contracts/schemas/mlb_glicko2_v1.json
+  - tests/contracts/schemas/mlb_kalshi_market_v1.json
+  - tests/contracts/schemas/mlb_bet_opportunity_v1.json
+  - tests/contracts/schemas/mlb_bet_recommendation_row_v1.json
+
+fixtures:
+  - tests/contracts/fixtures/mlb_schedule_samples.py
+  - tests/contracts/fixtures/mlb_stats_samples.py
+  - tests/contracts/fixtures/mlb_elo_samples.py
+  - tests/contracts/fixtures/mlb_pitcher_samples.py
+  - tests/contracts/fixtures/mlb_ensemble_samples.py
+  - tests/contracts/fixtures/mlb_features_samples.py
+  - tests/contracts/fixtures/mlb_glicko2_samples.py
+  - tests/contracts/fixtures/mlb_kalshi_samples.py
+  - tests/contracts/fixtures/mlb_kalshi_provider_samples.py
+  - tests/contracts/fixtures/mlb_bet_opportunity_samples.py
+  - tests/contracts/fixtures/mlb_bet_recommendation_samples.py
+
+tests:
+  consumer:
+    - tests/contracts/test_mlb_ingestion_consumer.py
+    - tests/contracts/test_mlb_db_row_consumer.py
+    - tests/contracts/test_mlb_stats_consumer.py
+    - tests/contracts/test_mlb_elo_consumer.py
+    - tests/contracts/test_mlb_pitcher_elo_consumer.py
+    - tests/contracts/test_mlb_ensemble_consumer.py
+    - tests/contracts/test_mlb_features_consumer.py
+    - tests/contracts/test_mlb_glicko2_consumer.py
+    - tests/contracts/test_mlb_kalshi_consumer.py
+    - tests/contracts/test_mlb_bet_opportunity_consumer.py
+    - tests/contracts/test_mlb_bet_recommendation_consumer.py
+  provider:
+    - tests/contracts/test_mlb_ingestion_provider.py
+    - tests/contracts/test_mlb_db_row_provider.py
+    - tests/contracts/test_mlb_stats_provider.py
+    - tests/contracts/test_mlb_elo_provider.py
+    - tests/contracts/test_mlb_pitcher_elo_provider.py
+    - tests/contracts/test_mlb_ensemble_provider.py
+    - tests/contracts/test_mlb_features_provider.py
+    - tests/contracts/test_mlb_glicko2_provider.py
+    - tests/contracts/test_mlb_kalshi_provider.py
+    - tests/contracts/test_mlb_bet_opportunity_provider.py
+    - tests/contracts/test_mlb_bet_recommendation_provider.py
+
+fixes_shipped:
+  - area: kalshi-outcome-naming
+    location: _determine_outcome_name
+    description: MLB franchise-code resolution so Kalshi outcome names map correctly for MLB markets.
+  - area: opportunity-normalization
+    location: plugins/odds_comparator.py
+    description: MLB sport-tag uppercasing and max_edge clamp aligned with other sports' normalization path.
+  - area: recommendation-persistence
+    location: plugins/bet_loader.py
+    description: Stable MLB bet ids and a deterministic synthetic ticker emitted when no real Kalshi ticker is available.
+  - area: producer-payload-emitters
+    location: plugins/elo/mlb_elo_rating.py (MLBEloRating), plugins/elo/mlb_pitcher_elo.py (PitcherEloLadder), plugins/mlb_prediction_context.py (MLBPredictionContext), plugins/mlb_ensemble_model.py (MLBEnsembleModel), plugins/elo/mlb_glicko2_rating.py (MLBGlicko2Rating)
+    description: Structured contract-shaped payload emitters so producers emit objects that satisfy mlb_elo_prediction_v1, mlb_pitcher_elo_v1, mlb_ensemble_io_v1, and mlb_glicko2_v1 directly.
+
+validation_commands:
+  - "pytest --collect-only -q tests/contracts | tail -3"
+  - "python -m compileall tests/contracts -q"
+  - "pytest -q tests/contracts"
+  - "pytest -q tests/contracts -k epl"
+  - "pytest -q tests/test_kalshi_markets.py tests/test_kalshi_tennis_save.py tests/test_fetch_markets_smoke.py"
+  - "pytest -q tests/test_unified_games_coverage.py"
+  - "pytest -q tests/ -k 'glicko or odds_comparator or bet_loader or portfolio_types'"
+  - "pytest -q tests/test_high_edge_disagreement.py"
+
+validation_results:
+  contract_collection_total: 344
+  mlb_test_ids_collected: 246
+  contracts_suite: pass
+  epl_only_subset: 97 passed, 247 deselected
+  kalshi_smoke_suite: 64 passed, 4 skipped
+  unified_games_coverage: 12 passed
+  glicko_odds_bet_loader_portfolio_types: 88 passed, 4 skipped, 2361 deselected
+  high_edge_disagreement: 4 passed
+  compileall: ok
+
+acceptance_criteria:
+  - status: met
+    criterion: Every approved MLB boundary has a versioned schema asset under tests/contracts/schemas/ and at least one consumer plus one provider test.
+  - status: met
+    criterion: Default pytest collection picks up all new MLB contract tests through existing testpaths in setup.cfg with no config changes.
+  - status: met
+    criterion: pytest -q tests/contracts is green with zero unexpected xpasses and zero unexpected failures.
+  - status: met
+    criterion: Non-MLB regression sweep (EPL contracts, Kalshi smoke, unified games coverage, glicko/odds_comparator/bet_loader/portfolio_types, high-edge disagreement) stays green.
+  - status: met
+    criterion: All MLB green-fix work stayed MLB-scoped and did not expand into other sports' code paths or contracts.
+  - status: met
+    criterion: CHANGELOG.md and AGENTS.md updated; this completion record captured under docs/plan/2026-04-24-mlb-contract-testing/plan.yaml.
+
+repo_change_scope:
+  - tests/contracts/schemas/mlb_*.json (new)
+  - tests/contracts/fixtures/mlb_*_samples.py (new)
+  - tests/contracts/test_mlb_*_{consumer,provider}.py (new)
+  - plugins/odds_comparator.py (MLB-only branches)
+  - plugins/bet_loader.py (MLB-only branches)
+  - plugins/elo/mlb_elo_rating.py (payload emitter)
+  - plugins/elo/mlb_pitcher_elo.py (payload emitter)
+  - plugins/mlb_prediction_context.py (payload emitter)
+  - plugins/mlb_ensemble_model.py (payload emitter)
+  - plugins/elo/mlb_glicko2_rating.py (payload emitter)
+  - CHANGELOG.md
+  - AGENTS.md
+  - docs/plan/2026-04-24-mlb-contract-testing/plan.yaml (this file)
+
+notes:
+  - No DuckDB references introduced; PostgreSQL remains the only governed runtime store of record.
+  - No new tooling: validation rides on the existing pytest configuration and the existing .github/workflows/pytest.yml workflow that already runs `pytest -q tests/contracts`.

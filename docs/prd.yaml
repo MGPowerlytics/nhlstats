@@ -1,109 +1,122 @@
-prd_id: remediation-20260420-085817
-version: 1.0.0
+prd_id: epl-contract-testing-20260423
+version: 1.0.2
 status: final
-plan_status: ready_for_approval
 
 user_stories:
-  - as_a: platform owner
-    i_want: a prioritized remediation plan for the highest-risk operational gaps
-    so_that: the system can stay operational without accumulating hidden security, schema, and runtime risk
-  - as_a: maintainer
-    i_want: one agreed remediation scope across security, database, CI, runtime, and docs
-    so_that: planning and execution can proceed without conflicting assumptions
-  - as_a: Airflow operator
-    i_want: clear remediation requirements for environment completeness and runbook parity
-    so_that: DAGs remain operable and incidents are easier to diagnose
+  - as_a: pipeline developer
+    i_want: canonical EPL contract schemas and pytest coverage at each owned boundary
+    so_that: payload and row-shape drift fails in tests before it reaches production DAGs or databases
+  - as_a: betting pipeline maintainer
+    i_want: contract enforcement across ingestion, Elo, Kalshi normalization, opportunity generation, and recommendation persistence
+    so_that: EPL betting recommendations remain compatible across producer and consumer steps
+  - as_a: historical stats maintainer
+    i_want: contract enforcement for SoccerBoxScoreFetcher outputs and stats persistence
+    so_that: EPL team_game_stats and soccer extension writes stay trustworthy for validation consumers
 
 scope:
   in_scope:
-    - Security remediation plan for unsafe secrets handling and secret hygiene controls
-    - Database/schema remediation plan for fragmented PostgreSQL ownership, conflicting table definitions, and migration governance
-    - Test/CI remediation plan for broken default pytest collection, weak gates, and reliable regression detection
-    - Deployment/runtime remediation plan for immutable builds, reproducible environments, and removal of mutable bind-mounted drift
-    - Documentation/runbook remediation plan for docs/runtime drift and operator-facing parity
-    - Airflow environment completeness plan covering dependencies, configuration, and operability gaps
-    - Prioritization of remediation work by risk, dependency order, and verification path
-    - Definition of acceptance criteria for future implementation waves
+    - CSV ingestion contract from FootballDataCoUkGames.load_games CSV rows through CSVHistoryLoader and EPLCSVProcessor into epl_games and unified_games
+    - EPL DB row contract from EPLCSVProcessor._process_soccer_row into update_elo_ratings and EPL consumers over epl_games and unified_games
+    - Elo input/output contract from EPLEloRating and process_games_with_elo into OddsComparator
+    - Kalshi market normalization contract from fetch_epl_markets, ticker parsing, and save_to_db into unified_games and game_odds
+    - Bet opportunity contract from OddsComparator.find_opportunities into identify_good_bets, _save_bets_to_file, and BetLoader
+    - Recommendation persistence contract from BetLoader into bet_recommendations row shape and invariants
+    - Historical stats contract from SoccerBoxScoreFetcher into team_game_stats, soccer_team_game_stats_ext, and EPL stats validation consumers
+    - Contract schema assets, pytest suite wiring, and dependency support required to run EPL contract validation in normal pytest flows
   out_of_scope:
-    - Feature development
-    - Product behavior changes unrelated to remediation
-    - Direct implementation of code, schema, infrastructure, or secret-management fixes
-    - Large-scale architecture replacement beyond targeted remediation planning
+    - Shared downstream consumers outside the EPL-owned pipeline surface, including portfolio loading, portfolio optimization, and dashboard-facing readers, unless a minimal touch is strictly required to enforce an EPL contract
+    - Non-EPL sports contract suites
+    - Non-EPL feature work; any non-EPL activity is limited to regression validation for retained EPL-required shared-file changes
+    - Broad remediation or refactoring outside contract enforcement
+    - Public API or HTTP pact work not needed for EPL internal provider/consumer boundaries
+
+requirements:
+  - requirement: Retained shared-file changes must be justified by EPL contract enforcement and minimized to the smallest safe delta
+  - requirement: Any retained shared-file change must prove no non-EPL regressions with targeted validation for every affected shared sport path, explicitly including tennis, Ligue1, and MLB when touched
+  - requirement: This regression gate is a delivery safety constraint only and does not expand product scope to new non-EPL features or contract suites
 
 acceptance_criteria:
-  - criterion: Security planning explicitly defines how secrets stop being handled unsafely
-    verification: PRD names required secret sources, handling boundaries, and migration expectations
-  - criterion: Database planning establishes a single source of truth for schema ownership
-    verification: PRD requires governed migrations and removal of conflicting table definitions
-  - criterion: Test/CI planning restores dependable default validation
-    verification: PRD requires passing default pytest collection and stronger CI merge gates
-  - criterion: Runtime planning targets reproducible deployments
-    verification: PRD requires immutable build/deploy expectations and drift detection or elimination
-  - criterion: Documentation planning aligns operator docs with actual runtime
-    verification: PRD requires runbook and environment documentation parity with deployed behavior
-  - criterion: Airflow planning closes environment completeness gaps
-    verification: PRD requires dependency, config, and operability checks for scheduler/task reliability
+  - criterion: Canonical schema assets exist for every approved EPL boundary
+    verification: tests/contracts/schemas/ contains versioned JSON Schema files covering CSV ingestion, EPL DB rows, Elo outputs, Kalshi normalization payloads, bet opportunities, bet_recommendations rows, and soccer stats payloads
+  - criterion: The repository gains its first dedicated contract suite without widening scope to unrelated consumers
+    verification: tests/contracts/ is added, repo history shows no prior tests/contracts suite, and the new suite targets only EPL-owned boundaries unless a shared consumer is required for enforcement
+  - criterion: CSV ingestion contracts enforce normalized row shape and persistence expectations
+    verification: pytest validates required fields, result enum H/D/A, score/date presence, canonical team-name handling, and deterministic game_id mapping into epl_games and unified_games
+  - criterion: Elo contracts enforce the data shape consumed by OddsComparator
+    verification: pytest validates required team identifiers, rating availability assumptions, explicit draw probability, numeric probability bounds, and probabilities summing to approximately 1.0
+  - criterion: Kalshi normalization contracts enforce stable market-to-game mapping
+    verification: pytest validates ticker parsing, normalized home/away/draw outcome naming, unified_games identity creation, game_odds external_id persistence, and valid odds/price invariants
+  - criterion: Bet opportunity and persistence contracts enforce recommendation compatibility end to end
+    verification: pytest validates the opportunity payload written by identify_good_bets/_save_bets_to_file and the persisted bet_recommendations shape, including stable bet_id, uppercase sport, recommendation_date usage instead of date_str, and allowed bet_on/confidence invariants
+  - criterion: Historical stats contracts enforce EPL stats row and extension payload integrity
+    verification: pytest validates that SoccerBoxScoreFetcher emits two team rows per match with core team_game_stats fields plus schema-validated soccer extension stats written to soccer_team_game_stats_ext
+  - criterion: Contract validation is part of normal developer verification
+    verification: the contract suite runs under pytest, can be run independently, and fails on schema drift or invariant violations
+  - criterion: Retained shared-file changes do not regress non-EPL sports
+    verification: every retained shared-file change includes targeted sport-specific validation for each affected non-EPL path; tennis, Ligue1, and MLB are explicitly validated when their shared paths are touched, and any other affected sport path has equivalent targeted proof of no regression
 
 needs_clarification: []
 
 features:
-  - name: Security remediation plan
-    overview: Define secret inventory, approved secret sources, rotation expectations, and unsafe-handling removal sequence
-    status: planned
-  - name: Schema governance remediation plan
-    overview: Define PostgreSQL schema authority, migration path, ownership boundaries, and conflict resolution rules
-    status: planned
-  - name: Test and CI remediation plan
-    overview: Define default pytest reliability, minimum CI gates, and regression enforcement expectations
-    status: planned
-  - name: Deployment and runtime remediation plan
-    overview: Define immutable deployment requirements, reproducible environment controls, and runtime drift reduction
-    status: planned
-  - name: Documentation and runbook remediation plan
-    overview: Define required updates so docs, runbooks, and runtime behavior stay aligned
-    status: planned
-  - name: Airflow operability remediation plan
-    overview: Define environment completeness, dependency readiness, and operational validation for DAG execution
-    status: planned
+  - name: EPL contract suite foundation
+    overview: Add the repo's first tests/contracts pytest suite, shared fixtures, schema loaders, and boundary-focused helpers for EPL only
+    status: completed
+  - name: CSV ingestion contract coverage
+    overview: Define and test the provider and consumer contract for FootballDataCoUkGames, CSVHistoryLoader, and EPLCSVProcessor through epl_games and unified_games writes
+    status: completed
+  - name: EPL row and Elo contract coverage
+    overview: Define and test the contract from persisted EPL game rows into EPLEloRating/process_games_with_elo outputs consumed by OddsComparator
+    status: completed
+  - name: Kalshi normalization contract coverage
+    overview: Define and test the contract from fetch_epl_markets and save_to_db through parsed tickers, normalized outcomes, unified_games identity, and game_odds persistence
+    status: completed
+  - name: Bet recommendation contract coverage
+    overview: Define and test the contract from OddsComparator.find_opportunities through identify_good_bets, JSON file payload shape, BetLoader normalization, and bet_recommendations persistence
+    status: completed
+  - name: Historical stats contract coverage
+    overview: Define and test the contract from SoccerBoxScoreFetcher into team_game_stats and soccer_team_game_stats_ext row shapes and invariants
+    status: completed
 
 state_machines:
-  - name: Remediation planning lifecycle
-    states: [findings_confirmed, remediation_scoped, sequencing_defined, acceptance_defined, ready_for_execution]
+  - name: EPL contract enforcement lifecycle
+    states: [schemas_defined, provider_verified, consumer_verified, pytest_gated]
     transitions:
-      - from: findings_confirmed
-        to: remediation_scoped
-        trigger: Review risks translated into explicit plan themes
-      - from: remediation_scoped
-        to: sequencing_defined
-        trigger: Dependencies and priority order agreed
-      - from: sequencing_defined
-        to: acceptance_defined
-        trigger: Verification criteria defined for each remediation theme
-      - from: acceptance_defined
-        to: ready_for_execution
-        trigger: PRD finalized without open clarification blockers
+      - from: schemas_defined
+        to: provider_verified
+        trigger: Providers are validated against canonical JSON Schemas
+      - from: provider_verified
+        to: consumer_verified
+        trigger: Downstream EPL consumers are validated against the same schemas and invariants
+      - from: consumer_verified
+        to: pytest_gated
+        trigger: Contract tests run in normal pytest execution and fail on drift
 
 errors:
-  - code: PLAN_001
-    message: Remediation scope omits one or more critical risk themes from the completed review
-  - code: PLAN_002
-    message: Schema plan does not define a single source of truth for PostgreSQL structure
-  - code: PLAN_003
-    message: CI plan does not restore reliable default validation before merge
-  - code: PLAN_004
-    message: Runtime plan allows continued mutable drift without a containment strategy
+  - code: CONTRACT_001
+    message: An EPL producer emits payloads or persisted rows that do not satisfy the canonical schema
+  - code: CONTRACT_002
+    message: A downstream EPL consumer relies on fields, enums, or invariants not captured by the canonical contract
+  - code: CONTRACT_003
+    message: Kalshi market normalization cannot deterministically map ticker data to unified_games or game_odds expectations
+  - code: CONTRACT_004
+    message: Bet recommendation persistence leaks incompatible fields or violates required bet_recommendations invariants
+  - code: CONTRACT_005
+    message: Soccer stats writes do not preserve required team_game_stats or soccer extension row integrity
 
 decisions:
-  - decision: PostgreSQL remains the primary runtime system of record for operational data and schema governance
-  - decision: One canonical schema definition and governed migration path are required; conflicting table definitions are not acceptable
-  - decision: Remediation is planned in themes first, then executed in dependency order rather than as ad hoc fixes
-  - decision: CI must validate the default developer path, including default pytest collection, before merge
-  - decision: Runtime environments should move toward immutable, reproducible deployment artifacts instead of mutable bind-mounted drift
-  - decision: Operator docs and runbooks must match the live runtime and Airflow environment as deployed
-  - decision: Airflow operability requirements are part of core platform remediation, not optional follow-up work
+  - decision: JSON Schema plus pytest is the default contract mechanism for this effort
+  - decision: Contract schema assets live under tests/contracts/schemas/ as versioned repository assets
+  - decision: The repository currently has no dedicated tests/contracts suite; this effort must add one instead of scattering contract checks through unrelated tests
+  - decision: Contracts are boundary-focused and validate normalized payloads, persisted row shapes, enums, ranges, identifiers, and cross-field invariants rather than internal implementation details
+  - decision: Contract coverage is limited to EPL-owned pipeline surfaces; shared downstream consumers remain out of scope unless a minimal dependency is required to enforce an EPL contract
+  - decision: The default execution path is normal pytest, with contract tests also runnable independently for fast validation
+  - decision: Shared-file changes kept for EPL delivery must pass targeted non-EPL regression validation, and failing or missing proof for an affected sport blocks the change from acceptance
+  - decision: Non-EPL regression validation is a safety gate for EPL delivery, not approval to widen scope into non-EPL feature or contract expansion
 
 changes:
+  - version: 1.0.2
+    change: Marked EPL contract delivery complete after final review sign-off, with retained shared-file changes accepted only with hard non-EPL regression proof for affected sports.
   - version: 1.0.1
-    change: Marked remediation planning complete; canonical plan is ready for approval and execution sequencing
+    change: Added a hard non-EPL regression safety gate for any retained shared-file changes, requiring targeted validation for affected sports without widening EPL scope
   - version: 1.0.0
-    change: Replaced prior PRD contents with final remediation-planning PRD based on completed current-state review
+    change: Replaced the unrelated remediation PRD with an execution-ready PRD for full EPL contract testing across the betting and historical stats pipelines

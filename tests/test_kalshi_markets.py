@@ -267,23 +267,20 @@ class TestFetchNCAABMarkets:
 class TestFetchTennisMarkets:
     """Test fetch_tennis_markets function."""
 
-    @patch("kalshi_markets.TheOddsAPI")
-    def test_fetch_tennis_markets_success(self, mock_odds_api):
-        """Test fetching Tennis markets successfully."""
+    @patch("kalshi_markets._fetch_sport_markets")
+    def test_fetch_tennis_markets_success(self, mock_fetch):
+        """Tennis fetch should delegate to the shared Kalshi fetcher."""
         from kalshi_markets import fetch_tennis_markets
 
-        mock_api = mock_odds_api.return_value
-        mock_api.fetch_markets.return_value = [
+        mock_fetch.return_value = [
             {"ticker": "ATP1", "status": "active"},
             {"ticker": "WTA1", "status": "active"},
         ]
-        mock_api.save_to_db.return_value = 2
 
         markets = fetch_tennis_markets()
 
         assert len(markets) == 2
-        mock_api.fetch_markets.assert_called_once_with("tennis")
-        mock_api.save_to_db.assert_called_once_with(markets)
+        mock_fetch.assert_called_once_with("tennis")
 
 
 class TestFetchEPLMarkets:

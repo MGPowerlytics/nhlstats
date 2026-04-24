@@ -138,10 +138,9 @@ def test_dag_schedule(dag) -> None:
     assert dag is not None
     # Airflow 3.x: timetable.summary returns the canonical cron expression.
     schedule = getattr(dag.timetable, "summary", None) or getattr(
-        dag, "schedule_interval", None
+        dag, "schedule_interval", getattr(dag, "schedule", None)
     )
     assert schedule == "0 8 * * *", f"Expected schedule '0 8 * * *', got '{schedule}'"
-
 
 def test_dag_catchup_disabled(dag) -> None:
     """Catchup must be False to avoid backfilling historical runs."""

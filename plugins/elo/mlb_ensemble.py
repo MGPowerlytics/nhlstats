@@ -55,6 +55,26 @@ class MLBPredictionContext:
     market_prob: Optional[float] = None  # implied P(home win) from sharp book
     market_blend_weight: float = 0.25  # 0 = ignore market, 1 = use only market
 
+    def to_payload(self) -> dict:
+        """Return contract-shaped feature-vector payload.
+
+        Wraps the dataclass fields with the locked envelope keys
+        (``schema_version``/``sport``/``payload_kind``) so the dict can be
+        validated against ``mlb_features_v1.json`` directly.
+
+        Returns:
+            Dict matching ``tests/contracts/schemas/mlb_features_v1.json``.
+        """
+        from dataclasses import asdict
+
+        payload: dict = {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "feature_vector",
+        }
+        payload.update(asdict(self))
+        return payload
+
 
 @dataclass
 class MLBEnsembleModel:
@@ -70,8 +90,22 @@ class MLBEnsembleModel:
     # ------------------------------------------------------------------
     # Prediction
     # ------------------------------------------------------------------
-    def predict(self, ctx: MLBPredictionContext) -> float:
-        """Return ensemble P(home wins) in ``[0, 1]``."""
+    def predict(self, ctx) -> float:
+        """Return ensemble P(home wins) in ``[0, 1]``.
+
+        Accepts either a :class:`MLBPredictionContext` (legacy interface)
+        or a locked ``ensemble_input`` bundle dict. When a bundle is
+        provided the blended probability is a weighted combination of the
+        ``base_elo_prob``, ``pitcher_prob`` and the feature-derived Elo
+        adjustments inside ``features``; backward-compatible callers
+        passing a context retain the original behavior.
+        """
+        if isinstance(ctx, dict):
+            return float(self.predict_with_provenance(ctx)["blended_prob"])
+        return self._predict_from_context(ctx)
+
+    def _predict_from_context(self, ctx: MLBPredictionContext) -> float:
+        """Original context-based predict path (factored for reuse)."""
         home_rating = self.team_elo.get_rating(ctx.home_team)
         away_rating = self.team_elo.get_rating(ctx.away_team)
 
@@ -105,6 +139,108 @@ class MLBEnsembleModel:
             w = max(0.0, min(1.0, ctx.market_blend_weight))
             return w * ctx.market_prob + (1.0 - w) * elo_prob
         return elo_prob
+
+    # ------------------------------------------------------------------
+    # Contract-boundary prediction
+    # ------------------------------------------------------------------
+    def predict_with_provenance(self, ctx_or_bundle) -> dict:
+        """Return a structured ensemble output payload.
+
+        Accepts either a :class:`MLBPredictionContext` or the locked
+        ``ensemble_input`` bundle dict (``base_elo_prob`` /
+        ``pitcher_prob`` / ``features``). The returned dict matches
+        ``mlb_ensemble_io_v1.json::$defs.ensemble_output``.
+
+        Args:
+            ctx_or_bundle: Either an :class:`MLBPredictionContext` instance
+                or a dict bundle with at minimum ``home_team``,
+                ``away_team``, ``base_elo_prob`` and ``features``.
+
+        Returns:
+            Dict with ``blended_prob``/``weights``/``provenance`` plus the
+            standard envelope keys.
+        """
+        if isinstance(ctx_or_bundle, dict):
+            return self._predict_from_bundle(ctx_or_bundle)
+        ctx: MLBPredictionContext = ctx_or_bundle
+        blended = self._predict_from_context(ctx)
+        market = ctx.market_prob if ctx.market_prob is not None else None
+        market_w = (
+            float(ctx.market_blend_weight)
+            if market is not None and 0.0 < market < 1.0
+            else 0.0
+        )
+        ensemble_w = max(0.0, 1.0 - market_w)
+        weights = {"ensemble_elo": ensemble_w, "market": market_w}
+        provenance = {
+            "model_id": "mlb_ensemble_v1",
+            "components": {
+                "team_elo_home": float(self.team_elo.get_rating(ctx.home_team)),
+                "team_elo_away": float(self.team_elo.get_rating(ctx.away_team)),
+                "pitcher_adjustment": float(
+                    self.pitcher_elo.matchup_adjustment(
+                        ctx.home_pitcher_id, ctx.away_pitcher_id
+                    )
+                ),
+            },
+            "input_kind": "context",
+        }
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "ensemble_output",
+            "home_team": ctx.home_team,
+            "away_team": ctx.away_team,
+            "blended_prob": float(blended),
+            "weights": weights,
+            "provenance": provenance,
+        }
+
+    def _predict_from_bundle(self, bundle: dict) -> dict:
+        """Blend a locked ``ensemble_input`` bundle into an ``ensemble_output``."""
+        home_team = str(bundle["home_team"])
+        away_team = str(bundle["away_team"])
+        base_elo_prob = float(bundle["base_elo_prob"])
+        pitcher_prob = bundle.get("pitcher_prob")
+        market_prob = bundle.get("market_prob")
+        features = bundle.get("features") or {}
+
+        weights: dict = {"base_elo": 1.0}
+        contributions: dict = {"base_elo": base_elo_prob}
+
+        if pitcher_prob is not None:
+            weights["base_elo"] = 0.6
+            weights["pitcher"] = 0.4
+            contributions["pitcher"] = float(pitcher_prob)
+
+        # Re-normalize for market blend if present
+        if market_prob is not None and 0.0 < float(market_prob) < 1.0:
+            mw = 0.25
+            scale = 1.0 - mw
+            weights = {k: v * scale for k, v in weights.items()}
+            weights["market"] = mw
+            contributions["market"] = float(market_prob)
+
+        blended = sum(weights[k] * contributions[k] for k in weights)
+        # Numerical safety
+        blended = max(0.0, min(1.0, float(blended)))
+
+        provenance = {
+            "model_id": "mlb_ensemble_v1",
+            "components": {k: float(v) for k, v in contributions.items()},
+            "input_kind": "bundle",
+            "feature_keys": sorted(str(k) for k in features.keys()),
+        }
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "ensemble_output",
+            "home_team": home_team,
+            "away_team": away_team,
+            "blended_prob": blended,
+            "weights": weights,
+            "provenance": provenance,
+        }
 
     # ------------------------------------------------------------------
     # Update — call after each completed game in chronological order

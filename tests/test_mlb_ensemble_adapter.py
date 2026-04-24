@@ -47,7 +47,16 @@ def _make_games_df(rows):
 
 
 def _make_venues_df(rows):
-    return pd.DataFrame(rows, columns=["home_team", "away_team", "venue"])
+    return pd.DataFrame(
+        rows,
+        columns=[
+            "home_team",
+            "away_team",
+            "venue",
+            "home_pitcher_id",
+            "away_pitcher_id",
+        ],
+    )
 
 
 def test_ratings_property_is_drop_in_for_elo_system():
@@ -56,6 +65,14 @@ def test_ratings_property_is_drop_in_for_elo_system():
     assert adapter.ratings["Yankees"] == 1550.0
     # Underlying ensemble's team_elo must be backing the dict
     assert adapter.ensemble.team_elo.get_rating("Yankees") == 1550.0
+
+
+def test_get_rating_is_available_for_odds_comparator():
+    adapter = MLBEnsembleAdapter()
+    adapter.ratings = {"Yankees": 1550.0, "Red Sox": 1480.0}
+
+    assert adapter.get_rating("Yankees") == 1550.0
+    assert adapter.get_all_ratings()["Red Sox"] == 1480.0
 
 
 def test_predict_with_no_context_uses_pure_team_elo():
@@ -74,7 +91,7 @@ def test_populate_from_db_aggregates_runs_and_last_game():
             (date(2026, 4, 3), "Red Sox", "Yankees", 7, 6),
         ]
     )
-    venues = _make_venues_df([("Yankees", "Red Sox", "Yankee Stadium")])
+    venues = _make_venues_df([("Yankees", "Red Sox", "Yankee Stadium", None, None)])
     adapter = MLBEnsembleAdapter()
     adapter.ratings = {"Yankees": 1500.0, "Red Sox": 1500.0}
     adapter.populate_from_db(_FakeDB(games, venues), reference_date=date(2026, 4, 5))

@@ -1,0 +1,63 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL Elo Prediction v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "home_team",
+    "away_team",
+    "home_rating",
+    "away_rating",
+    "home_win_probability",
+    "draw_probability",
+    "away_win_probability"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "sport": {
+      "const": "EPL"
+    },
+    "payload_kind": {
+      "const": "elo_prediction"
+    },
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL-"
+    },
+    "home_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "away_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "home_rating": {
+      "type": "number"
+    },
+    "away_rating": {
+      "type": "number"
+    },
+    "home_win_probability": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "draw_probability": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "away_win_probability": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "additionalProperties": false
+}

@@ -43,6 +43,25 @@ class Ligue1EloRating(SoccerEloRating):
 
     # Soccer-specific methods (maintain backward compatibility)
 
+    def update(self, home_team, away_team, home_won, **kwargs):
+        """Update ratings with research-optimized K-factor."""
+        # Save original K
+        old_k = self.config.k_factor
+
+        # Adjust K based on outcome as per research
+        # home_won=0.5 means a draw
+        if home_won == 0.5:
+            self.config.k_factor = 20.0
+        else:
+            self.config.k_factor = 30.0
+
+        # Call parent update
+        result = super().update(home_team, away_team, home_won, **kwargs)
+
+        # Restore K
+        self.config.k_factor = old_k
+        return result
+
     # Legacy update method for backward compatibility
     def legacy_update(
         self, home_team: str, away_team: str, outcome: str
@@ -59,10 +78,10 @@ class Ligue1EloRating(SoccerEloRating):
             Dictionary with rating changes and new ratings
         """
         # Convert legacy outcome to home_won
-        if outcome == "home":
-            home_won = True
-        elif outcome == "away":
-            home_won = False
+        if outcome == "home" or outcome == "H":
+            home_won = 1.0
+        elif outcome == "away" or outcome == "A":
+            home_won = 0.0
         else:  # draw
             home_won = 0.5
 
@@ -70,12 +89,17 @@ class Ligue1EloRating(SoccerEloRating):
         self.update(home_team, away_team, home_won)
 
         # Return legacy format
+        # Use self.config.k_factor which might have been changed by self.update
+        # Actually self.update restores it, so we need to know what it was during update.
+        # But legacy_update return is mostly for display/tests.
+        used_k = 20.0 if home_won == 0.5 else 30.0
+
         return {
             "home_team": home_team,
             "away_team": away_team,
-            "home_rating_change": self.k_factor
+            "home_rating_change": used_k
             * (0.5 if outcome == "draw" else (1.0 if outcome == "home" else 0.0)),
-            "away_rating_change": self.k_factor
+            "away_rating_change": used_k
             * (0.5 if outcome == "draw" else (1.0 if outcome == "away" else 0.0)),
             "home_new_rating": self.ratings[home_team],
             "away_new_rating": self.ratings[away_team],

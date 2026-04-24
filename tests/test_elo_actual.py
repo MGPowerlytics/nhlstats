@@ -143,7 +143,7 @@ class TestEPLEloRating:
 
         elo = EPLEloRating()
         assert elo.config.k_factor == 40.0
-        assert elo.config.home_advantage == 80.0
+        assert elo.config.home_advantage == 60.0
 
     def test_predict(self):
         from plugins.elo import EPLEloRating

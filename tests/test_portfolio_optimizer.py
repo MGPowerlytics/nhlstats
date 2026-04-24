@@ -160,7 +160,9 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
             ]
         )
 
-        with patch("plugins.db_manager.default_db.fetch_df", return_value=rows) as mock_fetch:
+        with patch(
+            "plugins.db_manager.default_db.fetch_df", return_value=rows
+        ) as mock_fetch:
             opportunities = self.optimizer.load_opportunities_from_database(
                 "2026-04-21", sports=["mlb"]
             )
@@ -224,6 +226,109 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
             yes_ask=1.0, no_ask=99.0, bet_direction="away", fallback_prob=0.5
         )
         self.assertAlmostEqual(prob, 0.99)
+
+    def test_filter_opportunities_keeps_edge_based_high_confidence_soccer_and_mlb(self):
+        optimizer = PortfolioOptimizer(
+            PortfolioConfig(
+                bankroll=1000.0,
+                min_confidence=0.65,
+                excluded_segments=[("EPL", "LOW"), ("MLB", "LOW")],
+            )
+        )
+
+        opportunities = [
+            BetOpportunity(
+                sport="EPL",
+                ticker="KXEPLGAME-TEST-ARSNEW-NEW",
+                bet_on="home",
+                team="Arsenal",
+                opponent="Newcastle",
+                elo_prob=0.5279,
+                market_prob=0.15,
+                edge=0.3779,
+                confidence="HIGH",
+                yes_ask=15,
+                no_ask=85,
+            ),
+            BetOpportunity(
+                sport="MLB",
+                ticker="KXMLBGAME-TEST-ATHSEA-ATH",
+                bet_on="away",
+                team="Athletics",
+                opponent="Mariners",
+                elo_prob=0.4887,
+                market_prob=0.39,
+                edge=0.0987,
+                confidence="MEDIUM",
+                yes_ask=39,
+                no_ask=61,
+            ),
+        ]
+
+        filtered = optimizer.filter_opportunities(opportunities)
+
+        self.assertEqual(len(filtered), 2)
+        self.assertEqual({opp.sport for opp in filtered}, {"EPL", "MLB"})
+
+    def test_calculate_portfolio_allocation_preserves_multi_sport_exposure(self):
+        optimizer = PortfolioOptimizer(
+            PortfolioConfig(
+                bankroll=100.0,
+                max_daily_risk_pct=0.04,
+                max_single_bet_pct=0.02,
+                min_bet_size=2.0,
+                max_bet_size=10.0,
+            )
+        )
+
+        opportunities = [
+            BetOpportunity(
+                sport="EPL",
+                ticker="EPL-1",
+                bet_on="home",
+                team="Arsenal",
+                opponent="Chelsea",
+                elo_prob=0.52,
+                market_prob=0.10,
+                edge=0.42,
+                confidence="HIGH",
+                yes_ask=10,
+                no_ask=90,
+            ),
+            BetOpportunity(
+                sport="EPL",
+                ticker="EPL-2",
+                bet_on="home",
+                team="Liverpool",
+                opponent="Crystal Palace",
+                elo_prob=0.51,
+                market_prob=0.12,
+                edge=0.39,
+                confidence="HIGH",
+                yes_ask=12,
+                no_ask=88,
+            ),
+            BetOpportunity(
+                sport="MLB",
+                ticker="MLB-1",
+                bet_on="away",
+                team="Twins",
+                opponent="Mets",
+                elo_prob=0.58,
+                market_prob=0.41,
+                edge=0.17,
+                confidence="HIGH",
+                yes_ask=41,
+                no_ask=59,
+            ),
+        ]
+
+        allocations = optimizer.calculate_portfolio_allocation(opportunities)
+
+        self.assertEqual(len(allocations), 2)
+        self.assertEqual(
+            {alloc.opportunity.sport for alloc in allocations}, {"EPL", "MLB"}
+        )
 
 
 if __name__ == "__main__":

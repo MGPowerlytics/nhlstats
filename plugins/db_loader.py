@@ -256,6 +256,7 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
         # Other sports using history loaders
         history_loaders = [
             ("EPL", lambda: self.load_csv_history("EPL", target_date=date_str)),
+            ("Ligue1", lambda: self.load_csv_history("Ligue1", target_date=date_str)),
             ("Tennis", lambda: self.load_csv_history("Tennis", target_date=date_str)),
             ("NCAAB", lambda: self.load_ncaab_history(target_date=date_str)),
         ]
@@ -304,9 +305,15 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                 home_score = game["teams"]["home"].get("score") if is_final else None
                 away_score = game["teams"]["away"].get("score") if is_final else None
 
-                game_pk = str(game["gamePk"])
-                home_team = game["teams"]["home"]["team"]
-                away_team = game["teams"]["away"]["team"]
+                home_team_data = game["teams"]["home"]
+                away_team_data = game["teams"]["away"]
+                home_team = home_team_data["team"]
+                away_team = away_team_data["team"]
+
+                home_pitcher = home_team_data.get("probablePitcher", {})
+                away_pitcher = away_team_data.get("probablePitcher", {})
+
+                game_pk = game["gamePk"]
                 params = {
                     "game_id": int(game_pk),
                     "game_date": game["officialDate"],
@@ -317,18 +324,31 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                     "home_score": home_score,
                     "away_score": away_score,
                     "status": status,
+                    "home_pitcher_id": str(home_pitcher.get("id")) if home_pitcher.get("id") else None,
+                    "away_pitcher_id": str(away_pitcher.get("id")) if away_pitcher.get("id") else None,
+                    "home_pitcher_name": home_pitcher.get("fullName"),
+                    "away_pitcher_name": away_pitcher.get("fullName"),
                 }
 
                 self.db.execute(
                     """
                     INSERT INTO mlb_games (
                         game_id, game_date, season, game_type,
-                        home_team, away_team, home_score, away_score, status
-                    ) VALUES (:game_id, :game_date, :season, :game_type, :home_team, :away_team, :home_score, :away_score, :status)
+                        home_team, away_team, home_score, away_score, status,
+                        home_pitcher_id, away_pitcher_id, home_pitcher_name, away_pitcher_name
+                    ) VALUES (
+                        :game_id, :game_date, :season, :game_type, :home_team, :away_team,
+                        :home_score, :away_score, :status,
+                        :home_pitcher_id, :away_pitcher_id, :home_pitcher_name, :away_pitcher_name
+                    )
                     ON CONFLICT (game_id) DO UPDATE SET
                         home_score = EXCLUDED.home_score,
                         away_score = EXCLUDED.away_score,
-                        status = EXCLUDED.status
+                        status = EXCLUDED.status,
+                        home_pitcher_id = EXCLUDED.home_pitcher_id,
+                        away_pitcher_id = EXCLUDED.away_pitcher_id,
+                        home_pitcher_name = EXCLUDED.home_pitcher_name,
+                        away_pitcher_name = EXCLUDED.away_pitcher_name
                 """,
                     params,
                 )
@@ -338,11 +358,13 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                     INSERT INTO unified_games (
                         game_id, sport, game_date, season, status,
                         home_team_id, home_team_name, away_team_id, away_team_name,
-                        home_score, away_score, commence_time, venue
+                        home_score, away_score, commence_time, venue,
+                        home_pitcher_id, away_pitcher_id, home_pitcher_name, away_pitcher_name
                     ) VALUES (
                         :game_id, :sport, :game_date, :season, :status,
                         :home_team_id, :home_team_name, :away_team_id, :away_team_name,
-                        :home_score, :away_score, :commence_time, :venue
+                        :home_score, :away_score, :commence_time, :venue,
+                        :home_pitcher_id, :away_pitcher_id, :home_pitcher_name, :away_pitcher_name
                     )
                     ON CONFLICT (game_id) DO UPDATE SET
                         game_date = EXCLUDED.game_date,
@@ -358,7 +380,11 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                             EXCLUDED.commence_time,
                             unified_games.commence_time
                         ),
-                        venue = COALESCE(EXCLUDED.venue, unified_games.venue)
+                        venue = COALESCE(EXCLUDED.venue, unified_games.venue),
+                        home_pitcher_id = EXCLUDED.home_pitcher_id,
+                        away_pitcher_id = EXCLUDED.away_pitcher_id,
+                        home_pitcher_name = EXCLUDED.home_pitcher_name,
+                        away_pitcher_name = EXCLUDED.away_pitcher_name
                 """,
                     {
                         "game_id": game_pk,
@@ -374,6 +400,10 @@ class NHLDatabaseLoader(DatabaseLoaderBase):
                         "away_score": away_score,
                         "commence_time": game.get("gameDate"),
                         "venue": game.get("venue", {}).get("name"),
+                        "home_pitcher_id": params["home_pitcher_id"],
+                        "away_pitcher_id": params["away_pitcher_id"],
+                        "home_pitcher_name": params["home_pitcher_name"],
+                        "away_pitcher_name": params["away_pitcher_name"],
                     },
                 )
             except Exception as e:

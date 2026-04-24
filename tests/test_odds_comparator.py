@@ -148,7 +148,7 @@ def test_find_opportunities_basic_flow():
 
 
 def test_find_opportunities_epl_3way():
-    """Test positive EV for soccer 3-way markets."""
+    """Test EPL 3-way opportunities use contract-approved recommendation semantics."""
     today = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
     games_df = pd.DataFrame(
         [
@@ -212,8 +212,9 @@ def test_find_opportunities_epl_3way():
         )
 
     assert len(results) == 1
+    assert results[0]["sport"] == "EPL"
     assert results[0]["side"] == "home"
-    assert results[0]["bet_on"] == "Arsenal"
+    assert results[0]["bet_on"] == "home"
 
 
 def test_find_opportunities_handles_db_error():

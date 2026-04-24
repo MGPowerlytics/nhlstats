@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/tennis_player_match_stats_row_v1.json",
+  "title": "Tennis tennis_player_match_stats Row Contract v1",
+  "description": "Canonical persisted row contract for the tennis_player_match_stats table populated by TennisBoxScoreFetcher.upsert_rows.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "player_name",
+    "won"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "description": "Sackmann tennis match id of the form <tour>_<tourney_id>_<match_num>",
+      "pattern": "^(atp|wta)_[A-Za-z0-9-]+_[A-Za-z0-9]+$"
+    },
+    "player_name": {"type": "string", "minLength": 1},
+    "aces": {"type": ["integer", "null"], "minimum": 0},
+    "double_faults": {"type": ["integer", "null"], "minimum": 0},
+    "first_serve_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "first_serve_won_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "second_serve_won_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "break_points_saved": {"type": ["integer", "null"], "minimum": 0},
+    "break_points_faced": {"type": ["integer", "null"], "minimum": 0},
+    "winners": {"type": ["integer", "null"], "minimum": 0},
+    "unforced_errors": {"type": ["integer", "null"], "minimum": 0},
+    "sets_won": {"type": ["integer", "null"], "minimum": 0},
+    "games_won": {"type": ["integer", "null"], "minimum": 0},
+    "won": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

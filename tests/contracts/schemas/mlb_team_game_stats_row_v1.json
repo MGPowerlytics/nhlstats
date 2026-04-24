@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_team_game_stats_row_v1.json",
+  "title": "MLB team_game_stats Row Contract",
+  "description": "Canonical MLB historical-stats core row contract emitted by MLBBoxScoreFetcher into team_game_stats. Wave-2 consumer-red contract.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "sport",
+    "team",
+    "opponent",
+    "is_home",
+    "game_date",
+    "season",
+    "points_for",
+    "points_against",
+    "won",
+    "margin"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "sport": {
+      "type": "string",
+      "const": "MLB"
+    },
+    "team": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,4}$"
+    },
+    "opponent": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,4}$"
+    },
+    "is_home": {
+      "type": "boolean"
+    },
+    "game_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "season": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "points_for": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "points_against": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "won": {
+      "type": "boolean"
+    },
+    "margin": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}

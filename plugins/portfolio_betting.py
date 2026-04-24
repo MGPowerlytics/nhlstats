@@ -180,6 +180,21 @@ class PortfolioBettingManager:
             results["bankroll"] = self.bankroll
             print(f"💰 Updated bankroll: ${self.bankroll:,.2f}")
 
+            # Order-aware sync: persist newly placed orders into placed_bets
+            # immediately so the dashboard and reconciliation see them without
+            # waiting for /portfolio/fills propagation.
+            try:
+                from bet_tracker import sync_orders_to_database
+
+                added, updated = sync_orders_to_database(
+                    client=self.kalshi_client
+                )
+                print(
+                    f"📥 Order sync: {added} new, {updated} updated in placed_bets"
+                )
+            except Exception as exc:  # noqa: BLE001 — non-blocking
+                print(f"⚠️  Order-aware sync failed (non-blocking): {exc}")
+
         return results
 
     def _place_optimized_bets(

@@ -125,9 +125,9 @@ class SoccerEloRating(BaseEloRating):
         expected_home = self.expected_score(home_rating_with_adv, ra)
 
         # Determine actual score based on result
-        if home_won_result is True:
+        if home_won_result is True or home_won_result == 1.0:
             actual_home = 1.0
-        elif home_won_result is False:
+        elif home_won_result is False or home_won_result == 0.0:
             actual_home = 0.0
         elif home_won_result == 0.5:
             actual_home = 0.5

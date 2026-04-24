@@ -759,31 +759,33 @@ def _load_games_from_unified_table(sport: str, config) -> Any:
     return games_df
 
 
-def _load_epl_games(config) -> Any:
-    """Load EPL games from epl_games table.
+def _load_soccer_games(sport: str, config) -> Any:
+    """Load soccer games from their specific table.
 
     Args:
-        config: EPL configuration
+        sport: Sport identifier (epl or ligue1)
+        config: Sport configuration
 
     Returns:
-        DataFrame with EPL game data or empty DataFrame if no games found
+        DataFrame with game data or empty DataFrame if no games found
     """
     from plugins.db_manager import default_db
 
+    table = f"{sport.lower()}_games"
     query = (
         config.query
-        or """
+        or f"""
         SELECT game_date, home_team, away_team, result
-        FROM epl_games
+        FROM {table}
         WHERE game_date IS NOT NULL
         ORDER BY game_date
     """
     )
     games_df = default_db.fetch_df(query)
     if games_df.empty:
-        print("No EPL games found in database")
+        print(f"No {sport.upper()} games found in database")
     else:
-        print(f"  Loaded {len(games_df)} EPL games")
+        print(f"  Loaded {len(games_df)} {sport.upper()} games")
 
     return games_df
 
@@ -809,12 +811,6 @@ def update_elo_ratings(sport: str, **context: Any) -> None:
     # Initialize Elo system
     elo = _initialize_elo_system(sport, config)
 
-    # Handle Ligue1 special case (loads from CSV)
-    if sport == "ligue1":
-        _load_ligue1_ratings_from_csv(elo)
-        save_elo_ratings(sport, elo, previous_ratings, context)
-        return
-
     # Load games based on sport type
     if sport in ["ncaab", "wncaab", "unrivaled", "tennis", "cba"]:
         # Sports that use their own games classes
@@ -822,9 +818,9 @@ def update_elo_ratings(sport: str, **context: Any) -> None:
         if games_df.empty:
             print(f"⚠️ No {sport.upper()} games loaded")
             return
-    elif sport == "epl":
-        # EPL uses epl_games table
-        games_df = _load_epl_games(config)
+    elif sport in ["epl", "ligue1"]:
+        # Soccer sports use their own tables for 3-way results
+        games_df = _load_soccer_games(sport, config)
         if games_df.empty:
             return
     else:
@@ -1095,8 +1091,43 @@ def _load_elo_system(sport: str, elo_ratings: dict) -> object:
 
     if sport == "mlb":
         elo_system = _maybe_wrap_mlb_with_ensemble(elo_system)
+    elif sport == "ligue1":
+        elo_system = _maybe_wrap_ligue1_with_ensemble(elo_system)
 
     return elo_system
+
+
+def _maybe_wrap_ligue1_with_ensemble(elo_system):
+    """Wrap a :class:`Ligue1EloRating` in an ensemble adapter when enabled.
+
+    Blends team Elo with ML models (XGB/LGB) and bookmaker probabilities.
+    """
+    try:
+        from elo_update_config import LIGUE1_USE_ENSEMBLE
+    except ImportError:
+        from plugins.elo.elo_update_config import LIGUE1_USE_ENSEMBLE
+
+    if not LIGUE1_USE_ENSEMBLE:
+        return elo_system
+
+    try:
+        from plugins.elo.ligue1_ensemble_adapter import Ligue1EnsembleAdapter
+        from plugins.db_manager import default_db
+
+        adapter = Ligue1EnsembleAdapter()
+        # Seed ensemble's underlying team_elo with the trained ratings
+        adapter.ratings = dict(getattr(elo_system, "ratings", {}) or {})
+        # Pre-compute season context (Form, Goal averages)
+        adapter.populate_from_db(default_db)
+
+        print(
+            f"  🏟️  Ligue 1 Ensemble enabled ({len(adapter.team_stats)} teams w/ stats cached)"
+        )
+
+        return adapter
+    except Exception as exc:  # noqa: BLE001
+        print(f"⚠️ Ligue 1 ensemble adapter failed to initialize: {exc} — using plain Elo")
+        return elo_system
 
 
 def _maybe_wrap_mlb_with_ensemble(elo_system):
@@ -1122,12 +1153,19 @@ def _maybe_wrap_mlb_with_ensemble(elo_system):
         adapter = MLBEnsembleAdapter()
         # Seed ensemble's underlying team_elo with the trained ratings
         adapter.ratings = dict(getattr(elo_system, "ratings", {}) or {})
+        # Load side-data (pitcher ratings)
+        adapter.load_ratings()
+        # Pre-compute season context (Pythagorean, form, rest)
         adapter.populate_from_db(default_db)
+
+        # Verify if we found any pitchers
+        p_count = len(adapter.ensemble.pitcher_elo.all_ratings())
         print(
-            f"✓ MLB ensemble adapter active "
-            f"({len(adapter.team_stats)} teams w/ stats, "
+            f"  🏟️  MLB Ensemble enabled ({p_count} pitcher ratings loaded, "
+            f"{len(adapter.team_stats)} teams w/ stats, "
             f"{len(adapter.venues)} venues cached)"
         )
+
         return adapter
     except Exception as exc:  # noqa: BLE001 - intentional broad catch
         print(f"⚠️ MLB ensemble adapter failed to initialize: {exc} — using plain Elo")

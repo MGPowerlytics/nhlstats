@@ -1,0 +1,92 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_schedule_ingestion_v1.json",
+  "title": "MLB Schedule Ingestion Contract v1",
+  "description": "Canonical contract for a single MLB Stats API schedule game record consumed at the MLB ingestion boundary (MLBGames -> db_loader._load_mlb_schedule).",
+  "$defs": {
+    "game_type": {
+      "type": "string",
+      "enum": ["R", "F", "D", "L", "W"],
+      "description": "MLB Stats API gameType. Spring training (S), exhibition (E), and All-Star (A) are excluded by the loader and rejected by this contract."
+    },
+    "abstract_game_state": {
+      "type": "string",
+      "enum": ["Preview", "Live", "Final"]
+    },
+    "team_ref": {
+      "type": "object",
+      "required": ["team"],
+      "properties": {
+        "team": {
+          "type": "object",
+          "required": ["id", "name"],
+          "properties": {
+            "id": {"type": "integer", "minimum": 1},
+            "name": {"type": "string", "minLength": 1}
+          }
+        },
+        "score": {
+          "type": ["integer", "null"],
+          "minimum": 0
+        },
+        "probablePitcher": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "integer", "minimum": 1},
+            "fullName": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "schedule_game": {
+      "type": "object",
+      "required": [
+        "gamePk",
+        "gameDate",
+        "gameType",
+        "season",
+        "officialDate",
+        "status",
+        "teams"
+      ],
+      "properties": {
+        "gamePk": {"type": "integer", "minimum": 1},
+        "gameDate": {"type": "string", "format": "date-time"},
+        "officialDate": {"type": "string", "format": "date"},
+        "season": {
+          "oneOf": [
+            {"type": "integer", "minimum": 1900},
+            {"type": "string", "pattern": "^[0-9]{4}$"}
+          ]
+        },
+        "gameType": {"$ref": "#/$defs/game_type"},
+        "seriesDescription": {"type": "string"},
+        "status": {
+          "type": "object",
+          "required": ["abstractGameState", "detailedState"],
+          "properties": {
+            "abstractGameState": {"$ref": "#/$defs/abstract_game_state"},
+            "detailedState": {"type": "string", "minLength": 1}
+          }
+        },
+        "teams": {
+          "type": "object",
+          "required": ["home", "away"],
+          "properties": {
+            "home": {"$ref": "#/$defs/team_ref"},
+            "away": {"$ref": "#/$defs/team_ref"}
+          }
+        },
+        "venue": {
+          "type": "object",
+          "properties": {
+            "id": {"type": "integer"},
+            "name": {"type": "string"}
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "$ref": "#/$defs/schedule_game"
+}

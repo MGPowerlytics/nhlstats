@@ -31,6 +31,7 @@ from typing import Dict, Optional, Tuple
 
 from plugins.elo.mlb_elo_rating import MLBEloRating
 from plugins.elo.mlb_ensemble import MLBEnsembleModel, MLBPredictionContext
+from plugins.naming_resolver import NamingResolver, NamingContext
 
 
 @dataclass
@@ -40,6 +41,7 @@ class _TeamSeasonStats:
     runs_scored: float = 0.0
     runs_allowed: float = 0.0
     last_game_date: Optional[date] = None
+    bullpen_era: float = 4.0  # Default to league average ~4.00
 
 
 @dataclass
@@ -51,6 +53,8 @@ class MLBEnsembleAdapter:
             backs the public ``ratings`` view.
         venues: Map of ``(home_team, away_team)`` → venue name for upcoming
             matchups (populated from ``unified_games``).
+        pitchers: Map of ``(home_team, away_team)`` → (home_pid, away_pid) for
+            upcoming matchups (populated from ``unified_games``).
         team_stats: Map of canonical team name → :class:`_TeamSeasonStats`.
         reference_date: Reference "today" used to compute rest days. When
             ``None`` (default) the system clock is used.
@@ -58,6 +62,9 @@ class MLBEnsembleAdapter:
 
     ensemble: MLBEnsembleModel = field(default_factory=MLBEnsembleModel)
     venues: Dict[Tuple[str, str], str] = field(default_factory=dict)
+    pitchers: Dict[Tuple[str, str], Tuple[Optional[str], Optional[str]]] = field(
+        default_factory=dict
+    )
     team_stats: Dict[str, _TeamSeasonStats] = field(default_factory=dict)
     reference_date: Optional[date] = None
 
@@ -74,6 +81,25 @@ class MLBEnsembleAdapter:
         """Replace the underlying team-Elo ratings (used by ``_load_elo_system``)."""
         self.ensemble.team_elo.ratings = dict(new_ratings or {})
 
+    def get_rating(self, team: str) -> float:
+        """Return the current team Elo rating.
+
+        ``OddsComparator`` materializes recommendation metadata by calling
+        ``elo_system.get_rating(team)`` after ``predict()`` succeeds. The
+        adapter must expose the same surface as the plain team-Elo model so
+        ensemble-backed MLB recommendations remain compatible with the shared
+        betting pipeline.
+        """
+        return self.ensemble.team_elo.get_rating(team)
+
+    def expected_score(self, rating_a: float, rating_b: float) -> float:
+        """Delegate expected-score calculation to the underlying team Elo."""
+        return self.ensemble.team_elo.expected_score(rating_a, rating_b)
+
+    def get_all_ratings(self) -> Dict[str, float]:
+        """Return a copy of all current team ratings."""
+        return dict(self.ensemble.team_elo.ratings)
+
     def predict(self, home_team: str, away_team: str) -> float:
         """Return ensemble P(home wins).
 
@@ -84,6 +110,33 @@ class MLBEnsembleAdapter:
         ctx = self._build_context(home_team, away_team)
         return self.ensemble.predict(ctx)
 
+    def update(
+        self,
+        home_team: str,
+        away_team: str,
+        home_won: bool,
+        home_pitcher_id: Optional[str] = None,
+        away_pitcher_id: Optional[str] = None,
+        **kwargs,
+    ) -> None:
+        """Update team and pitcher Elo ratings based on game outcome.
+
+        Delegates to the underlying ensemble model which updates both
+        the team Elo system and the pitcher Elo ladder.
+        """
+        # First update team Elo (standard interface)
+        self.ensemble.team_elo.update(home_team, away_team, home_won, **kwargs)
+
+        # Then update pitcher Elo if IDs are provided
+        if home_pitcher_id and away_pitcher_id:
+            ctx = self._build_context(home_team, away_team)
+            # Override with actual pitchers from the result
+            ctx.home_pitcher_id = str(home_pitcher_id)
+            ctx.away_pitcher_id = str(away_pitcher_id)
+            self.ensemble.observe(
+                ctx, home_won, kwargs.get("game_date") or date.today()
+            )
+
     # ------------------------------------------------------------------
     # Context construction
     # ------------------------------------------------------------------
@@ -92,6 +145,7 @@ class MLBEnsembleAdapter:
         h_stats = self.team_stats.get(home_team) or _TeamSeasonStats()
         a_stats = self.team_stats.get(away_team) or _TeamSeasonStats()
         venue = self.venues.get((home_team, away_team))
+        p_ids = self.pitchers.get((home_team, away_team), (None, None))
         ref = self.reference_date or date.today()
 
         return MLBPredictionContext(
@@ -104,11 +158,10 @@ class MLBEnsembleAdapter:
             away_runs_allowed_ytd=a_stats.runs_allowed,
             home_rest_days=_rest_days(h_stats.last_game_date, ref),
             away_rest_days=_rest_days(a_stats.last_game_date, ref),
-            # Pitcher / bullpen feeds not yet ingested → neutral
-            home_pitcher_id=None,
-            away_pitcher_id=None,
-            home_bullpen_era=0.0,
-            away_bullpen_era=0.0,
+            home_pitcher_id=p_ids[0],
+            away_pitcher_id=p_ids[1],
+            home_bullpen_era=h_stats.bullpen_era,
+            away_bullpen_era=a_stats.bullpen_era,
         )
 
     # ------------------------------------------------------------------
@@ -141,7 +194,8 @@ class MLBEnsembleAdapter:
         self.reference_date = ref
         year = season_year or ref.year
         self._load_team_stats_and_form(db, year, ref)
-        self._load_venues(db, ref)
+        self._load_bullpen_era(db, ref)
+        self._load_venues_and_pitchers(db, ref)
 
     def _load_team_stats_and_form(self, db, year: int, ref: date) -> None:
         """Aggregate season runs/last-game-date and replay form per team.
@@ -197,24 +251,82 @@ class MLBEnsembleAdapter:
 
         self.team_stats = stats
 
-    def _load_venues(self, db, ref: date) -> None:
-        """Resolve venues for upcoming MLB games (today + next 3 days)."""
+    def _load_bullpen_era(self, db, ref: date) -> None:
+        """Compute rolling bullpen strength proxy (14-day team ERA)."""
+        query = """
+            SELECT mlb_team_game_stats_ext.team, AVG(era) as avg_era
+            FROM mlb_team_game_stats_ext
+            JOIN team_game_stats ON mlb_team_game_stats_ext.game_id = team_game_stats.game_id
+                                AND mlb_team_game_stats_ext.team = team_game_stats.team
+            WHERE team_game_stats.game_date < :ref
+              AND team_game_stats.game_date >= :ref - INTERVAL '14 days'
+            GROUP BY mlb_team_game_stats_ext.team
+        """
+        df = db.fetch_df(query, {"ref": ref})
+        if df is None or df.empty:
+            return
+
+        resolver = NamingResolver()
+        for row in df.itertuples(index=False):
+            # Resolve abbreviation (e.g. 'HOU') to canonical name (e.g. 'Houston Astros')
+            canon_name = resolver.resolve(
+                NamingContext(sport="mlb", source="statsapi", name=row.team)
+            )
+            if canon_name in self.team_stats:
+                self.team_stats[canon_name].bullpen_era = float(row.avg_era)
+
+    def _load_venues_and_pitchers(self, db, ref: date) -> None:
+        """Resolve venues and starting pitchers for upcoming MLB games."""
         end = ref + timedelta(days=4)
         query = """
             SELECT home_team_name AS home_team,
                    away_team_name AS away_team,
-                   venue
+                   venue,
+                   home_pitcher_id,
+                   away_pitcher_id
             FROM unified_games
             WHERE LOWER(sport) = 'mlb'
               AND game_date >= :ref
               AND game_date < :end
-              AND venue IS NOT NULL
+              AND (venue IS NOT NULL OR home_pitcher_id IS NOT NULL)
         """
         df = db.fetch_df(query, {"ref": ref, "end": end})
         if df is None or df.empty:
             return
         for row in df.itertuples(index=False):
-            self.venues[(row.home_team, row.away_team)] = row.venue
+            # Convert row to dict for safer access if needed, or use getattr
+            row_dict = row._asdict()
+            h_team = row_dict.get("home_team")
+            a_team = row_dict.get("away_team")
+            venue = row_dict.get("venue")
+            h_pid = row_dict.get("home_pitcher_id")
+            a_pid = row_dict.get("away_pitcher_id")
+
+            if venue:
+                self.venues[(h_team, a_team)] = venue
+            if h_pid or a_pid:
+                self.pitchers[(h_team, a_team)] = (h_pid, a_pid)
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+    def save_ratings(self, data_dir: str = "data") -> None:
+        """Save both team and pitcher Elo ratings."""
+        # Standard team Elo helper already handled by the DAG,
+        # but we need to save the pitcher ladder.
+        p_path = f"{data_dir}/mlb_pitcher_elo_ratings.csv"
+        self.ensemble.pitcher_elo.save_ratings(p_path)
+        print(
+            f"✓ Saved {len(self.ensemble.pitcher_elo.all_ratings())} pitcher ratings to {p_path}"
+        )
+
+    def load_ratings(self, data_dir: str = "data") -> None:
+        """Load pitcher Elo ratings from CSV."""
+        p_path = f"{data_dir}/mlb_pitcher_elo_ratings.csv"
+        self.ensemble.pitcher_elo.load_ratings(p_path)
+        print(
+            f"✓ Loaded {len(self.ensemble.pitcher_elo.all_ratings())} pitcher ratings from {p_path}"
+        )
 
 
 # ---------------------------------------------------------------------------

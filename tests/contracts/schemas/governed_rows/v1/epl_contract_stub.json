@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL Governed Row Stub",
+  "type": "object",
+  "required": [
+    "competition",
+    "schema_version",
+    "row_kind"
+  ],
+  "properties": {
+    "competition": {
+      "const": "EPL"
+    },
+    "schema_version": {
+      "const": "v1"
+    },
+    "row_kind": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": true
+}

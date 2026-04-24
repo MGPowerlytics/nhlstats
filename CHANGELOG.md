@@ -1,5 +1,74 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Tennis contract layer (2026-04-24)
+- Landed the full Tennis contract suite under `tests/contracts/`, mirroring
+  the EPL/MLB contract layout with **9 new JSON Schemas** (CSV ingestion,
+  `tennis_games` row, unified game row, `tennis_player_match_stats` row, Elo
+  prediction, Kalshi market + paired event, bet opportunity, bet
+  recommendation row), **10 deterministic fixture modules** under
+  `tests/contracts/fixtures/tennis_*_samples.py`, and **16 new contract
+  tests** (8 consumer + 8 provider) covering Sackmann/tennis-data CSV
+  ingestion, `tennis_games` + `unified_games` persistence,
+  `tennis_player_match_stats` upserts, the Elo emitter, Kalshi market
+  normalisation + paired-event aggregation, bet opportunity emission, and
+  recommendation persistence.
+- Tennis-only compatibility fixes shipped to satisfy the contracts without
+  expanding scope to other sports:
+  - `TennisEloRating.predict_with_payload` now emits a structured
+    `tennis_elo_prediction_v1` payload with both raw and Platt-calibrated
+    probabilities (per-tour α/β loaded from
+    `data/calibration/tennis_platt_by_tour.json` and cached).
+  - `plugins/odds_comparator.py` adds an `is_tennis` branch that uppercases
+    the sport tag, parses `recommendation_date` from the tennis `game_id`,
+    extends the 0.40 edge ceiling to TENNIS opportunities, and surfaces
+    `tour` on the opportunity dict.
+  - `plugins/bet_loader.py` adds TENNIS sport normalisation, a stable bet
+    id generator (`TENNIS_<YYYY-MM-DD>_<TICKER_OR_SYNTH>_<side>`), and a
+    deterministic synthetic ticker fallback when no Kalshi ticker is
+    present.
+- Validation: `pytest -q tests/contracts -k tennis` → **91 passed**;
+  `pytest -q tests/contracts` → **435 passed** (342 EPL/MLB baseline
+  preserved + 91 new tennis + 2 scaffold). Non-tennis regression sweeps for
+  Kalshi markets, unified games coverage, odds-comparator/bet-loader/
+  portfolio-types, and high-edge disagreement all stay green.
+
+### MLB contract layer (2026-04-24)
+- Landed the full MLB contract suite under `tests/contracts/`, mirroring the
+  EPL contract layout with **13 new JSON Schemas** (schedule ingestion, MLB
+  game row, unified game row, team game stats row + extension row, Elo
+  prediction, pitcher Elo, ensemble I/O, features, Glicko-2, Kalshi market,
+  bet opportunity, bet recommendation row), **11 deterministic fixture
+  modules** under `tests/contracts/fixtures/mlb_*_samples.py`, and **22 new
+  contract tests** (11 consumer + 11 provider) covering schedule ingestion,
+  team/unified row persistence, Elo and pitcher Elo emitters, ensemble
+  prediction context, Glicko-2 outputs, Kalshi market normalization, bet
+  opportunity emission, and recommendation persistence.
+- MLB-only compatibility fixes shipped to satisfy the contracts without
+  expanding scope to other sports:
+  - `_determine_outcome_name` now resolves MLB franchise codes correctly when
+    deriving Kalshi outcome names.
+  - `plugins/odds_comparator.py` uppercases the MLB sport tag and clamps
+    `max_edge` so MLB opportunities normalize identically to other sports.
+  - `plugins/bet_loader.py` emits stable MLB bet ids and a deterministic
+    synthetic ticker when a real Kalshi ticker is unavailable.
+  - Structured payload emitters were added to `MLBEloRating`,
+    `PitcherEloLadder`, `MLBPredictionContext`, `MLBEnsembleModel`, and
+    `MLBGlicko2Rating` so producers emit contract-shaped objects directly.
+- Validation: `pytest --collect-only -q tests/contracts` collects **344**
+  tests (including **246** MLB-prefixed test ids); `pytest -q tests/contracts`
+  passes cleanly. Non-MLB regression sweeps for EPL contracts, Kalshi
+  markets, unified games coverage, Glicko/odds-comparator/bet-loader/
+  portfolio-types, and high-edge disagreement all stay green.
+
+### EPL contract layer (2026-04-24)
+- Added an EPL contract suite for the guarded betting and historical stats
+  boundaries, including CSV/game-row, Elo/opportunity, recommendation
+  persistence, Kalshi normalization, and soccer stats coverage under normal
+  pytest flows.
+- Applied tightly scoped EPL compatibility fixes for identity normalization,
+  season semantics, draw/TIE handling, and recommendation persistence without
+  expanding the contract layer beyond EPL.
+
 ### Safety guard: never bet on default Elo ratings (2026-04-23)
 
 **Problem**: EPL/Ligue1 (and any sport) bets were being placed with

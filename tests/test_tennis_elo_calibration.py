@@ -77,24 +77,23 @@ def test_name_normalization():
     assert elo._normalize_name("NAOMI OSAKA") == "Osaka N."
     assert elo._normalize_name("") == "Unknown"
 
-    def test_separate_atp_wta_ratings():
-        """Test that ATP and WTA ratings are kept separate."""
-        elo = TennisEloRating()
 
-        # Same player name in different tours should have separate ratings
-        # Player A wins in ATP, loses in WTA
-        elo.update(
-            "Player A", "Player B", "ATP"
-        )  # Player A wins (implicit winner first)
-        elo.update("Player B", "Player A", "WTA")  # Player B wins (Player A loses)
+def test_separate_atp_wta_ratings():
+    """Test that ATP and WTA ratings are kept separate."""
+    elo = TennisEloRating()
 
-        atp_rating = elo.get_rating("Player A", "ATP")
-        wta_rating = elo.get_rating("Player A", "WTA")
+    # Same player name in different tours should have separate ratings
+    # Player A wins in ATP, loses in WTA
+    elo.update("Player A", "Player B", tour="ATP")
+    elo.update("Player B", "Player A", tour="WTA")
 
-        # They should be different (ATP > 1500, WTA < 1500)
-        assert atp_rating != wta_rating
-        assert atp_rating > 1500
-        assert wta_rating < 1500
+    atp_rating = elo.get_rating("Player A", "ATP")
+    wta_rating = elo.get_rating("Player A", "WTA")
+
+    # They should be different (ATP > 1500, WTA < 1500)
+    assert atp_rating != wta_rating
+    assert atp_rating > 1500
+    assert wta_rating < 1500
 
 
 def test_get_rankings():

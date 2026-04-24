@@ -522,6 +522,113 @@ class TennisEloRating(BaseEloRating):
             all_ratings[f"WTA:{player}"] = rating
         return all_ratings
 
+    def predict_with_payload(
+        self,
+        player_a: str,
+        player_b: str,
+        tour: str = "ATP",
+    ) -> dict:
+        """Emit a structured Tennis Elo prediction payload.
+
+        Wraps :meth:`predict` in the canonical ``tennis_elo_prediction_v1``
+        contract shape: includes both the raw Elo probability and the
+        Platt-calibrated probability for the given tour. Calibration
+        coefficients are loaded once from
+        ``data/calibration/tennis_platt_by_tour.json`` and cached.
+
+        Args:
+            player_a: First player name (treated as "home" for the underlying
+                Elo computation).
+            player_b: Second player name.
+            tour: Tournament type (``"ATP"`` or ``"WTA"``).
+
+        Returns:
+            A dict matching the ``tennis_elo_prediction_v1`` contract.
+        """
+        normalized_tour = str(tour).upper()
+        if normalized_tour not in ("ATP", "WTA"):
+            raise ValueError(f"Unsupported tennis tour: {tour!r}")
+
+        rating_a = float(self.get_rating(player_a, normalized_tour))
+        rating_b = float(self.get_rating(player_b, normalized_tour))
+        raw_prob_a = float(self.expected_score(rating_a, rating_b))
+        calibrated_prob_a = float(
+            self._apply_platt_calibration(raw_prob_a, normalized_tour)
+        )
+
+        return {
+            "schema_version": "v1",
+            "sport": "TENNIS",
+            "payload_kind": "elo_prediction",
+            "tour": normalized_tour,
+            "player_a": str(player_a),
+            "player_b": str(player_b),
+            "rating_a": rating_a,
+            "rating_b": rating_b,
+            "raw_prob_a": raw_prob_a,
+            "calibrated_prob_a": calibrated_prob_a,
+            "k_factor": float(self.config.k_factor),
+            "home_advantage": 0.0,
+            "is_neutral": True,
+        }
+
+    def _apply_platt_calibration(self, raw_prob: float, tour: str) -> float:
+        """Apply per-tour Platt scaling (sigmoid of logit) to a raw probability.
+
+        The calibration uses the form
+        ``calibrated = sigmoid(alpha * logit(raw) + beta)`` with per-tour
+        ``(alpha, beta)`` loaded from
+        ``data/calibration/tennis_platt_by_tour.json``. If the calibration
+        file or the tour entry is missing, the raw probability is returned
+        unchanged so this method is always safe to call.
+
+        Args:
+            raw_prob: Raw Elo probability in [0, 1].
+            tour: Tournament type (``"ATP"`` or ``"WTA"``).
+
+        Returns:
+            The Platt-calibrated probability, clamped to [0, 1].
+        """
+        import math
+
+        params = self._load_platt_params().get(tour)
+        if not params:
+            return float(raw_prob)
+
+        eps = 1e-6
+        bounded = min(max(float(raw_prob), eps), 1.0 - eps)
+        logit = math.log(bounded / (1.0 - bounded))
+        z = float(params["alpha"]) * logit + float(params["beta"])
+        sigmoid = 1.0 / (1.0 + math.exp(-z))
+        return min(max(sigmoid, 0.0), 1.0)
+
+    def _load_platt_params(self) -> dict:
+        """Load and cache per-tour Platt calibration coefficients."""
+        cached = getattr(self, "_platt_params_cache", None)
+        if cached is not None:
+            return cached
+
+        import json
+        from pathlib import Path
+
+        path = Path("data/calibration/tennis_platt_by_tour.json")
+        params: dict = {}
+        if path.exists():
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+                tours = payload.get("tours", {}) or {}
+                for tour_name, entry in tours.items():
+                    if isinstance(entry, dict) and "alpha" in entry and "beta" in entry:
+                        params[str(tour_name).upper()] = {
+                            "alpha": float(entry["alpha"]),
+                            "beta": float(entry["beta"]),
+                        }
+            except (OSError, ValueError):
+                params = {}
+
+        self._platt_params_cache = params
+        return params
+
     def legacy_update(self, winner: str, loser: str, tour: str = "ATP") -> float:
         """
         Legacy update method for backward compatibility.

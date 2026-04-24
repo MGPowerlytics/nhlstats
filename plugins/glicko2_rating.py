@@ -316,6 +316,38 @@ class MLBGlicko2Rating(Glicko2Rating):
 
     HOME_ADVANTAGE = 50.0
 
+    def predict_payload(self, home_team: str, away_team: str) -> Dict[str, object]:
+        """Return a structured Glicko-2 prediction payload for the contract.
+
+        Args:
+            home_team: Home team name.
+            away_team: Away team name.
+
+        Returns:
+            Dict matching ``mlb_glicko2_v1.json::$defs.prediction``.
+        """
+        home = self.get_rating(home_team)
+        away = self.get_rating(away_team)
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "glicko2_prediction",
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_rating": {
+                "rating": float(home["rating"]),
+                "rd": float(home["rd"]),
+                "vol": float(home["vol"]),
+            },
+            "away_rating": {
+                "rating": float(away["rating"]),
+                "rd": float(away["rd"]),
+                "vol": float(away["vol"]),
+            },
+            "prob": float(self.predict(home_team, away_team)),
+            "home_advantage": float(self.home_advantage),
+        }
+
 
 class NFLGlicko2Rating(Glicko2Rating):
     """NFL-specific Glicko-2 rating."""

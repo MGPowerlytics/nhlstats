@@ -27,7 +27,7 @@ class MLBGames(BaseGamesFetcher):
         params = {
             "sportId": 1,  # MLB
             "date": date_str,
-            "hydrate": "team,linescore,decisions",
+            "hydrate": "team,linescore,decisions,probablePitcher",
         }
 
         return self._make_request(url, params)

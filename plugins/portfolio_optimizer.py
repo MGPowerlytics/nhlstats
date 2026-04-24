@@ -780,20 +780,6 @@ class PortfolioOptimizer:
             ticker_date and ticker_date < date_str
         )
 
-    def _get_sport_min_confidence(self, sport: str) -> float:
-        """Get sport-specific minimum confidence threshold.
-
-        MLB has lower threshold due to parity and default ELO ratings.
-        Other sports keep the standard threshold.
-        """
-        sport_lower = sport.lower()
-        if sport_lower == "mlb":
-            return 0.55  # Lower threshold for MLB (teams start at 1500 rating)
-        elif sport_lower in ["ncaab", "wncaab"]:
-            return 0.60  # Slightly lower for college sports
-        else:
-            return self.min_confidence  # Use default for NBA, NHL, EPL, etc.
-
     def filter_opportunities(
         self, opportunities: List[BetOpportunity]
     ) -> List[BetOpportunity]:
@@ -812,16 +798,6 @@ class PortfolioOptimizer:
             # Check minimum edge
             if opp.edge < self.min_edge:
                 stats["edge"] += 1
-                continue
-
-            # Check minimum confidence with sport-specific thresholds
-            sport_min_confidence = self._get_sport_min_confidence(opp.sport)
-            if opp.elo_prob < sport_min_confidence:
-                stats["confidence"] += 1
-                # Track which sport was filtered
-                sport_confidence_stats[opp.sport] = (
-                    sport_confidence_stats.get(opp.sport, 0) + 1
-                )
                 continue
 
             # Check Kelly fraction - must be positive for valid value bets
@@ -908,9 +884,7 @@ class PortfolioOptimizer:
         self, opportunities: List[BetOpportunity], max_daily_allocation: float
     ) -> List[PortfolioAllocation]:
         """Kelly Criterion-based allocation."""
-        sorted_opps = sorted(
-            opportunities, key=lambda x: x.expected_value, reverse=True
-        )
+        sorted_opps = self._prioritize_sport_diversity(opportunities)
         allocations = []
         total_allocated = 0.0
 
@@ -948,6 +922,37 @@ class PortfolioOptimizer:
                 break
 
         return allocations
+
+    def _prioritize_sport_diversity(
+        self, opportunities: List[BetOpportunity]
+    ) -> List[BetOpportunity]:
+        """Return opportunities ordered to give each sport an initial seat.
+
+        The live portfolio is intended to allocate across sports, not let one
+        slate of cheap longshots consume the full daily budget before another
+        sport's best opportunity is considered. We therefore take the highest-EV
+        opportunity from each sport first, then fill the remaining queue by EV.
+        """
+        if not opportunities:
+            return []
+
+        top_by_sport: Dict[str, BetOpportunity] = {}
+        for opp in opportunities:
+            sport_key = opp.sport.upper()
+            current = top_by_sport.get(sport_key)
+            if current is None or opp.expected_value > current.expected_value:
+                top_by_sport[sport_key] = opp
+
+        prioritized = sorted(
+            top_by_sport.values(), key=lambda opp: opp.expected_value, reverse=True
+        )
+        selected_ids = {id(opp) for opp in prioritized}
+        remaining = sorted(
+            [opp for opp in opportunities if id(opp) not in selected_ids],
+            key=lambda opp: opp.expected_value,
+            reverse=True,
+        )
+        return prioritized + remaining
 
     def optimize_daily_bets(
         self,

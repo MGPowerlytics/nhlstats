@@ -93,6 +93,7 @@ class EloCalculator:
         """
         if k_factor is None:
             k_factor = self.config.k_factor
+
         return k_factor * (actual - expected)
 
     def calculate_mov_multiplier(self, result: GameResult, elo_diff: float) -> float:

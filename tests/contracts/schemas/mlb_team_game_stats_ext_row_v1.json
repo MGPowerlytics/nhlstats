@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_team_game_stats_ext_row_v1.json",
+  "title": "MLB mlb_team_game_stats_ext Row Contract",
+  "description": "Canonical MLB extension-stats payload emitted by MLBBoxScoreFetcher into mlb_team_game_stats_ext. Wave-2 consumer-red contract.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "team",
+    "hits",
+    "errors",
+    "lob",
+    "doubles",
+    "triples",
+    "home_runs",
+    "rbi",
+    "stolen_bases",
+    "strikeouts",
+    "walks",
+    "at_bats",
+    "obp",
+    "slg",
+    "ops",
+    "woba",
+    "era"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "team": {
+      "type": "string",
+      "pattern": "^[A-Z]{2,4}$"
+    },
+    "hits": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "errors": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "lob": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "doubles": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "triples": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "home_runs": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "rbi": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "stolen_bases": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "strikeouts": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "walks": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "at_bats": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "obp": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "slg": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 4.0
+    },
+    "ops": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 5.0
+    },
+    "woba": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 2.0
+    },
+    "era": {
+      "type": "number",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

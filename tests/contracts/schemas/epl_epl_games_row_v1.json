@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL epl_games Row Contract",
+  "description": "Canonical EPL-owned persisted row contract for EPLCSVProcessor writes into epl_games.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "game_date",
+    "season",
+    "home_team",
+    "away_team",
+    "home_score",
+    "away_score",
+    "result"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+$"
+    },
+    "game_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "season": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "home_team": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich",
+        "Leeds",
+        "Leicester",
+        "Liverpool",
+        "Luton",
+        "Man City",
+        "Man United",
+        "Newcastle",
+        "Nott'm Forest",
+        "Norwich",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham",
+        "Watford",
+        "West Ham",
+        "Wolves"
+      ]
+    },
+    "away_team": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich",
+        "Leeds",
+        "Leicester",
+        "Liverpool",
+        "Luton",
+        "Man City",
+        "Man United",
+        "Newcastle",
+        "Nott'm Forest",
+        "Norwich",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham",
+        "Watford",
+        "West Ham",
+        "Wolves"
+      ]
+    },
+    "home_score": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "away_score": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "result": {
+      "type": "string",
+      "enum": [
+        "H",
+        "D",
+        "A"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

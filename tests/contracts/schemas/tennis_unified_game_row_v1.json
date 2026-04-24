@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/tennis_unified_game_row_v1.json",
+  "title": "Tennis unified_games Row Contract v1",
+  "description": "Canonical shared-storage tennis row contract for the subset of unified_games fields owned by tennis producers (_save_tennis_kalshi_markets and TennisCSVProcessor).",
+  "type": "object",
+  "required": [
+    "game_id",
+    "sport",
+    "game_date",
+    "home_team_name",
+    "away_team_name"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^TENNIS_(ATP|WTA)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$"
+    },
+    "sport": {"const": "TENNIS"},
+    "game_date": {"type": "string", "format": "date"},
+    "home_team_name": {"type": "string", "minLength": 1},
+    "away_team_name": {"type": "string", "minLength": 1},
+    "home_team_id": {"type": ["string", "null"]},
+    "away_team_id": {"type": ["string", "null"]},
+    "commence_time": {"type": ["string", "null"]},
+    "status": {"type": "string", "enum": ["Scheduled", "Final"]},
+    "season": {"type": ["integer", "string", "null"]},
+    "home_score": {"type": ["integer", "null"], "minimum": 0},
+    "away_score": {"type": ["integer", "null"], "minimum": 0}
+  },
+  "additionalProperties": false
+}

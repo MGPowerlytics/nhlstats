@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_kalshi_market_v1.json",
+  "title": "MLB Kalshi Market Contract v1",
+  "description": "Canonical MLB Kalshi normalization contract for consumer-side comparison and game_odds persistence.",
+  "$defs": {
+    "ticker": {
+      "type": "string",
+      "description": "MLB Kalshi market ticker. Series prefix KXMLBGAME, alphanumeric date YYMMMDD optionally followed by HHMM, then 5-6 char compact teams string, then outcome side.",
+      "pattern": "^KXMLBGAME-[0-9]{2}[A-Z]{3}[0-9]{2}([0-9]{4})?[A-Z]{5,6}-[A-Z]{2,3}$"
+    },
+    "game_id": {
+      "type": "string",
+      "description": "Synthetic MLB game id produced by _generate_game_id('mlb', date, home, away). Canonical reconciliation may later remap to the native gamePk integer string.",
+      "pattern": "^MLB_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+$"
+    },
+    "outcome_name": {
+      "type": "string",
+      "enum": ["home", "away"]
+    },
+    "normalized_market": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "market_id",
+        "ticker",
+        "game_id",
+        "game_date",
+        "home_team",
+        "away_team",
+        "outcome_name",
+        "bookmaker",
+        "market_name",
+        "external_id",
+        "price",
+        "is_pregame"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "kalshi_market"},
+        "market_id": {"$ref": "#/$defs/ticker"},
+        "ticker": {"$ref": "#/$defs/ticker"},
+        "game_id": {"$ref": "#/$defs/game_id"},
+        "game_date": {"type": "string", "format": "date"},
+        "home_team": {"type": "string", "minLength": 1},
+        "away_team": {"type": "string", "minLength": 1},
+        "outcome_name": {"$ref": "#/$defs/outcome_name"},
+        "bookmaker": {"const": "Kalshi"},
+        "market_name": {"const": "moneyline"},
+        "external_id": {"$ref": "#/$defs/ticker"},
+        "price": {"type": "number", "exclusiveMinimum": 1.0},
+        "is_pregame": {"const": true}
+      },
+      "additionalProperties": false
+    },
+    "game_odds_row": {
+      "type": "object",
+      "required": [
+        "odds_id",
+        "game_id",
+        "bookmaker",
+        "market_name",
+        "outcome_name",
+        "price",
+        "is_pregame",
+        "external_id"
+      ],
+      "properties": {
+        "odds_id": {
+          "type": "string",
+          "pattern": "^MLB_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+_kalshi_(home|away)$"
+        },
+        "game_id": {"$ref": "#/$defs/game_id"},
+        "bookmaker": {"const": "Kalshi"},
+        "market_name": {"const": "moneyline"},
+        "outcome_name": {"$ref": "#/$defs/outcome_name"},
+        "price": {"type": "number", "exclusiveMinimum": 1.0},
+        "is_pregame": {"const": true},
+        "external_id": {"$ref": "#/$defs/ticker"}
+      },
+      "additionalProperties": false
+    }
+  }
+}

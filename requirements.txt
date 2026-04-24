@@ -9,6 +9,7 @@ scipy
 playwright
 pytest
 pytest-cov
+jsonschema
 apache-airflow
 python-dotenv
 beautifulsoup4

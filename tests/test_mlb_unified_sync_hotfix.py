@@ -391,7 +391,7 @@ def test_load_mlb_schedule_upserts_unified_games_with_native_gamepk(tmp_path) ->
     assert len(unified_calls) == 1
 
     params = unified_calls[0].args[1]
-    assert params["game_id"] == "745431"
+    assert str(params["game_id"]) == "745431"
     assert params["sport"] == "MLB"
     assert params["home_team_name"] == "New York Yankees"
     assert params["away_team_name"] == "Boston Red Sox"

@@ -1,0 +1,71 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MLB Glicko-2 v1",
+  "$defs": {
+    "team_rating": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "team",
+        "rating",
+        "rd",
+        "vol"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "glicko2_rating"},
+        "team": {"type": "string", "minLength": 1},
+        "rating": {"type": "number", "exclusiveMinimum": 0},
+        "rd": {"type": "number", "exclusiveMinimum": 0},
+        "vol": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    },
+    "prediction": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "home_team",
+        "away_team",
+        "home_rating",
+        "away_rating",
+        "prob"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "glicko2_prediction"},
+        "home_team": {"type": "string", "minLength": 1},
+        "away_team": {"type": "string", "minLength": 1},
+        "home_rating": {
+          "$ref": "#/$defs/glicko_state"
+        },
+        "away_rating": {
+          "$ref": "#/$defs/glicko_state"
+        },
+        "prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_advantage": {"type": "number", "minimum": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "glicko_state": {
+      "type": "object",
+      "required": ["rating", "rd", "vol"],
+      "properties": {
+        "rating": {"type": "number", "exclusiveMinimum": 0},
+        "rd": {"type": "number", "exclusiveMinimum": 0},
+        "vol": {"type": "number", "exclusiveMinimum": 0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/team_rating"},
+    {"$ref": "#/$defs/prediction"}
+  ]
+}

@@ -99,6 +99,20 @@ def _season_label_from_code(code: str) -> str:
     return f"20{code[:2]}-{code[2:]}"
 
 
+def _canonical_epl_team_name(team_name: str) -> str:
+    """Return the approved EPL storage-facing team name."""
+    from plugins.naming_resolver import NamingContext, NamingResolver
+
+    return NamingResolver.resolve(
+        NamingContext(sport="epl", source="kalshi", name=team_name)
+    )
+
+
+def _team_slug(team_name: str) -> str:
+    """Build the contract-safe slug for a team name."""
+    return "".join(ch for ch in team_name if ch.isalnum()).upper()
+
+
 def _seasons_for_range(start: date, end: date) -> list[str]:
     """Return all season codes that overlap with [start, end].
 
@@ -227,18 +241,27 @@ class SoccerBoxScoreFetcher(BoxScoreFetcher):
         """
         game_date: date = row["Date"].date()
         season_code = _season_code_from_date(game_date)
-        season_label = _season_label_from_code(season_code)
-        home_team: str = str(row["HomeTeam"])
-        away_team: str = str(row["AwayTeam"])
+        raw_home_team = str(row["HomeTeam"])
+        raw_away_team = str(row["AwayTeam"])
+        if self.SPORT == "EPL":
+            season = season_code
+            home_team = _canonical_epl_team_name(raw_home_team)
+            away_team = _canonical_epl_team_name(raw_away_team)
+            game_id = (
+                f"{self.SPORT}_{game_date.strftime('%Y%m%d')}"
+                f"_{_team_slug(home_team)}_{_team_slug(away_team)}"
+            )
+        else:
+            season = _season_label_from_code(season_code)
+            home_team = raw_home_team
+            away_team = raw_away_team
+            date_str = game_date.strftime("%Y%m%d")
+            home_abbr = home_team[:3].upper().replace(" ", "")
+            away_abbr = away_team[:3].upper().replace(" ", "")
+            game_id = f"{self._league_code}_{date_str}_{home_abbr}_{away_abbr}"
         home_goals = int(row["FTHG"])
         away_goals = int(row["FTAG"])
         result = str(row.get("FTR", ""))
-
-        # Build game_id: {league_code}_{YYYYMMDD}_{HomeAbbr}_{AwayAbbr}
-        date_str = game_date.strftime("%Y%m%d")
-        home_abbr = home_team[:3].upper().replace(" ", "")
-        away_abbr = away_team[:3].upper().replace(" ", "")
-        game_id = f"{self._league_code}_{date_str}_{home_abbr}_{away_abbr}"
 
         def _stat(home_col: str, away_col: str, is_home: bool) -> int | None:
             col = home_col if is_home else away_col
@@ -257,7 +280,7 @@ class SoccerBoxScoreFetcher(BoxScoreFetcher):
             "opponent": away_team,
             "is_home": True,
             "game_date": game_date,
-            "season": season_label,
+            "season": season,
             "points_for": home_goals,
             "points_against": away_goals,
             "won": result == "H",
@@ -271,7 +294,7 @@ class SoccerBoxScoreFetcher(BoxScoreFetcher):
             "opponent": home_team,
             "is_home": False,
             "game_date": game_date,
-            "season": season_label,
+            "season": season,
             "points_for": away_goals,
             "points_against": home_goals,
             "won": result == "A",
@@ -360,14 +383,16 @@ class SoccerBoxScoreFetcher(BoxScoreFetcher):
             logger.warning("⚠️ No match found for game_id %s on %s", game_id, game_date)
             return []
 
-        home_abbr = parts[2].upper()
-        away_abbr = parts[3].upper()
-        # Try to find the row by team abbreviations
         match_row = None
         for _, row in df_day.iterrows():
-            h = str(row["HomeTeam"])[:3].upper().replace(" ", "")
-            a = str(row["AwayTeam"])[:3].upper().replace(" ", "")
-            if h == home_abbr and a == away_abbr:
+            built_rows = self._build_team_rows(row)
+            built_game_id = built_rows[0]["game_id"]
+            legacy_game_id = (
+                f"{self._league_code}_{game_date.strftime('%Y%m%d')}"
+                f"_{str(row['HomeTeam'])[:3].upper().replace(' ', '')}"
+                f"_{str(row['AwayTeam'])[:3].upper().replace(' ', '')}"
+            )
+            if game_id in {built_game_id, legacy_game_id}:
                 match_row = row
                 break
 

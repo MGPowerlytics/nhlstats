@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MLB Feature Vector v1",
+  "description": "Canonical per-matchup feature bundle consumed by the MLB ensemble. Mirrors the MLBPredictionContext shape with strict bounds so consumers can detect drift.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "home_team",
+    "away_team",
+    "home_runs_scored_ytd",
+    "home_runs_allowed_ytd",
+    "away_runs_scored_ytd",
+    "away_runs_allowed_ytd",
+    "home_bullpen_era",
+    "away_bullpen_era",
+    "home_rest_days",
+    "away_rest_days"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "feature_vector"},
+    "home_team": {"type": "string", "minLength": 1},
+    "away_team": {"type": "string", "minLength": 1},
+    "venue": {"type": ["string", "null"]},
+    "home_pitcher_id": {"type": ["string", "null"]},
+    "away_pitcher_id": {"type": ["string", "null"]},
+    "home_runs_scored_ytd": {"type": "number", "minimum": 0.0},
+    "home_runs_allowed_ytd": {"type": "number", "minimum": 0.0},
+    "away_runs_scored_ytd": {"type": "number", "minimum": 0.0},
+    "away_runs_allowed_ytd": {"type": "number", "minimum": 0.0},
+    "home_bullpen_era": {"type": "number", "minimum": 0.0},
+    "away_bullpen_era": {"type": "number", "minimum": 0.0},
+    "home_rest_days": {"type": "integer", "minimum": 0, "maximum": 7},
+    "away_rest_days": {"type": "integer", "minimum": 0, "maximum": 7},
+    "market_prob": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "market_blend_weight": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+  },
+  "additionalProperties": false
+}

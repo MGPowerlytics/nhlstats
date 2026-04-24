@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "MLB Pitcher Elo v1",
+  "type": "object",
+  "$defs": {
+    "pitcher_rating": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "pitcher_id",
+        "rating"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "pitcher_rating"},
+        "pitcher_id": {"type": "string", "minLength": 1},
+        "rating": {"type": "number", "exclusiveMinimum": 0},
+        "k_factor": {"type": "number", "exclusiveMinimum": 0},
+        "pitcher_weight": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "pitcher_matchup": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "sport",
+        "payload_kind",
+        "home_pitcher_id",
+        "away_pitcher_id",
+        "home_rating",
+        "away_rating",
+        "adjustment_elo"
+      ],
+      "properties": {
+        "schema_version": {"const": "v1"},
+        "sport": {"const": "MLB"},
+        "payload_kind": {"const": "pitcher_matchup"},
+        "home_pitcher_id": {"type": ["string", "null"], "minLength": 1},
+        "away_pitcher_id": {"type": ["string", "null"], "minLength": 1},
+        "home_rating": {"type": "number", "exclusiveMinimum": 0},
+        "away_rating": {"type": "number", "exclusiveMinimum": 0},
+        "adjustment_elo": {"type": "number"},
+        "pitcher_weight": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {"$ref": "#/$defs/pitcher_rating"},
+    {"$ref": "#/$defs/pitcher_matchup"}
+  ]
+}

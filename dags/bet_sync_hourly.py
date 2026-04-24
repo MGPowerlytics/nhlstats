@@ -47,6 +47,27 @@ def sync_bets_from_kalshi():
         raise
 
 
+def sync_orders_from_kalshi():
+    """Sync orders from Kalshi (resting + executed) into placed_bets.
+
+    Complements ``sync_bets_from_kalshi`` (fills-only) so resting and
+    just-placed orders show up in the database immediately.
+    """
+    import sys
+
+    sys.path.append(str(Path(__file__).resolve().parents[1] / "plugins"))
+
+    from bet_tracker import sync_orders_to_database
+
+    try:
+        added, updated = sync_orders_to_database()
+        print(f"✅ Synced orders: {added} added, {updated} updated")
+        return added, updated
+    except Exception as e:
+        print(f"❌ Failed to sync orders: {e}")
+        raise
+
+
 def update_closing_lines():
     """Update real closing line values for recently settled bets.
 
@@ -100,6 +121,13 @@ with DAG(
         retry_delay=timedelta(minutes=5),
     )
 
+    orders_task = PythonOperator(
+        task_id="sync_orders_from_kalshi",
+        python_callable=sync_orders_from_kalshi,
+        retries=3,
+        retry_delay=timedelta(minutes=5),
+    )
+
     clv_task = PythonOperator(
         task_id="update_closing_lines",
         python_callable=update_closing_lines,
@@ -107,5 +135,5 @@ with DAG(
         retry_delay=timedelta(minutes=2),
     )
 
-    # CLV update runs after bet sync — depends on fresh bet data
-    sync_task >> clv_task
+    # Orders sync runs alongside fills sync; CLV depends on both being fresh.
+    [sync_task, orders_task] >> clv_task

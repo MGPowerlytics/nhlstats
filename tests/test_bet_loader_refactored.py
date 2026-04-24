@@ -50,6 +50,29 @@ def test_bet_data_from_dict_alternatives():
     assert bet_data.edge == 0.0  # Default if missing
 
 
+def test_bet_data_from_dict_preserves_optional_numeric_fields():
+    """Test optional numeric fields round-trip through BetData.from_dict."""
+    data = {
+        "home_team": "Liverpool",
+        "away_team": "Bournemouth",
+        "side": "home",
+        "elo_prob": 0.58,
+        "market_prob": 0.47,
+        "edge": 0.11,
+        "expected_value": "0.234",
+        "kelly_fraction": 0.056,
+        "home_rating": "1612.4",
+        "away_rating": 1498.2,
+    }
+
+    bet_data = BetData.from_dict(data)
+
+    assert bet_data.expected_value == pytest.approx(0.234)
+    assert bet_data.kelly_fraction == pytest.approx(0.056)
+    assert bet_data.home_rating == pytest.approx(1612.4)
+    assert bet_data.away_rating == pytest.approx(1498.2)
+
+
 def test_bet_data_computed_values():
     """Test computed EV and Kelly."""
     bet_data = BetData(

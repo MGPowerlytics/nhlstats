@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/tennis_elo_prediction_v1.json",
+  "title": "Tennis Elo Prediction v1",
+  "description": "Canonical structured payload emitted by TennisEloRating.predict_with_payload. Includes the raw Elo probability and the Platt-calibrated probability per tour.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "tour",
+    "player_a",
+    "player_b",
+    "rating_a",
+    "rating_b",
+    "raw_prob_a",
+    "calibrated_prob_a",
+    "k_factor",
+    "home_advantage"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "TENNIS"},
+    "payload_kind": {"const": "elo_prediction"},
+    "tour": {"type": "string", "enum": ["ATP", "WTA"]},
+    "player_a": {"type": "string", "minLength": 1},
+    "player_b": {"type": "string", "minLength": 1},
+    "rating_a": {"type": "number", "exclusiveMinimum": 0},
+    "rating_b": {"type": "number", "exclusiveMinimum": 0},
+    "raw_prob_a": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "calibrated_prob_a": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "k_factor": {"type": "number", "exclusiveMinimum": 0.0},
+    "home_advantage": {"type": "number", "const": 0.0},
+    "is_neutral": {"type": "boolean"}
+  },
+  "additionalProperties": false
+}

@@ -94,6 +94,89 @@ class PitcherEloLadder:
         self._ratings[hpid] = h + change
         self._ratings[apid] = a - change
 
+    def rating_payload(self, pitcher_id: str) -> Dict[str, object]:
+        """Return a structured pitcher-rating payload for the contract boundary.
+
+        Args:
+            pitcher_id: Identifier for the pitcher (string-coerced).
+
+        Returns:
+            Dict matching ``mlb_pitcher_elo_v1.json::$defs.pitcher_rating``.
+        """
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "pitcher_rating",
+            "pitcher_id": str(pitcher_id),
+            "rating": float(self.get_rating(pitcher_id)),
+            "k_factor": float(self.k_factor),
+            "pitcher_weight": float(self.pitcher_weight),
+        }
+
+    def matchup_payload(
+        self,
+        home_pitcher_id: Optional[str],
+        away_pitcher_id: Optional[str],
+    ) -> Dict[str, object]:
+        """Return a structured pitcher-matchup payload for the contract boundary.
+
+        The ``adjustment_elo`` field carries the value of
+        :meth:`matchup_adjustment` so consumers can validate it as part of
+        a single dict.
+
+        Args:
+            home_pitcher_id: Home starter id (may be None).
+            away_pitcher_id: Away starter id (may be None).
+
+        Returns:
+            Dict matching ``mlb_pitcher_elo_v1.json::$defs.pitcher_matchup``.
+        """
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "pitcher_matchup",
+            "home_pitcher_id": (
+                str(home_pitcher_id) if home_pitcher_id is not None else None
+            ),
+            "away_pitcher_id": (
+                str(away_pitcher_id) if away_pitcher_id is not None else None
+            ),
+            "home_rating": float(self.get_rating(home_pitcher_id)),
+            "away_rating": float(self.get_rating(away_pitcher_id)),
+            "adjustment_elo": float(
+                self.matchup_adjustment(home_pitcher_id, away_pitcher_id)
+            ),
+            "pitcher_weight": float(self.pitcher_weight),
+        }
+
+    # ------------------------------------------------------------------
+    # Persistence
+    # ------------------------------------------------------------------
+    def save_ratings(self, file_path: str = "data/mlb_pitcher_elo_ratings.csv") -> None:
+        """Save all pitcher ratings to a CSV file."""
+        import pandas as pd
+        from pathlib import Path
+
+        Path(file_path).parent.mkdir(parents=True, exist_ok=True)
+        df = pd.DataFrame(
+            [{"pitcher_id": pid, "rating": r} for pid, r in self._ratings.items()]
+        )
+        if not df.empty:
+            df.sort_values("rating", ascending=False, inplace=True)
+        df.to_csv(file_path, index=False)
+
+    def load_ratings(self, file_path: str = "data/mlb_pitcher_elo_ratings.csv") -> None:
+        """Load pitcher ratings from a CSV file."""
+        import os
+        import pandas as pd
+
+        if os.path.exists(file_path):
+            try:
+                df = pd.read_csv(file_path)
+                self._ratings = dict(zip(df["pitcher_id"].astype(str), df["rating"]))
+            except Exception as e:
+                print(f"  ⚠️  Could not load pitcher ratings: {e}")
+
     # ------------------------------------------------------------------
     # Introspection
     # ------------------------------------------------------------------

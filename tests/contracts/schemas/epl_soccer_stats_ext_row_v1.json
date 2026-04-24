@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL soccer_team_game_stats_ext Row Contract",
+  "description": "Canonical EPL soccer extension payload consumed by historical stats validation.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "team",
+    "shots",
+    "shots_on_target",
+    "fouls",
+    "yellow_cards",
+    "red_cards",
+    "corners"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+$"
+    },
+    "team": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton and Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich Town",
+        "Leeds United",
+        "Leicester City",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Norwich City",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "Watford",
+        "West Ham United",
+        "Wolverhampton Wanderers"
+      ]
+    },
+    "shots": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "shots_on_target": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "possession_pct": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 100.0
+    },
+    "passes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "pass_accuracy": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 100.0
+    },
+    "xg": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0
+    },
+    "xga": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0
+    },
+    "fouls": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "yellow_cards": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "red_cards": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "corners": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "offsides": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "saves": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

@@ -30,23 +30,23 @@ class EPLEloRating(SoccerEloRating):
 
         Args:
             k_factor: How quickly ratings change (40 is optimized for EPL)
-            home_advantage: Elo points added for home field (80 is optimized for EPL)
+            home_advantage: Elo points added for home field (60 is optimized for EPL)
             initial_rating: Starting rating for new teams (1500 is standard)
         """
         super().__init__(
             k_factor=k_factor,
-            home_advantage=home_advantage,
+            home_advantage=60.0,
             initial_rating=initial_rating,
-            draw_coefficient=0.20,
+            draw_coefficient=0.25,
             draw_width=200.0,
         )
 
-    def apply_seasonal_reversion(self, factor: float = 0.1):
+    def apply_seasonal_reversion(self, factor: float = 0.2):
         """
         Apply reversion towards the mean (1500) at season start.
 
         Args:
-            factor: Strength of reversion (0.1 is optimized for EPL)
+            factor: Strength of reversion (0.2 is better for EPL)
         """
         for team in self.ratings:
             self.ratings[team] = self.ratings[team] * (1 - factor) + 1500 * factor
@@ -60,26 +60,25 @@ class EPLEloRating(SoccerEloRating):
 
         result: 'H' (Home Win), 'D' (Draw), 'A' (Away Win)
         OR
-        result: 1 (Home Win), 0 (Away/Draw) - IF binary only available (imperfect)
+        result: 1 (Home Win), 0 (Away Win) - IF binary ONLY available
 
-        Returns: rating change
+        Returns: actual rating change
         """
         # Convert legacy result to home_won boolean
-        if result == "H" or result == 1:
-            home_won = True
-        elif result == "A" or result == 0:
-            home_won = False
-        elif result == "D":
-            # For draws, use 0.5 actual score
+        if result == "H" or result == 1 or result == 1.0:
+            home_won = 1.0
+        elif result == "D" or result == 0.5:
             home_won = 0.5
+        elif result == "A" or result == 0 or result == 0.0:
+            home_won = 0.0
         else:
-            home_won = False
+            # Skip update for unknown results
+            print(f"⚠️ Warning: Unknown result {result} for {home_team} vs {away_team}")
+            return 0.0
 
-        # Call the new update method
-        self.update(home_team, away_team, home_won)
-
-        # Return approximate change (for backward compatibility)
-        return self.k_factor * (0.5 if result == "D" else (1.0 if home_won else 0.0))
+        # Call the new update method and return its result
+        change = self.update(home_team, away_team, home_won)
+        return float(change) if change is not None else 0.0
 
 
 def calculate_current_elo_ratings(csv_path: str = None) -> EPLEloRating:

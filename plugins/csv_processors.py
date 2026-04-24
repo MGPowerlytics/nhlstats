@@ -41,6 +41,198 @@ class BaseCSVProcessor(ABC):
         pass
 
 
+class SoccerCSVProcessor(BaseCSVProcessor):
+    """Base class for soccer-specific CSV processors (EPL, Ligue 1)."""
+
+    def _resolve_soccer_team_name(self, sport: str, team_name: str, source: str) -> str:
+        """Resolve a soccer team name for a specific downstream consumer."""
+        from naming_resolver import NamingResolver, NamingContext
+
+        return NamingResolver.resolve(
+            NamingContext(sport=sport.lower(), source=source, name=team_name)
+        )
+
+    def _build_soccer_game_id(
+        self, sport: str, game_date: str, home_team: str, away_team: str
+    ) -> str:
+        """Build the deterministic soccer game identifier."""
+        date_id = game_date.replace("-", "")
+        home_slug = "".join(filter(str.isalnum, home_team)).upper()
+        away_slug = "".join(filter(str.isalnum, away_team)).upper()
+        return f"{sport.upper()}_{date_id}_{home_slug}_{away_slug}"
+
+    def _process_soccer_row(self, row: pd.Series, sport: str, table_name: str, **kwargs) -> None:
+        """Common logic for processing a soccer game row."""
+        season_code = kwargs.get("season_code", "")
+
+        # Check for required column
+        if pd.isna(row.get("FTHG")):
+            return
+
+        try:
+            params = self._extract_soccer_params(row, sport, season_code)
+
+            # 1. Insert into sport-specific table
+            self.db.execute(
+                f"""
+                INSERT INTO {table_name} (
+                    game_id, game_date, season, home_team, away_team, home_score, away_score, result
+                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :result)
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    result = EXCLUDED.result
+            """,
+                params,
+            )
+
+            # 2. Insert into unified_games
+            self.db.execute(
+                """
+                INSERT INTO unified_games (
+                    game_id, sport, game_date, season, status,
+                    home_team_name, away_team_name, home_score, away_score
+                ) VALUES (
+                    :game_id, :sport_upper, :game_date, :season_year, 'Final',
+                    :home_team_name, :away_team_name, :home_score, :away_score
+                )
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    status = EXCLUDED.status
+            """,
+                {
+                    **params,
+                    "sport_upper": sport.upper(),
+                    "season_year": int("20" + season_code[:2]) if season_code and season_code[:2].isdigit() else 2024,
+                    "home_team_name": params["home_team_full"],
+                    "away_team_name": params["away_team_full"],
+                },
+            )
+
+            # 3. Insert into team_game_stats and soccer_team_game_stats_ext
+            self._insert_soccer_stats(params, row, sport.upper())
+
+        except Exception as e:
+            print(f"Error processing {sport} row: {e}")
+            pass
+
+    def _extract_soccer_params(self, row: pd.Series, sport: str, season_code: str) -> Dict[str, Any]:
+        """Common parameter extraction for soccer with name resolution."""
+        game_date = row["Date"]
+        if hasattr(game_date, "strftime"):
+            date_str = game_date.strftime("%Y-%m-%d")
+        else:
+            date_str = str(game_date)[:10]
+
+        raw_home = str(row["HomeTeam"])
+        raw_away = str(row["AwayTeam"])
+
+        home_team = self._resolve_soccer_team_name(sport, raw_home, "elo")
+        away_team = self._resolve_soccer_team_name(sport, raw_away, "elo")
+
+        if sport.lower() == "epl":
+            home_team_full = self._resolve_soccer_team_name(sport, raw_home, "kalshi")
+            away_team_full = self._resolve_soccer_team_name(sport, raw_away, "kalshi")
+            game_id = self._build_soccer_game_id(sport, date_str, raw_home, raw_away)
+        else:
+            home_team_full = home_team
+            away_team_full = away_team
+            game_id = self._build_soccer_game_id(sport, date_str, home_team, away_team)
+
+        return {
+            "game_id": game_id,
+            "game_date": date_str,
+            "season": season_code,
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_team_full": home_team_full,
+            "away_team_full": away_team_full,
+            "home_score": int(row["FTHG"]),
+            "away_score": int(row["FTAG"]),
+            "result": row["FTR"],
+        }
+
+    def _insert_soccer_stats(self, params: Dict[str, Any], row: pd.Series, sport: str) -> None:
+        """Insert data into team_game_stats and soccer_team_game_stats_ext."""
+        game_id = params["game_id"]
+        game_date = params["game_date"]
+        season = params["season"]
+        home_team = params["home_team"]
+        away_team = params["away_team"]
+        home_score = params["home_score"]
+        away_score = params["away_score"]
+
+        # Home team stats
+        self._upsert_team_stats(
+            game_id, sport, home_team, away_team, True, game_date, season,
+            home_score, away_score, home_score > away_score, row, "H"
+        )
+
+        # Away team stats
+        self._upsert_team_stats(
+            game_id, sport, away_team, home_team, False, game_date, season,
+            away_score, home_score, away_score > home_score, row, "A"
+        )
+
+    def _upsert_team_stats(
+        self, game_id, sport, team, opponent, is_home, game_date, season,
+        pts_for, pts_against, won, row, side
+    ):
+        # Insert into team_game_stats
+        self.db.execute(
+            """
+            INSERT INTO team_game_stats (
+                game_id, sport, team, opponent, is_home, game_date, season,
+                points_for, points_against, won, margin
+            ) VALUES (
+                :game_id, :sport, :team, :opponent, :is_home, :game_date, :season,
+                :points_for, :points_against, :won, :margin
+            )
+            ON CONFLICT (game_id, team) DO UPDATE SET
+                points_for = EXCLUDED.points_for,
+                points_against = EXCLUDED.points_against,
+                won = EXCLUDED.won,
+                margin = EXCLUDED.margin
+        """,
+            {
+                "game_id": game_id, "sport": sport, "team": team, "opponent": opponent,
+                "is_home": is_home, "game_date": game_date, "season": season,
+                "points_for": pts_for, "points_against": pts_against, "won": won,
+                "margin": pts_for - pts_against
+            }
+        )
+
+        # Insert into soccer_team_game_stats_ext
+        prefix = "H" if side == "H" else "A"
+        self.db.execute(
+            """
+            INSERT INTO soccer_team_game_stats_ext (
+                game_id, team, shots, shots_on_target, fouls, yellow_cards, red_cards, corners
+            ) VALUES (
+                :game_id, :team, :shots, :shots_on_target, :fouls, :yellow_cards, :red_cards, :corners
+            )
+            ON CONFLICT (game_id, team) DO UPDATE SET
+                shots = EXCLUDED.shots,
+                shots_on_target = EXCLUDED.shots_on_target,
+                fouls = EXCLUDED.fouls,
+                yellow_cards = EXCLUDED.yellow_cards,
+                red_cards = EXCLUDED.red_cards,
+                corners = EXCLUDED.corners
+        """,
+            {
+                "game_id": game_id,
+                "team": team,
+                "shots": int(row[f"{prefix}S"]) if pd.notna(row.get(f"{prefix}S")) else None,
+                "shots_on_target": int(row[f"{prefix}ST"]) if pd.notna(row.get(f"{prefix}ST")) else None,
+                "fouls": int(row[f"{prefix}F"]) if pd.notna(row.get(f"{prefix}F")) else None,
+                "yellow_cards": int(row[f"{prefix}Y"]) if pd.notna(row.get(f"{prefix}Y")) else None,
+                "red_cards": int(row[f"{prefix}R"]) if pd.notna(row.get(f"{prefix}R")) else None,
+                "corners": int(row[f"{prefix}C"]) if pd.notna(row.get(f"{prefix}C")) else None,
+            }
+        )
+
+
 class NCAABCSVProcessor(BaseCSVProcessor):
     """CSV processor for NCAAB games."""
 
@@ -126,6 +318,8 @@ class TennisCSVProcessor(BaseCSVProcessor):
 
         try:
             params = self._extract_tennis_game_data(row, tour, season)
+
+            # 1. Insert into sport-specific table
             self.db.execute(
                 """
                 INSERT INTO tennis_games (
@@ -134,6 +328,29 @@ class TennisCSVProcessor(BaseCSVProcessor):
                 ON CONFLICT (game_id) DO NOTHING
             """,
                 params,
+            )
+
+            # 2. Insert into unified_games
+            self.db.execute(
+                """
+                INSERT INTO unified_games (
+                    game_id, sport, game_date, season, status,
+                    home_team_name, away_team_name, home_score, away_score
+                ) VALUES (
+                    :game_id, 'TENNIS', :game_date, :season_year, 'Final',
+                    :winner, :loser, 1, 0
+                )
+                ON CONFLICT (game_id) DO UPDATE SET
+                    home_team_name = EXCLUDED.home_team_name,
+                    away_team_name = EXCLUDED.away_team_name,
+                    home_score = EXCLUDED.home_score,
+                    away_score = EXCLUDED.away_score,
+                    status = EXCLUDED.status
+            """,
+                {
+                    **params,
+                    "season_year": int(season) if str(season).isdigit() else 2024
+                },
             )
         except Exception:
             # Silently skip rows with errors (matching original behavior)
@@ -178,69 +395,12 @@ class TennisCSVProcessor(BaseCSVProcessor):
         return "tennis_games"
 
 
-class EPLCSVProcessor(BaseCSVProcessor):
+class EPLCSVProcessor(SoccerCSVProcessor):
     """CSV processor for EPL (English Premier League) games."""
 
     def process_row(self, row: pd.Series, **kwargs) -> None:
-        """Process a single EPL game row and upsert into database.
-
-        Args:
-            row: Pandas Series with EPL game data
-            **kwargs: Must contain 'season_code' parameter
-        """
-        season_code = kwargs.get("season_code", "")
-
-        # Check for required column (matching original behavior)
-        if pd.isna(row.get("FTHG")):
-            return
-
-        try:
-            params = self._extract_epl_game_data(row, season_code)
-            self.db.execute(
-                """
-                INSERT INTO epl_games (
-                    game_id, game_date, season, home_team, away_team, home_score, away_score, result
-                ) VALUES (:game_id, :game_date, :season, :home_team, :away_team, :home_score, :away_score, :result)
-                ON CONFLICT (game_id) DO UPDATE SET
-                    home_score = EXCLUDED.home_score,
-                    away_score = EXCLUDED.away_score,
-                    result = EXCLUDED.result
-            """,
-                params,
-            )
-        except Exception:
-            # Silently skip rows with errors (matching original behavior)
-            pass
-
-    def _extract_epl_game_data(
-        self, row: pd.Series, season_code: str
-    ) -> Dict[str, Any]:
-        """Extract and transform EPL game data from CSV row.
-
-        Args:
-            row: Pandas Series with EPL game data
-            season_code: Season code (e.g., "2023-2024")
-
-        Returns:
-            Dictionary of parameters for database insertion
-        """
-        game_date = row["Date"].strftime("%Y-%m-%d")
-        home_team = row["HomeTeam"]
-        away_team = row["AwayTeam"]
-        game_id = (
-            f"EPL_{game_date}_{home_team.replace(' ', '')}_{away_team.replace(' ', '')}"
-        )
-
-        return {
-            "game_id": game_id,
-            "game_date": game_date,
-            "season": season_code,
-            "home_team": home_team,
-            "away_team": away_team,
-            "home_score": int(row["FTHG"]),
-            "away_score": int(row["FTAG"]),
-            "result": row["FTR"],
-        }
+        """Process a single EPL game row."""
+        self._process_soccer_row(row, "EPL", "epl_games", **kwargs)
 
     def get_table_name(self) -> str:
         """Get the database table name for EPL games.
@@ -251,19 +411,13 @@ class EPLCSVProcessor(BaseCSVProcessor):
         return "epl_games"
 
 
-class Ligue1CSVProcessor(BaseCSVProcessor):
+class Ligue1CSVProcessor(SoccerCSVProcessor):
     """CSV processor for Ligue 1 (French Soccer) games."""
 
     def process_row(self, row: pd.Series, **kwargs) -> None:
-        """Process a single Ligue 1 game row and upsert into database.
-
-        Args:
-            row: Pandas Series with Ligue 1 game data
-            **kwargs: Must contain 'season_code' parameter
-        """
+        """Process a single Ligue 1 game row."""
         season_code = kwargs.get("season_code", "")
 
-        # Check for required column (matching original behavior)
         if pd.isna(row.get("FTHG")):
             return
 
@@ -282,21 +436,12 @@ class Ligue1CSVProcessor(BaseCSVProcessor):
                 params,
             )
         except Exception:
-            # Silently skip rows with errors
             pass
 
     def _extract_ligue1_game_data(
         self, row: pd.Series, season_code: str
     ) -> Dict[str, Any]:
-        """Extract and transform Ligue 1 game data from CSV row.
-
-        Args:
-            row: Pandas Series with Ligue 1 game data
-            season_code: Season code (e.g., "2023-2024")
-
-        Returns:
-            Dictionary of parameters for database insertion
-        """
+        """Extract and transform Ligue 1 game data without EPL-specific rewiring."""
         game_date = row["Date"].strftime("%Y-%m-%d")
         home_team = row["HomeTeam"]
         away_team = row["AwayTeam"]

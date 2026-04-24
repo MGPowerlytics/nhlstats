@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/tennis_csv_ingestion_v1.json",
+  "title": "Tennis CSV Ingestion Contract v1",
+  "description": "Canonical shape for a single Sackmann / tennis-data.co.uk CSV row consumed by TennisCSVProcessor._extract_tennis_game_data. Only the fields actually read by the producer are governed; extra columns are tolerated.",
+  "$defs": {
+    "csv_row": {
+      "type": "object",
+      "required": ["Date", "Winner", "Loser"],
+      "properties": {
+        "Date": {
+          "type": "string",
+          "description": "Match date (YYYY-MM-DD). The producer accepts datetime objects too; serialized fixtures use ISO date strings."
+        },
+        "Winner": {"type": "string", "minLength": 1},
+        "Loser": {"type": "string", "minLength": 1},
+        "Tournament": {"type": ["string", "null"]},
+        "Surface": {"type": ["string", "null"]},
+        "Score": {"type": ["string", "null"]},
+        "Round": {"type": ["string", "null"]},
+        "Series": {"type": ["string", "null"]},
+        "Best of": {"type": ["integer", "string", "null"]},
+        "WRank": {"type": ["integer", "string", "null"]},
+        "LRank": {"type": ["integer", "string", "null"]}
+      },
+      "additionalProperties": true
+    }
+  },
+  "$ref": "#/$defs/csv_row"
+}

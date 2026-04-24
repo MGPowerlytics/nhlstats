@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL Bet Opportunity v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "home_team",
+    "away_team",
+    "home_rating",
+    "away_rating",
+    "bet_on",
+    "side",
+    "elo_prob",
+    "market_prob",
+    "market_odds",
+    "bookmaker",
+    "ticker",
+    "edge",
+    "expected_value",
+    "kelly_fraction",
+    "sharp_confirmed",
+    "confidence",
+    "agreement_diff"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "sport": {
+      "const": "EPL"
+    },
+    "payload_kind": {
+      "const": "bet_opportunity"
+    },
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL-"
+    },
+    "home_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "away_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "home_rating": {
+      "type": "number"
+    },
+    "away_rating": {
+      "type": "number"
+    },
+    "bet_on": {
+      "type": "string",
+      "minLength": 1
+    },
+    "side": {
+      "type": "string",
+      "enum": ["home", "draw", "away"]
+    },
+    "elo_prob": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "market_prob": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "market_odds": {
+      "type": "number",
+      "exclusiveMinimum": 1.0
+    },
+    "bookmaker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "edge": {
+      "type": "number"
+    },
+    "expected_value": {
+      "type": "number"
+    },
+    "kelly_fraction": {
+      "type": "number",
+      "minimum": 0.0
+    },
+    "sharp_confirmed": {
+      "type": "boolean"
+    },
+    "confidence": {
+      "type": "string",
+      "enum": ["HIGH", "MEDIUM", "LOW"]
+    },
+    "agreement_diff": {
+      "type": "number",
+      "minimum": 0.0
+    }
+  },
+  "additionalProperties": false
+}

@@ -41,13 +41,14 @@ class ArgumentParser:
         Handles both primitive parameters and Matchup/GameResult objects.
         """
         # Create UpdateArgs object to encapsulate all arguments
-        update_args = UpdateArgs(
-            home_team=home_team,
-            away_team=away_team,
-            home_won=home_won,
-            is_neutral=is_neutral,
+        all_args = {
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_won": home_won,
+            "is_neutral": is_neutral,
             **kwargs,
-        )
+        }
+        update_args = UpdateArgs.from_kwargs(**all_args)
 
         return self._parse_update_args_from_object(update_args)
 

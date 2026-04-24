@@ -174,21 +174,17 @@ class TestFetchMarketsSuccess:
         assert len(result) == 2
         assert all(m.get("status") in ["active", "initialized"] for m in result)
 
-    def test_fetch_tennis_uses_the_odds_api(self):
-        """Tennis should use TheOddsAPI instead of Kalshi series fetches."""
+    def test_fetch_tennis_uses_kalshi(self):
+        """Tennis should use the shared Kalshi sport-fetch path."""
         from kalshi_markets import fetch_tennis_markets
 
         tennis_markets = [{"id": "tennis-1"}]
-        with patch("kalshi_markets.TheOddsAPI") as mock_odds_api:
-            api = mock_odds_api.return_value
-            api.fetch_markets.return_value = tennis_markets
-            api.save_to_db.return_value = 1
-
+        with patch("kalshi_markets._fetch_sport_markets") as mock_fetch:
+            mock_fetch.return_value = tennis_markets
             result = fetch_tennis_markets()
 
         assert result == tennis_markets
-        api.fetch_markets.assert_called_once_with("tennis")
-        api.save_to_db.assert_called_once_with(tennis_markets)
+        mock_fetch.assert_called_once_with("tennis")
 
     def test_saves_to_database(self, mock_kalshi_api):
         """Fetched markets should be saved to database."""

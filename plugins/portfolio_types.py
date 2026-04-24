@@ -14,6 +14,7 @@ class BetSide(Enum):
 @dataclass
 class BetOpportunity:
     """Represents a betting opportunity."""
+
     sport: str
     ticker: str
     side: BetSide
@@ -35,23 +36,23 @@ class BetOpportunity:
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for JSON serialization."""
         return {
-            'sport': self.sport,
-            'ticker': self.ticker,
-            'side': self.side.value,
-            'edge': self.edge,
-            'confidence': self.confidence,
-            'kelly_fraction': self.kelly_fraction,
-            'amount': self.amount,
-            'market_id': self.market_id,
-            'event_ticker': self.event_ticker,
-            'event_name': self.event_name,
-            'event_date': self.event_date.isoformat() if self.event_date else None,
-            'settle_date': self.settle_date.isoformat() if self.settle_date else None,
-            'max_bet_size': self.max_bet_size,
-            'min_bet_size': self.min_bet_size,
-            'current_price': self.current_price,
-            'fair_price': self.fair_price,
-            'notes': self.notes
+            "sport": self.sport,
+            "ticker": self.ticker,
+            "side": self.side.value,
+            "edge": self.edge,
+            "confidence": self.confidence,
+            "kelly_fraction": self.kelly_fraction,
+            "amount": self.amount,
+            "market_id": self.market_id,
+            "event_ticker": self.event_ticker,
+            "event_name": self.event_name,
+            "event_date": self.event_date.isoformat() if self.event_date else None,
+            "settle_date": self.settle_date.isoformat() if self.settle_date else None,
+            "max_bet_size": self.max_bet_size,
+            "min_bet_size": self.min_bet_size,
+            "current_price": self.current_price,
+            "fair_price": self.fair_price,
+            "notes": self.notes,
         }
 
 
@@ -60,10 +61,12 @@ def extract_ticker_date(ticker: str) -> Optional[date]:
     try:
         # Look for date pattern in ticker
         import re
-        match = re.search(r'(\d{4}-\d{2}-\d{2})', ticker)
+
+        match = re.search(r"(\d{4}-\d{2}-\d{2})", ticker)
         if match:
             from datetime import datetime
-            return datetime.strptime(match.group(1), '%Y-%m-%d').date()
+
+            return datetime.strptime(match.group(1), "%Y-%m-%d").date()
     except:
         pass
     return None

@@ -7,7 +7,7 @@ and provide a single source of truth for data structures.
 
 from typing import Optional, Union
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, date
 
 
 # Elo system constants - fundamental parameters that affect all predictions
@@ -87,11 +87,16 @@ class UpdateArgs:
     home_score: Optional[float] = None
     away_score: Optional[float] = None
     home_win: Optional[Union[bool, float]] = None
+    game_date: Optional[Union[datetime, date]] = None
+    home_pitcher_id: Optional[str] = None
+    away_pitcher_id: Optional[str] = None
 
     @classmethod
     def from_kwargs(cls, **kwargs) -> "UpdateArgs":
-        """Create UpdateArgs from keyword arguments."""
-        return cls(**kwargs)
+        """Create UpdateArgs from keyword arguments, ignoring unknown ones."""
+        import dataclasses
+        valid_fields = {f.name for f in dataclasses.fields(cls)}
+        return cls(**{k: v for k, v in kwargs.items() if k in valid_fields})
 
     def extract_matchup_info(self) -> tuple[str, str, bool]:
         """

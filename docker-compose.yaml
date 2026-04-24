@@ -44,6 +44,10 @@ x-airflow-common:
   volumes:
     - airflow-logs:/opt/airflow/logs
     - ./data:/opt/airflow/data:rw
+    - ./plugins:/opt/airflow/plugins:rw
+    - ./scripts:/opt/airflow/scripts:rw
+    - ./dags:/opt/airflow/dags:rw
+    - ./tests:/opt/airflow/tests:rw
   secrets:
     - source: kalshi_private_key
       target: kalshi_private_key.pem
@@ -328,6 +332,12 @@ services:
       - POSTGRES_DB=airflow
       - POSTGRES_USER=airflow
       - POSTGRES_PASSWORD=airflow
+    volumes:
+      - ./data:/opt/airflow/data:rw
+      - ./plugins:/opt/airflow/plugins:rw
+      - ./scripts:/opt/airflow/scripts:rw
+      - ./dags:/opt/airflow/dags:rw
+      - ./tests:/opt/airflow/tests:rw
     depends_on:
       postgres:
         condition: service_healthy

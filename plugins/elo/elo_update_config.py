@@ -36,11 +36,20 @@ MLB_HOME_ADVANTAGE = 20.0
 # ``OddsComparator`` is unaffected. Set False to fall back to plain Elo.
 MLB_USE_ENSEMBLE = True
 
+# Master switch for the Ligue 1 ensemble (team Elo + ML + Bookmaker).
+LIGUE1_USE_ENSEMBLE = True
+
 # NFL parameters
 NFL_K_FACTOR = 20.0
 NFL_HOME_ADVANTAGE = 65.0
 
 # Soccer (EPL, Ligue1) parameters
+EPL_K_FACTOR = 40.0
+EPL_HOME_ADVANTAGE = 60.0
+
+LIGUE1_K_FACTOR = 20.0
+LIGUE1_HOME_ADVANTAGE = 60.0
+
 SOCCER_K_FACTOR = 20.0
 SOCCER_HOME_ADVANTAGE = 60.0
 
@@ -132,9 +141,23 @@ def _create_sport_config_registry() -> Dict[str, SportEloConfig]:
         query=get_default_query("nfl"),
     )
 
+    # Ligue 1 uses ligue1_games table for 3-way results
+    registry["ligue1"] = SportEloConfig(
+        sport_id="ligue1",
+        k_factor=LIGUE1_K_FACTOR,
+        home_advantage=LIGUE1_HOME_ADVANTAGE,
+        query="""
+            SELECT game_date, home_team, away_team, home_score, away_score, result
+            FROM ligue1_games
+            WHERE game_date IS NOT NULL
+              AND home_score IS NOT NULL
+              AND result IS NOT NULL
+            ORDER BY game_date
+        """,
+    )
+
     # Add sports that use separate game classes (query=None)
     for sport_id, k, home in [
-        ("ligue1", SOCCER_K_FACTOR, SOCCER_HOME_ADVANTAGE),
         ("ncaab", NCAAB_K_FACTOR, NCAAB_HOME_ADVANTAGE),
         ("wncaab", NCAAB_K_FACTOR, NCAAB_HOME_ADVANTAGE),
         ("unrivaled", UNRIVALED_K_FACTOR, UNRIVALED_HOME_ADVANTAGE),
@@ -202,8 +225,8 @@ def _create_epl_config() -> SportEloConfig:
     """Create EPL Elo configuration."""
     return SportEloConfig(
         sport_id="epl",
-        k_factor=SOCCER_K_FACTOR,
-        home_advantage=SOCCER_HOME_ADVANTAGE,
+        k_factor=EPL_K_FACTOR,
+        home_advantage=EPL_HOME_ADVANTAGE,
         use_legacy_update=True,
         query="""
             SELECT game_date, home_team, away_team, result
@@ -428,7 +451,8 @@ def _get_mlb_query() -> str:
     return """
         SELECT game_date, home_team, away_team,
                home_score, away_score,
-               CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win
+               CASE WHEN home_score > away_score THEN 1 ELSE 0 END as home_win,
+               home_pitcher_id, away_pitcher_id
         FROM mlb_games
         WHERE game_type IN ('R', 'D', 'L', 'W', 'F')
           AND status IN ('Final', 'Game Over', 'Completed Early')

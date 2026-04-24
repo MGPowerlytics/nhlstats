@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL CSV Ingestion Contract",
+  "description": "Canonical contract for a single football-data.co.uk E0 CSV row consumed at the CSVHistoryLoader EPL ingestion boundary.",
+  "type": "object",
+  "required": [
+    "Date",
+    "HomeTeam",
+    "AwayTeam",
+    "FTHG",
+    "FTAG",
+    "FTR"
+  ],
+  "properties": {
+    "Date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "HomeTeam": {
+      "type": "string",
+      "minLength": 1
+    },
+    "AwayTeam": {
+      "type": "string",
+      "minLength": 1
+    },
+    "FTHG": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "FTAG": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "FTR": {
+      "type": "string",
+      "enum": [
+        "H",
+        "D",
+        "A"
+      ]
+    }
+  },
+  "additionalProperties": true
+}

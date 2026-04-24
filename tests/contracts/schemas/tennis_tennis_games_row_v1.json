@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/tennis_tennis_games_row_v1.json",
+  "title": "Tennis tennis_games Row Contract v1",
+  "description": "Canonical persisted row contract for the tennis_games table populated by TennisCSVProcessor.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "game_date",
+    "season",
+    "tour",
+    "winner",
+    "loser"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "description": "Synthetic tennis game id: TENNIS_<TOUR>_<YYYY-MM-DD>_<WinnerSlug>_<LoserSlug>. Slugs preserve case and digits via str.isalnum filtering.",
+      "pattern": "^TENNIS_(ATP|WTA)_[0-9]{4}-[0-9]{2}-[0-9]{2}_[A-Za-z0-9]+_[A-Za-z0-9]+$"
+    },
+    "game_date": {"type": "string", "format": "date"},
+    "season": {"type": "string", "minLength": 1},
+    "tour": {"type": "string", "enum": ["ATP", "WTA"]},
+    "tournament": {"type": ["string", "null"]},
+    "surface": {"type": ["string", "null"]},
+    "winner": {"type": "string", "minLength": 1},
+    "loser": {"type": "string", "minLength": 1},
+    "score": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

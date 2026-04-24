@@ -1,0 +1,8 @@
+Final ratings for 25 teams.
+
+Top 5 teams:
+  Paris SG: 1556.88
+  Lens: 1540.35
+  Lyon: 1536.48
+  Monaco: 1535.33
+  Lille: 1532.00

@@ -228,6 +228,47 @@ def test_nhl_names_resolve_to_current_elo_team_names(
     assert resolved_name == expected_name
 
 
+@pytest.mark.parametrize(
+    ("raw_name", "expected_name"),
+    [
+        ("PSG", "PSG"),
+        ("Paris SG", "PSG"),
+        ("MAR", "Marseille"),
+        ("Olympique Marseille", "Marseille"),
+        ("LYO", "Lyon"),
+        ("ASM", "Monaco"),
+        ("LIL", "Lille"),
+        ("NIC", "Nice"),
+        ("REN", "Rennes"),
+        ("RCL", "Lens"),
+        ("REI", "Reims"),
+        ("MPL", "Montpellier"),
+        ("FCN", "Nantes"),
+        ("RCS", "Strasbourg"),
+        ("TFC", "Toulouse"),
+        ("FCL", "Lorient"),
+        ("HAC", "Le Havre"),
+        ("FCM", "Metz"),
+        ("ANG", "Angers"),
+        ("STB", "Brest"),
+        ("AUX", "Auxerre"),
+        ("STE", "Saint-Etienne"),
+        ("TRO", "Troyes"),
+        ("CLE", "Clermont"),
+        ("AJA", "Ajaccio"),
+        ("PAR", "Paris FC"),
+        ("BOR", "Bordeaux"),
+    ],
+)
+def test_ligue1_names_resolve_to_current_elo_team_names(
+    raw_name: str, expected_name: str
+) -> None:
+    resolved_name = _resolve_to_elo_name("ligue1", raw_name)
+
+    assert expected_name in _elo_teams("ligue1")
+    assert resolved_name == expected_name
+
+
 def test_cross_sport_fallback_stays_available_for_related_sports() -> None:
     resolved_name = NamingResolver.resolve(
         NamingContext(sport="wncaab", source="kalshi", name="hou")

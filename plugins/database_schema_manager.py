@@ -85,7 +85,8 @@ class DatabaseSchemaManager:
             # MLB games table
             "CREATE TABLE IF NOT EXISTS mlb_games (game_id INTEGER PRIMARY KEY, game_date DATE, "
             "season INTEGER, game_type VARCHAR, home_team VARCHAR, away_team VARCHAR, "
-            "home_score INTEGER, away_score INTEGER, status VARCHAR)",
+            "home_score INTEGER, away_score INTEGER, status VARCHAR, "
+            "home_pitcher_id VARCHAR, away_pitcher_id VARCHAR, home_pitcher_name VARCHAR, away_pitcher_name VARCHAR)",
             # NFL games table
             "CREATE TABLE IF NOT EXISTS nfl_games (game_id VARCHAR PRIMARY KEY, game_date DATE, "
             "season INTEGER, week INTEGER, game_type VARCHAR, home_team VARCHAR, away_team VARCHAR, "
@@ -131,7 +132,9 @@ class DatabaseSchemaManager:
             "CREATE TABLE IF NOT EXISTS unified_games (game_id VARCHAR PRIMARY KEY, sport VARCHAR NOT NULL, "
             "game_date DATE NOT NULL, season INTEGER, status VARCHAR, home_team_id VARCHAR, "
             "home_team_name VARCHAR, away_team_id VARCHAR, away_team_name VARCHAR, home_score INTEGER, "
-            "away_score INTEGER, commence_time TIMESTAMP, venue VARCHAR, loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
+            "away_score INTEGER, commence_time TIMESTAMP, venue VARCHAR, "
+            "home_pitcher_id VARCHAR, away_pitcher_id VARCHAR, home_pitcher_name VARCHAR, away_pitcher_name VARCHAR, "
+            "loaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)",
             # Game odds table
             "CREATE TABLE IF NOT EXISTS game_odds (odds_id VARCHAR PRIMARY KEY, game_id VARCHAR NOT NULL, "
             "bookmaker VARCHAR NOT NULL, market_name VARCHAR NOT NULL, outcome_name VARCHAR, "

@@ -273,7 +273,7 @@ class KalshiBetting:
         "NFL": "americanfootball_nfl",
         "NCAAB": "basketball_ncaab",
         "EPL": "soccer_epl",
-        "LIGUE1": "soccer_france_ligue_1",
+        "LIGUE1": "soccer_france_ligue_one",
     }
 
     def __init__(

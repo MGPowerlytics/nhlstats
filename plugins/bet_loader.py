@@ -3,6 +3,7 @@ Load bet recommendations into PostgreSQL for historical analysis.
 """
 
 import json
+import re
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
@@ -26,6 +27,8 @@ class BetData:
 
     home_team: str
     away_team: str
+    bet_id: Optional[str] = None
+    recommendation_date: Optional[str] = None
     ticker: Optional[str] = None
     side: str = "unknown"
     bet_on: str = "unknown"
@@ -62,16 +65,63 @@ class BetData:
 
     def generate_id(self, context: BetContext) -> str:
         """Generate a stable ID for this bet."""
+        if self.bet_id:
+            return self.bet_id
+        if _is_epl_sport(context.sport):
+            return _generate_epl_bet_id(
+                sport=context.sport,
+                date_str=self.recommendation_date or context.date_str,
+                ticker=self.ticker,
+                home_team=self.home_team,
+                away_team=self.away_team,
+                side=self.side,
+            )
+        if _is_tennis_sport(context.sport):
+            return _generate_tennis_bet_id(
+                date_str=self.recommendation_date or context.date_str,
+                ticker=self.ticker,
+                home_team=self.home_team,
+                away_team=self.away_team,
+                side=self.side,
+            )
         if self.ticker:
             return f"{context.sport}_{context.date_str}_{self.ticker}_{self.side}"
-        return f"{context.sport}_{context.date_str}_{self.home_team}_{self.away_team}_{self.side}_{context.index}"
+        if _is_mlb_sport(context.sport):
+            # MLB stable id (no index suffix) so reruns collapse via upsert.
+            return (
+                f"MLB_{context.date_str}_{self.home_team}_"
+                f"{self.away_team}_{self.side}"
+            )
+        return (
+            f"{context.sport}_{context.date_str}_{self.home_team}_"
+            f"{self.away_team}_{self.side}_{context.index}"
+        )
 
     def to_recommendation(self, context: BetContext) -> "BetRecommendation":
         """Convert this BetData to a full BetRecommendation with context."""
+        ticker_value = self.ticker
+        if ticker_value is None and _is_mlb_sport(context.sport):
+            # Synthesize a deterministic MLB ticker so downstream linkage to
+            # ``placed_bets`` (which requires a non-null ticker) survives the
+            # no-ticker producer path. Marked with a SYNTH segment so the
+            # value is recognisable downstream.
+            ticker_value = _synthesize_mlb_ticker(
+                date_str=self.recommendation_date or context.date_str,
+                home_team=self.home_team,
+                away_team=self.away_team,
+                side=self.side,
+            )
+        if ticker_value is None and _is_tennis_sport(context.sport):
+            ticker_value = _synthesize_tennis_ticker(
+                date_str=self.recommendation_date or context.date_str,
+                home_team=self.home_team,
+                away_team=self.away_team,
+                side=self.side,
+            )
         return BetRecommendation(
             bet_id=self.generate_id(context),
-            sport=context.sport,
-            recommendation_date=context.date_str,
+            sport=_normalize_bet_sport(context.sport),
+            recommendation_date=self.recommendation_date or context.date_str,
             home_team=self.home_team,
             away_team=self.away_team,
             home_rating=self.home_rating,
@@ -85,7 +135,7 @@ class BetData:
             confidence=self.confidence,
             yes_ask=self.yes_ask,
             no_ask=self.no_ask,
-            ticker=self.ticker,
+            ticker=ticker_value,
         )
 
     @classmethod
@@ -107,6 +157,8 @@ class BetData:
         away_rating = _extract_optional_float(data, "away_rating")
 
         # Extract other fields
+        bet_id = data.get("bet_id")
+        recommendation_date = data.get("recommendation_date")
         ticker = data.get("ticker")
         confidence = data.get("confidence", "unknown")
         yes_ask = data.get("yes_ask")
@@ -114,6 +166,8 @@ class BetData:
 
         # Construct the object
         return cls(
+            bet_id=bet_id,
+            recommendation_date=recommendation_date,
             home_team=home,
             away_team=away,
             ticker=ticker,
@@ -162,6 +216,151 @@ def _extract_optional_float(data: Dict[str, Any], key: str) -> Optional[float]:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def _is_epl_sport(sport: str) -> bool:
+    return sport.upper() == "EPL"
+
+
+def _is_mlb_sport(sport: str) -> bool:
+    return sport.upper() == "MLB"
+
+
+def _is_tennis_sport(sport: str) -> bool:
+    return sport.upper() == "TENNIS"
+
+
+def _normalize_bet_sport(sport: str) -> str:
+    if _is_epl_sport(sport):
+        return "EPL"
+    if _is_mlb_sport(sport):
+        return "MLB"
+    if _is_tennis_sport(sport):
+        return "TENNIS"
+    return sport
+
+
+def _slugify_bet_id_segment(value: str) -> str:
+    collapsed = re.sub(r"[^A-Z0-9]+", "-", value.upper()).strip("-")
+    return collapsed or "UNKNOWN"
+
+
+def _synthesize_mlb_ticker(
+    *,
+    date_str: Optional[str],
+    home_team: str,
+    away_team: str,
+    side: str,
+) -> str:
+    """Build a deterministic synthetic MLB Kalshi-shaped ticker.
+
+    Used as a non-null fallback when the producer omits the real Kalshi
+    ticker, preserving downstream ``placed_bets`` linkage that requires a
+    non-null value. The result satisfies the MLB recommendation contract's
+    ``^KXMLBGAME-[A-Z0-9-]+$`` ticker pattern and embeds a ``SYNTH`` marker
+    so consumers can tell it apart from a real exchange ticker.
+
+    Args:
+        date_str: Recommendation date (``YYYY-MM-DD`` or ``None``).
+        home_team: Home team display name.
+        away_team: Away team display name.
+        side: ``"home"`` or ``"away"``.
+
+    Returns:
+        A synthetic ticker of the form
+        ``KXMLBGAME-SYNTH-<DATE>-<HOME>-<AWAY>-<SIDE>``.
+    """
+    safe_date = (date_str or "00000000").replace("-", "")
+    return (
+        "KXMLBGAME-SYNTH-"
+        f"{safe_date}-"
+        f"{_slugify_bet_id_segment(home_team)}-"
+        f"{_slugify_bet_id_segment(away_team)}-"
+        f"{side.upper()}"
+    )
+
+
+def _synthesize_tennis_ticker(
+    *,
+    date_str: Optional[str],
+    home_team: str,
+    away_team: str,
+    side: str,
+) -> str:
+    """Build a deterministic synthetic Tennis Kalshi-shaped ticker.
+
+    Used as a non-null fallback when the producer omits the real Kalshi
+    ticker, preserving downstream ``placed_bets`` linkage. The result
+    satisfies the Tennis recommendation contract's
+    ``^KX(ATP|WTA)(CHALLENGER)?MATCH-[A-Z0-9-]+$`` ticker pattern and
+    embeds a ``SYNTH`` marker so consumers can tell it apart from a real
+    exchange ticker.
+
+    Args:
+        date_str: Recommendation date (``YYYY-MM-DD`` or ``None``).
+        home_team: Home player display name.
+        away_team: Away player display name.
+        side: ``"home"`` or ``"away"``.
+
+    Returns:
+        A synthetic ticker of the form
+        ``KXATPMATCH-SYNTH-<DATE>-<HOME>-<AWAY>-<SIDE>``.
+    """
+    safe_date = date_str or "0000-00-00"
+    return (
+        "KXATPMATCH-SYNTH-"
+        f"{safe_date}-"
+        f"{_slugify_bet_id_segment(home_team)}-"
+        f"{_slugify_bet_id_segment(away_team)}-"
+        f"{side.upper()}"
+    )
+
+
+def _generate_tennis_bet_id(
+    *,
+    date_str: str,
+    ticker: Optional[str],
+    home_team: str,
+    away_team: str,
+    side: str,
+) -> str:
+    """Generate a stable TENNIS bet_id.
+
+    Format: ``TENNIS_<YYYY-MM-DD>_<TICKER_OR_SYNTH>_<side>``. When the
+    Kalshi ticker is present it is embedded directly so reruns collapse
+    via upsert; when missing, a synthetic ticker is derived from the
+    matchup so the id remains deterministic.
+    """
+    suffix = side.lower()
+    safe_date = date_str or "0000-00-00"
+    if ticker:
+        return f"TENNIS_{safe_date}_{ticker}_{suffix}"
+    synth = _synthesize_tennis_ticker(
+        date_str=safe_date,
+        home_team=home_team,
+        away_team=away_team,
+        side=side,
+    )
+    return f"TENNIS_{safe_date}_{synth}_{suffix}"
+
+
+def _generate_epl_bet_id(
+    *,
+    sport: str,
+    date_str: str,
+    ticker: Optional[str],
+    home_team: str,
+    away_team: str,
+    side: str,
+) -> str:
+    prefix = _normalize_bet_sport(sport)
+    suffix = side.lower()
+    if ticker:
+        return f"{prefix}-{date_str}-{ticker}-{suffix}"
+    return (
+        f"{prefix}-{date_str}-"
+        f"{_slugify_bet_id_segment(home_team)}-{_slugify_bet_id_segment(away_team)}-{suffix}"
+    )
 
 
 @dataclass
@@ -228,9 +427,7 @@ class BetRecommendation(SqlParamsMixin):
 class BetLoader:
     """Loads bet recommendations into PostgreSQL."""
 
-    def __init__(
-        self, db_manager: DBManager = default_db
-    ) -> None:
+    def __init__(self, db_manager: DBManager = default_db) -> None:
         """Initialize the BetLoader with a database connection."""
         self.db = db_manager
         self._table_initialized = False
@@ -269,14 +466,20 @@ class BetLoader:
             try:
                 self._create_bet_recommendations_table()
                 self._create_bet_recommendations_indexes()
-                print(f"✓ Successfully created bet_recommendations table (attempt {attempt + 1})")
+                print(
+                    f"✓ Successfully created bet_recommendations table (attempt {attempt + 1})"
+                )
                 return
             except Exception as e:
                 if attempt < max_retries - 1:
-                    print(f"⚠️  Failed to create table (attempt {attempt + 1}): {e}. Retrying in {retry_delay}s...")
+                    print(
+                        f"⚠️  Failed to create table (attempt {attempt + 1}): {e}. Retrying in {retry_delay}s..."
+                    )
                     time.sleep(retry_delay)
                 else:
-                    print(f"❌ Failed to create table after {max_retries} attempts: {e}")
+                    print(
+                        f"❌ Failed to create table after {max_retries} attempts: {e}"
+                    )
                     raise
 
     def _create_bet_recommendations_table(self) -> None:

@@ -1,0 +1,326 @@
+plan_id: 2026-04-23-epl-contract-testing
+variant: b
+objective: >
+  Full contract testing for the EPL pipeline covering the EPL betting pipeline
+  plus the EPL historical stats pipeline.
+
+plan_metrics:
+  total_tasks: 10
+  wave_1_task_count: 3
+  total_dependencies: 16
+  risk_score: 4
+
+tasks:
+  - id: epl-contract-suite-foundation
+    title: Establish EPL contract suite scaffold and canonical schemas
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with:
+      - wire-epl-contract-validation
+      - epl-betting-consumer-contracts
+      - epl-stats-consumer-contracts
+      - epl-betting-provider-contracts
+      - epl-stats-provider-contracts
+    files:
+      - tests/contracts/conftest.py
+      - tests/contracts/helpers/
+      - tests/contracts/schemas/
+    description: |
+      Add the repo's first dedicated EPL contract-testing scaffold under
+      tests/contracts/ with shared schema loaders, reusable EPL fixtures, and
+      versioned JSON Schema assets for every approved boundary.
+
+      Lock the canonical schema surface before deeper coverage expands:
+        - CSV ingestion inputs constrained to E0_*.csv rows with
+          Date/HomeTeam/AwayTeam/FTHG/FTAG/FTR requirements
+        - persisted epl_games and unified_games row contracts
+        - explicit home/draw/away Elo prediction contracts
+        - Kalshi normalized market payload and outcome contracts
+        - bet opportunity and bet_recommendations persistence contracts
+        - SoccerBoxScoreFetcher/team_game_stats/soccer extension contracts
+
+      Make game_id, season, draw/TIE, uppercase sport, recommendation_date, and
+      bet_on semantics explicit in schema assets so every later task works from a
+      single EPL contract source of truth.
+    acceptance:
+      - tests/contracts/ exists as a net-new EPL-focused contract suite with shared fixtures/helpers and no non-EPL scope creep.
+      - tests/contracts/schemas/ contains versioned schema assets for every PRD-approved EPL boundary.
+      - Canonical schema assets explicitly define game_id, season, outcome, and persistence invariants before consumer/provider tests are added.
+
+  - id: epl-identity-season-stabilization
+    title: Stabilize canonical EPL game identity and season invariants
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with:
+      - epl-betting-consumer-contracts
+      - epl-stats-consumer-contracts
+      - epl-betting-provider-contracts
+      - epl-stats-provider-contracts
+    files:
+      - plugins/csv_history_loader.py
+      - plugins/csv_processors.py
+      - plugins/stats/soccer_box_score.py
+    description: |
+      Harden the highest-risk EPL boundary drift before broad test coverage lands.
+
+      Align CSV ingestion and historical stats boundaries to one canonical EPL
+      identity model by resolving:
+        - persisted CSV game_ids written as EPL_YYYYMMDD_CANONHOME_CANONAWAY
+          versus E0-style IDs referenced elsewhere in soccer tests/logic
+        - raw CSV season_code values such as 2324 versus SoccerBoxScoreFetcher
+          labels such as 2023-24
+
+      The result should be an explicit, testable mapping strategy at the
+      ingestion/stats boundary so contract tests never rely on implicit ID or
+      season translation.
+    acceptance:
+      - CSV ingestion produces deterministic canonical EPL identifiers that can be validated consistently across epl_games and unified_games.
+      - Historical stats outputs use the approved EPL season representation, or an explicit boundary mapping, with no silent 2324 vs 2023-24 drift.
+      - EPL contract tests do not depend on hidden translation between E0-style IDs and persisted canonical IDs.
+
+  - id: epl-market-persistence-stabilization
+    title: Stabilize Elo, Kalshi draw, and recommendation persistence invariants
+    wave: 1
+    agent: gem-implementer
+    dependencies: []
+    conflicts_with:
+      - epl-betting-consumer-contracts
+      - epl-betting-provider-contracts
+    files:
+      - plugins/kalshi_markets.py
+      - plugins/odds_comparator.py
+      - plugins/bet_loader.py
+    description: |
+      Lock the production invariants most likely to break EPL contract coverage
+      before expanding tests:
+        - preserve explicit 3-way home/draw/away Elo probabilities
+        - enforce the no-default-Elo guard so missing real ratings fail closed
+        - normalize Kalshi draw/TIE outcomes all the way through persistence
+        - keep bet_recommendations storage aligned with uppercase sport,
+          recommendation_date, and bet_on derived from side semantics
+
+      Scope changes tightly to the EPL-owned boundary behavior needed to make the
+      eventual contract suite pass.
+    acceptance:
+      - OddsComparator-facing Elo payloads always expose explicit home/draw/away probabilities and honor the no-default-Elo guard.
+      - Kalshi normalization can persist draw/TIE outcomes without collapsing EPL markets into home/away-only semantics.
+      - BetLoader persistence stores EPL rows with uppercase sport, recommendation_date, and stable bet_on semantics compatible with canonical contracts.
+
+  - id: wire-epl-contract-validation
+    title: Wire schema validation and pytest execution for EPL contracts
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - epl-contract-suite-foundation
+    conflicts_with:
+      - epl-contract-suite-foundation
+      - epl-betting-consumer-contracts
+      - epl-stats-consumer-contracts
+      - epl-betting-provider-contracts
+      - epl-stats-provider-contracts
+    files:
+      - requirements.txt
+      - setup.cfg
+      - tests/contracts/conftest.py
+    description: |
+      Add the runtime and test-runner support required for the new EPL contract
+      suite to execute in normal developer flows.
+
+      This includes adding any missing schema-validation dependency support,
+      making tests/contracts runnable directly under pytest, and ensuring the
+      shared contract fixtures/helpers remain idempotent and isolated from live
+      services or residual state.
+    acceptance:
+      - requirements.txt includes the schema-validation dependency needed by tests/contracts if it is currently missing.
+      - pytest can run EPL contract tests directly from tests/contracts/ and alongside normal repo test flows.
+      - Contract validation setup does not require live services or leave residual DB or filesystem state behind.
+
+  - id: epl-betting-consumer-contracts
+    title: Add consumer-side contract tests for EPL betting boundaries
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - epl-contract-suite-foundation
+      - epl-identity-season-stabilization
+      - epl-market-persistence-stabilization
+      - wire-epl-contract-validation
+    conflicts_with:
+      - epl-contract-suite-foundation
+      - wire-epl-contract-validation
+      - epl-betting-provider-contracts
+    files:
+      - tests/contracts/test_epl_betting_consumers.py
+      - tests/contracts/fixtures/epl_betting.py
+      - dags/multi_sport_betting_workflow.py
+    description: |
+      Add consumer-side contract tests that codify what EPL betting consumers
+      expect from upstream providers without depending on provider internals.
+
+      Cover the owned EPL betting boundaries end to end:
+        - CSV ingestion rows consumed by CSVHistoryLoader/EPLCSVProcessor
+        - Elo payloads consumed by OddsComparator
+        - Kalshi normalized market payloads consumed by comparison logic
+        - bet opportunity payloads consumed by identify_good_bets/_save_bets_to_file
+        - persistence payloads consumed by BetLoader
+
+      Include explicit failure cases for missing CSV fields, invalid FTR enums,
+      canonical game_id or season drift, missing draw outcomes, extra undeclared
+      fields, and default-Elo contexts that must be rejected.
+    acceptance:
+      - Consumer tests fail on missing Date/HomeTeam/AwayTeam/FTHG/FTAG/FTR fields or invalid H/D/A result values.
+      - Consumer tests enforce canonical game_id/season rules plus explicit home/draw/away probability and draw/TIE market semantics.
+      - identify_good_bets/_save_bets_to_file and BetLoader consumer expectations pass with valid EPL fixtures and reject contract drift.
+
+  - id: epl-stats-consumer-contracts
+    title: Add consumer-side contract tests for EPL historical stats boundaries
+    wave: 2
+    agent: gem-implementer
+    dependencies:
+      - epl-contract-suite-foundation
+      - epl-identity-season-stabilization
+      - wire-epl-contract-validation
+    conflicts_with:
+      - epl-contract-suite-foundation
+      - wire-epl-contract-validation
+      - epl-stats-provider-contracts
+    files:
+      - tests/contracts/test_epl_stats_consumers.py
+      - tests/contracts/fixtures/epl_stats.py
+      - dags/historical_stats_daily.py
+    description: |
+      Add consumer-side contract tests for the EPL historical stats path using
+      mock SoccerBoxScoreFetcher outputs and persisted row fixtures.
+
+      Enforce what the owned stats pipeline consumes:
+        - exactly two team rows per match
+        - required core team_game_stats fields
+        - schema-valid soccer extension payloads
+        - stable EPL game identifiers and approved season representation
+        - compatibility with EPL stats validation consumers only
+    acceptance:
+      - Consumer tests reject missing core team_game_stats fields or malformed soccer extension payloads.
+      - Consumer tests enforce two rows per match, stable EPL identifiers, and the approved season representation.
+      - Coverage remains tightly EPL-focused and does not widen to unrelated dashboard or portfolio consumers.
+
+  - id: epl-betting-provider-contracts
+    title: Add provider-side contract tests for EPL betting outputs
+    wave: 3
+    agent: gem-implementer
+    dependencies:
+      - epl-betting-consumer-contracts
+    conflicts_with:
+      - epl-contract-suite-foundation
+      - epl-identity-season-stabilization
+      - epl-market-persistence-stabilization
+      - epl-betting-consumer-contracts
+    files:
+      - tests/contracts/test_epl_betting_providers.py
+      - plugins/csv_processors.py
+      - plugins/kalshi_markets.py
+    description: |
+      Verify the actual EPL betting providers emit outputs that satisfy the
+      canonical contracts defined earlier.
+
+      Provider coverage should validate real normalized outputs from:
+        - CSV row normalization/persistence into epl_games and unified_games
+        - Elo prediction generation for comparison consumers
+        - Kalshi market normalization and game_odds persistence
+        - odds-comparison recommendation payloads
+        - BetLoader persistence into bet_recommendations
+
+      Keep any code changes tightly coupled to making provider outputs conform to
+      the canonical EPL contract surface.
+    acceptance:
+      - Actual provider outputs validate against canonical schemas for persisted EPL rows, Elo predictions, Kalshi normalized markets, and recommendation rows.
+      - Provider tests prove canonical game_id mapping, explicit 3-way probabilities, draw/TIE persistence, and uppercase sport/recommendation_date invariants.
+      - Any production changes stay confined to EPL contract enforcement instead of broader pipeline refactors.
+
+  - id: epl-stats-provider-contracts
+    title: Add provider-side contract tests for EPL historical stats outputs
+    wave: 3
+    agent: gem-implementer
+    dependencies:
+      - epl-stats-consumer-contracts
+    conflicts_with:
+      - epl-contract-suite-foundation
+      - epl-identity-season-stabilization
+      - epl-stats-consumer-contracts
+    files:
+      - tests/contracts/test_epl_stats_providers.py
+      - plugins/stats/soccer_box_score.py
+      - dags/historical_stats_daily.py
+    description: |
+      Verify the real EPL historical stats provider path emits contract-compliant
+      outputs and persisted rows.
+
+      Validate SoccerBoxScoreFetcher and the owned EPL write path against the
+      canonical stats schemas, including:
+        - two team rows per match
+        - required core team_game_stats fields
+        - schema-valid soccer_team_game_stats_ext payloads
+        - stable identifiers and approved season mapping at the boundary
+    acceptance:
+      - Actual SoccerBoxScoreFetcher outputs validate against the canonical EPL stats schemas.
+      - Persisted team_game_stats and soccer_team_game_stats_ext rows satisfy required field, typing, and row-count invariants.
+      - Provider coverage remains EPL-only and does not expand to non-EPL sports or unrelated consumers.
+
+  - id: document-epl-contract-layer
+    title: Update CHANGELOG and AGENTS guidance for EPL contract enforcement
+    wave: 4
+    agent: gem-documentation-writer
+    dependencies:
+      - wire-epl-contract-validation
+      - epl-betting-provider-contracts
+      - epl-stats-provider-contracts
+    conflicts_with:
+      - final-epl-contract-review
+    files:
+      - CHANGELOG.md
+      - AGENTS.md
+    description: |
+      Document the shipped EPL contract layer without widening scope.
+
+      Add a concise CHANGELOG entry describing:
+        - the new tests/contracts EPL suite
+        - canonical schema coverage
+        - stabilized boundary behavior for game_id, season, draw/TIE, and
+          bet_recommendations persistence
+
+      Add a brief AGENTS.md update reinforcing canonical schema ownership and the
+      expectation that EPL boundary changes preserve the contract suite.
+    acceptance:
+      - CHANGELOG.md documents the EPL contract suite and the stabilized boundary invariants developers must preserve.
+      - AGENTS.md gains a concise repo-wide note about canonical contract/schema ownership and EPL contract validation expectations.
+      - Documentation matches the shipped EPL-only scope.
+
+  - id: final-epl-contract-review
+    title: Perform final EPL contract completeness and risk review
+    wave: 5
+    agent: gem-reviewer
+    dependencies:
+      - epl-betting-provider-contracts
+      - epl-stats-provider-contracts
+      - document-epl-contract-layer
+    conflicts_with: []
+    files:
+      - tests/contracts/
+      - plugins/
+      - CHANGELOG.md
+    description: |
+      Run a final EPL-scoped review of the contract layer before approval.
+
+      Confirm that every approved EPL boundary now has:
+        - canonical schema assets
+        - consumer-side contract coverage
+        - provider-side contract coverage
+        - only the minimum production fixes needed to stabilize those contracts
+
+      Review for unresolved drift around game identity, season mapping, explicit
+      draw probabilities, no-default-Elo enforcement, draw/TIE persistence, and
+      recommendation storage compatibility.
+    acceptance:
+      - Reviewer sign-off confirms every PRD-approved EPL boundary has schema assets plus consumer/provider coverage.
+      - Review confirms production fixes stay limited to canonical identity, season, Elo, Kalshi draw/TIE, and recommendation persistence invariants required for contracts to pass.
+      - No unresolved EPL contract gap or out-of-scope downstream consumer expansion remains at review time.

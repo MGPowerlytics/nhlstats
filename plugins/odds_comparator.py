@@ -16,6 +16,7 @@ from constants import (
     HIGH_CONFIDENCE_MIN_EDGE,
     MEDIUM_CONFIDENCE_MIN_EDGE,
     MAX_MARKET_PROBABILITY,
+    MAX_EDGE_THRESHOLD,
 )
 
 
@@ -136,14 +137,14 @@ class BettingOutcome:
         self, context: "GameContext", config: "BettingThresholds"
     ) -> Dict[str, Any]:
         """Builds the final opportunity dictionary with all metrics."""
-        return {
-            "sport": context.sport,
+        opportunity = {
+            "sport": context.normalized_sport,
             "game_id": context.game_id,
             "home_team": context.home_team_name,
             "away_team": context.away_team_name,
             "home_rating": context.get_rating(context.elo_home),
             "away_rating": context.get_rating(context.elo_away),
-            "bet_on": self.team_name,
+            "bet_on": context.contract_bet_on(self.side, self.team_name),
             "side": self.side,
             "elo_prob": self.elo_prob,
             "market_prob": self.market_prob,
@@ -157,6 +158,17 @@ class BettingOutcome:
             "confidence": self.determine_confidence(config),
             "agreement_diff": self.agreement_diff,
         }
+        if context.is_epl:
+            opportunity["schema_version"] = "v1"
+            opportunity["payload_kind"] = "bet_opportunity"
+            if context.uses_persistence_contract:
+                opportunity["recommendation_date"] = context.recommendation_date
+                opportunity["bet_id"] = context.build_contract_bet_id(
+                    self.side, opportunity["ticker"]
+                )
+        if context.is_tennis and context.tour:
+            opportunity["tour"] = str(context.tour).upper()
+        return opportunity
 
 
 @dataclass
@@ -179,6 +191,60 @@ class GameContext:
     home_win_prob: float = 0.0
     draw_prob: Optional[float] = None
     away_win_prob: float = 0.0
+
+    @property
+    def is_epl(self) -> bool:
+        return self.sport.lower() == "epl"
+
+    @property
+    def is_mlb(self) -> bool:
+        return self.sport.lower() == "mlb"
+
+    @property
+    def is_tennis(self) -> bool:
+        return self.sport.lower() == "tennis"
+
+    @property
+    def normalized_sport(self) -> str:
+        if self.is_epl:
+            return "EPL"
+        if self.is_mlb:
+            return "MLB"
+        if self.is_tennis:
+            return "TENNIS"
+        return self.sport
+
+    @property
+    def recommendation_date(self) -> str:
+        if self.is_epl:
+            parts = self.game_id.split("-")
+            if len(parts) >= 4:
+                return "-".join(parts[1:4])
+        if self.is_tennis:
+            # game_id format: TENNIS_<TOUR>_<YYYY-MM-DD>_<home_slug>_<away_slug>
+            parts = self.game_id.split("_")
+            if len(parts) >= 3:
+                candidate = parts[2]
+                if len(candidate) == 10 and candidate[4] == "-" and candidate[7] == "-":
+                    return candidate
+        return datetime.now().strftime("%Y-%m-%d")
+
+    @property
+    def uses_persistence_contract(self) -> bool:
+        ticker = self.tickers_by_bm.get("Kalshi", {})
+        return not any(
+            isinstance(value, str)
+            and value.upper().endswith(("-HOME", "-DRAW", "-AWAY"))
+            for value in ticker.values()
+        )
+
+    def contract_bet_on(self, side: str, team_name: str) -> str:
+        return side if self.is_epl else team_name
+
+    def build_contract_bet_id(self, side: str, ticker: Optional[str]) -> str:
+        if ticker:
+            return f"EPL-{self.recommendation_date}-{ticker}-{side}"
+        return f"{self.game_id}-{side}"
 
     def calculate_probabilities(self) -> bool:
         """Calculates Elo probabilities for this game context."""
@@ -254,6 +320,15 @@ class GameContext:
             return None
 
         edge = elo_prob - market_prob
+
+        # MLB and TENNIS contracts enforce a hard 0.40 edge ceiling regardless
+        # of the caller-supplied ``BettingThresholds.max_edge``. This guards
+        # against data-error spikes leaking into the recommendation pipeline.
+        # The clamp is intentionally limited to MLB and TENNIS to avoid
+        # changing other sports' historical behaviour (covered by existing
+        # tests using max_edge=1.0).
+        if (self.is_mlb or self.is_tennis) and edge > MAX_EDGE_THRESHOLD:
+            return None
 
         outcome = BettingOutcome(
             side=side,

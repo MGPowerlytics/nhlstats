@@ -56,6 +56,7 @@ class BetData(SqlParamsMixin):
     settled_date: Optional[str]
     payout: Optional[float]
     profit: Optional[float]
+    source: Optional[str] = None
 
     def _get_field_mapping(self) -> Dict[str, str]:
         """Get field name mappings for SQL parameters.
@@ -358,6 +359,7 @@ def _placed_bets_compat_sql() -> str:
             settled_date DATE,
             payout_dollars DOUBLE PRECISION,
             profit_dollars DOUBLE PRECISION,
+            source VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -691,11 +693,11 @@ UPSERT_BET_QUERY = """
         bet_id, sport, placed_date, placed_time_utc, ticker, side, contracts,
         price_cents, cost_dollars, fees_dollars, status,
         settled_date, payout_dollars, profit_dollars, market_title, market_close_time_utc,
-        bet_line_prob, closing_line_prob, clv
+        bet_line_prob, closing_line_prob, clv, source
     ) VALUES (
         :bet_id, :sport, :placed_date, :placed_time_utc, :ticker, :side, :count,
         :price, :cost, :fees, :status, :settled_date, :payout, :profit, :market_title, :market_close_time_utc,
-        :bet_line_prob, :closing_line_prob, :clv
+        :bet_line_prob, :closing_line_prob, :clv, :source
     )
     ON CONFLICT (bet_id) DO UPDATE SET
         contracts = EXCLUDED.contracts,
@@ -712,6 +714,7 @@ UPSERT_BET_QUERY = """
         bet_line_prob = COALESCE(placed_bets.bet_line_prob, EXCLUDED.bet_line_prob),
         closing_line_prob = COALESCE(placed_bets.closing_line_prob, EXCLUDED.closing_line_prob),
         clv = COALESCE(placed_bets.clv, EXCLUDED.clv),
+        source = COALESCE(placed_bets.source, EXCLUDED.source),
         updated_at = CURRENT_TIMESTAMP
 """
 
@@ -780,6 +783,221 @@ def _process_and_save_fills(
             updated_count += 1
 
     return added_count, updated_count
+
+
+# ---------------------------------------------------------------------------
+# Order-aware sync (orders endpoint) — persists newly placed orders to
+# placed_bets immediately, without waiting for /portfolio/fills propagation.
+# ---------------------------------------------------------------------------
+
+
+def _order_status_to_local(status: Optional[str]) -> str:
+    """Map a Kalshi order status to the local placed_bets ``status`` enum.
+
+    Args:
+        status: Kalshi order status (e.g. ``executed``, ``resting``,
+            ``canceled``).
+
+    Returns:
+        ``"canceled"`` for canceled/cancelled orders, otherwise ``"open"``
+        so reconciliation/settlement can transition the row later.
+    """
+    if not status:
+        return "open"
+    normalized = str(status).strip().lower()
+    if normalized in ("canceled", "cancelled"):
+        return "canceled"
+    return "open"
+
+
+def _parse_dollars(value: object) -> float:
+    """Parse a dollar string/float from a Kalshi order payload."""
+    if value in (None, ""):
+        return 0.0
+    try:
+        return float(str(value).strip())
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _parse_iso_datetime(value: object) -> Optional[datetime]:
+    """Parse an ISO8601 timestamp from a Kalshi order payload."""
+    if not value:
+        return None
+    text = str(value).strip()
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        return datetime.fromisoformat(text)
+    except ValueError:
+        return None
+
+
+def _extract_order_data(order: Dict) -> Optional[BetData]:
+    """Convert a Kalshi order payload into a :class:`BetData` row.
+
+    The ``bet_id`` is the Kalshi ``order_id`` so that order rows are
+    distinct from fill rows (which key on ``ticker_trade_id``) and so that
+    repeated syncs upsert idempotently.
+
+    Args:
+        order: A single order entry from ``/portfolio/orders``.
+
+    Returns:
+        A populated :class:`BetData` or ``None`` if the payload is missing
+        the identifiers needed to form a stable bet_id.
+    """
+    order_id = order.get("order_id") or order.get("client_order_id")
+    ticker = order.get("ticker")
+    if not order_id or not ticker:
+        return None
+
+    side = (order.get("side") or "yes").lower()
+    price_cents = _parse_price_cents(order, side)
+
+    status = _order_status_to_local(order.get("status"))
+    fill_count = _parse_int_like(order.get("fill_count_fp"))
+    initial_count = _parse_int_like(order.get("initial_count_fp"))
+    # Resting orders carry intended size in initial_count_fp; executed
+    # orders carry actual filled size in fill_count_fp.
+    contracts = fill_count if fill_count > 0 else initial_count
+
+    fill_cost = _parse_dollars(order.get("taker_fill_cost_dollars"))
+    cost = fill_cost if fill_cost > 0 else (contracts * price_cents) / 100.0
+    fees = _parse_dollars(order.get("taker_fees_dollars"))
+
+    placed_time = _parse_iso_datetime(order.get("created_time"))
+    placed_date = placed_time.date().isoformat() if placed_time else None
+
+    bet_line_prob = _calculate_bet_probabilities(side, price_cents)
+
+    return BetData(
+        bet_id=order_id,
+        sport=_detect_sport_from_ticker(ticker),
+        ticker=ticker,
+        side=side,
+        count=contracts,
+        price=price_cents,
+        cost=cost,
+        fees_dollars=fees,
+        placed_time_utc=placed_time,
+        placed_date=placed_date,
+        market_title=None,
+        market_close_time_utc=None,
+        bet_line_prob=bet_line_prob,
+        closing_line_prob=None,
+        clv=None,
+        status=status,
+        settled_date=None,
+        payout=None,
+        profit=None,
+        source="system",
+    )
+
+
+def load_orders_from_kalshi(client) -> List[Dict]:
+    """Load all orders from Kalshi's ``/portfolio/orders`` endpoint.
+
+    Pages through results using Kalshi's cursor pagination. Raises
+    ``RuntimeError`` if Kalshi returns the same cursor twice (defensive
+    guard against infinite loops).
+
+    Args:
+        client: Authenticated KalshiBetting client.
+
+    Returns:
+        List of order dictionaries.
+    """
+    orders: List[Dict] = []
+    cursor: Optional[str] = None
+    seen_cursors: set = set()
+    page_count = 0
+
+    while True:
+        path = "/trade-api/v2/portfolio/orders?limit=200"
+        if cursor:
+            if cursor in seen_cursors:
+                raise RuntimeError(
+                    "Kalshi orders pagination returned a repeated cursor"
+                )
+            seen_cursors.add(cursor)
+            path = f"{path}&cursor={quote(cursor, safe='')}"
+
+        response = client._get(path) or {}
+        page_orders = response.get("orders", []) or []
+        orders.extend(page_orders)
+        page_count += 1
+
+        cursor = response.get("cursor")
+        if not cursor or not page_orders:
+            break
+
+    print(
+        f"✓ Loaded {len(orders)} orders from Kalshi across {page_count} page(s)"
+    )
+    return orders
+
+
+def sync_orders_to_database(
+    db: DBManager = default_db, client=None
+) -> Tuple[int, int]:
+    """Sync orders from Kalshi to ``placed_bets`` keyed by ``order_id``.
+
+    This complements the fill-driven :func:`sync_bets_to_database` path so
+    that orders are persisted as soon as they hit Kalshi's order book —
+    even before any fills propagate to ``/portfolio/fills``.
+
+    Args:
+        db: Database manager.
+        client: Optional pre-built KalshiBetting client (testing seam).
+
+    Returns:
+        Tuple ``(added_count, updated_count)``.
+    """
+    if client is None:
+        client = _create_kalshi_client()
+
+    orders = load_orders_from_kalshi(client)
+    if not orders:
+        print("✓ No orders found on Kalshi (nothing to sync)")
+        return 0, 0
+
+    _ensure_bets_table_exists(db)
+    existing_bets = _load_existing_bet_ids(db)
+
+    added = 0
+    updated = 0
+    for order in orders:
+        try:
+            bet_data = _extract_order_data(order)
+        except Exception as exc:  # noqa: BLE001 — best-effort per-order
+            print(
+                f"  ⚠️  Failed to extract order "
+                f"{order.get('order_id', 'unknown')}: {exc}"
+            )
+            continue
+        if bet_data is None:
+            continue
+
+        was_added, was_updated = _save_bet_to_database(
+            db, bet_data, existing_bets
+        )
+        if was_added:
+            existing_bets.add(bet_data.bet_id)
+            added += 1
+        elif was_updated:
+            updated += 1
+
+    print(
+        f"\n✓ Synced orders to PostgreSQL: {added} added, {updated} updated"
+    )
+
+    try:
+        backfill_bet_metrics(db)
+    except Exception as exc:  # noqa: BLE001 — non-blocking enrichment
+        print(f"⚠️  Failed to backfill bet metrics after order sync: {exc}")
+
+    return added, updated
 
 
 def sync_bets_to_database(db: DBManager = default_db):

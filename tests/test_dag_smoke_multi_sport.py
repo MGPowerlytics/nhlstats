@@ -491,6 +491,26 @@ class TestFetchPredictionMarketsTask:
 
             mock_fetch.assert_called_once_with("2026-01-27")
 
+    def test_fetch_markets_epl_uses_epl_kalshi_wiring(
+        self, mock_airflow_context, sample_market_data
+    ):
+        """fetch_prediction_markets routes EPL through fetch_epl_markets."""
+        from multi_sport_betting_workflow import SPORTS_CONFIG, fetch_prediction_markets
+
+        assert SPORTS_CONFIG["epl"]["kalshi_function"] == "fetch_epl_markets"
+
+        with patch("kalshi_markets.fetch_epl_markets") as mock_fetch:
+            mock_fetch.return_value = sample_market_data
+
+            with patch("builtins.open", MagicMock()):
+                with patch("multi_sport_betting_workflow.Path"):
+                    fetch_prediction_markets("epl", **mock_airflow_context)
+
+            mock_fetch.assert_called_once_with("2026-01-27")
+
+            xcom_store = mock_airflow_context["_xcom_store"]
+            assert xcom_store["epl_markets"] == sample_market_data
+
     def test_fetch_markets_tennis_calls_correct_function(self, mock_airflow_context):
         """fetch_prediction_markets calls fetch_tennis_markets for tennis."""
         from multi_sport_betting_workflow import fetch_prediction_markets

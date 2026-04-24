@@ -185,6 +185,42 @@ class MLBEloRating(BaseEloRating):
 
         return change
 
+    def predict_payload(
+        self,
+        home_team: str,
+        away_team: str,
+        is_neutral: bool = False,
+    ) -> Dict[str, Union[str, float, bool]]:
+        """Return a structured Elo prediction payload for the contract boundary.
+
+        Wraps :meth:`predict` and :meth:`get_rating` into the locked
+        ``mlb_elo_prediction_v1`` envelope so downstream consumers receive a
+        single, schema-validated dict instead of separate scalar calls.
+
+        Args:
+            home_team: Home team name.
+            away_team: Away team name.
+            is_neutral: If True, omit the home-advantage adjustment.
+
+        Returns:
+            Dict matching ``tests/contracts/schemas/mlb_elo_prediction_v1.json``.
+        """
+        return {
+            "schema_version": "v1",
+            "sport": "MLB",
+            "payload_kind": "elo_prediction",
+            "home_team": home_team,
+            "away_team": away_team,
+            "home_rating": float(self.get_rating(home_team)),
+            "away_rating": float(self.get_rating(away_team)),
+            "home_prob": float(
+                self.predict(home_team, away_team, is_neutral=is_neutral)
+            ),
+            "home_advantage": float(self.config.home_advantage),
+            "k_factor": float(self.config.k_factor),
+            "is_neutral": bool(is_neutral),
+        }
+
     def apply_season_carryover(self, regression_weight: float = 0.0) -> None:
         """Regress all ratings toward the league mean at a season boundary.
 

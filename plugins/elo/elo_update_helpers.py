@@ -55,15 +55,15 @@ def _get_team_names(game: pd.Series, team_mapper: Any) -> tuple[str, str] | None
         Tuple of (home_team, away_team) or None if mapping fails
     """
     if team_mapper:
-        home_team = team_mapper(game.get("home_team") or game.get("home_team_name"))
-        away_team = team_mapper(game.get("away_team") or game.get("away_team_name"))
+        home_team = team_mapper(game.get("home_team") or game.get("home_team_name") or game.get("winner"))
+        away_team = team_mapper(game.get("away_team") or game.get("away_team_name") or game.get("loser"))
 
         # Skip if team mapping returns None (e.g., invalid team)
         if home_team is None or away_team is None:
             return None
     else:
-        home_team = game.get("home_team") or game.get("home_team_name")
-        away_team = game.get("away_team") or game.get("away_team_name")
+        home_team = game.get("home_team") or game.get("home_team_name") or game.get("winner")
+        away_team = game.get("away_team") or game.get("away_team_name") or game.get("loser")
 
     # Skip if either team name is missing
     if not home_team or not away_team:
@@ -118,6 +118,10 @@ def _determine_game_result(game: pd.Series) -> bool | float | None:
     if "home_win" in game:
         return bool(game["home_win"])
 
+    if "winner" in game and "loser" in game:
+        # For tennis/sports where winner is explicitly defined as home_team
+        return True
+
     if "result" in game:
         # For sports like EPL with result column
         result = game["result"]
@@ -156,6 +160,15 @@ def _collect_update_kwargs(game: pd.Series, sport_id: str) -> dict[str, Any]:
 
     if "neutral" in game:
         update_kwargs["is_neutral"] = game["neutral"]
+
+    if "game_date" in game:
+        update_kwargs["game_date"] = game["game_date"]
+
+    if sport_id == "mlb":
+        if "home_pitcher_id" in game:
+            update_kwargs["home_pitcher_id"] = game["home_pitcher_id"]
+        if "away_pitcher_id" in game:
+            update_kwargs["away_pitcher_id"] = game["away_pitcher_id"]
 
     if sport_id == "tennis" and "tour" in game:
         update_kwargs["tour"] = None if pd.isna(game["tour"]) else game["tour"]
@@ -298,8 +311,23 @@ def _save_standard_ratings(
         for team in sorted(valid_ratings.keys()):
             f.write(f"{team},{valid_ratings[team]:.2f}\n")
 
+    # Also call sport-specific save if it exists (e.g. MLB pitcher ratings)
+    if hasattr(elo_instance, "save_ratings"):
+        # We check if it's the adapter's save_ratings (which takes data_dir)
+        # and not just a recursive call to this standard saver.
+        try:
+            # Most of our elo classes have a ratings property or get_all_ratings.
+            # Only the adapter has a custom save_ratings for side data.
+            from plugins.elo.mlb_ensemble_adapter import MLBEnsembleAdapter
+            if isinstance(elo_instance, MLBEnsembleAdapter):
+                elo_instance.save_ratings()
+        except ImportError:
+            pass
+
     # Push to XCom
-    context["task_instance"].xcom_push(key=f"{sport}_elo_ratings", value=valid_ratings)
+    if context and "task_instance" in context:
+        context["task_instance"].xcom_push(key=f"{sport}_elo_ratings", value=valid_ratings)
+
     print(f"✓ {sport.upper()} Elo ratings updated: {len(valid_ratings)} teams")
 
 

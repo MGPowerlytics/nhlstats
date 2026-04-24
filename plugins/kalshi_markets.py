@@ -339,6 +339,158 @@ class TickerParser(ABC):
         pass
 
 
+EPL_GAME_ID_TEAM_CODES = {
+    "arsenal": "ARS",
+    "aston villa": "AVL",
+    "bournemouth": "BOU",
+    "brentford": "BRE",
+    "brighton": "BHA",
+    "burnley": "BUR",
+    "chelsea": "CHE",
+    "crystal palace": "CRY",
+    "everton": "EVE",
+    "fulham": "FUL",
+    "ipswich": "IPS",
+    "ipswich town": "IPS",
+    "leeds": "LEE",
+    "leeds united": "LEE",
+    "leicester": "LEI",
+    "leicester city": "LEI",
+    "liverpool": "LIV",
+    "luton": "LUT",
+    "luton town": "LUT",
+    "man city": "MCI",
+    "manchester city": "MCI",
+    "man united": "MUN",
+    "manchester united": "MUN",
+    "newcastle": "NEW",
+    "newcastle united": "NEW",
+    "nott'm forest": "NFO",
+    "nottingham forest": "NFO",
+    "norwich": "NOR",
+    "norwich city": "NOR",
+    "sheffield united": "SHU",
+    "sheffield utd": "SHU",
+    "southampton": "SOU",
+    "sunderland": "SUN",
+    "tottenham": "TOT",
+    "tottenham hotspur": "TOT",
+    "watford": "WAT",
+    "west ham": "WHU",
+    "west ham united": "WHU",
+    "wolves": "WOL",
+    "wolverhampton": "WOL",
+    "wolverhampton wanderers": "WOL",
+}
+EPL_DRAW_OUTCOMES = {"DRAW", "TIE"}
+EPL_SIDE_OUTCOMES = {"HOME", "AWAY"}
+
+
+def _normalize_epl_date_token(date_token: str) -> Optional[str]:
+    """Return YYYYMMDD for supported EPL ticker date shapes."""
+    if re.fullmatch(r"\d{8}", date_token):
+        return date_token
+    if re.fullmatch(r"\d{6}", date_token):
+        parsed = StandardTickerParser._parse_numeric_date(date_token)
+        return parsed.replace("-", "") if parsed else None
+    return None
+
+
+def _extract_epl_ticker_metadata(ticker: str) -> Optional[Tuple[str, str, str]]:
+    """Extract compact teams token, YYYYMMDD date, and outcome token from an EPL ticker."""
+    parts = ticker.split("-")
+    if len(parts) < 4:
+        return None
+
+    prefix = parts[0].upper()
+    if prefix == "KXHEPL":
+        teams_token = parts[1].upper()
+        date_token = _normalize_epl_date_token(parts[2])
+    elif prefix == "KXEPLGAME":
+        teams_token = parts[2].upper()
+        date_token = _normalize_epl_date_token(parts[1])
+    else:
+        return None
+
+    if not date_token or not re.fullmatch(r"[A-Z]{6}", teams_token):
+        return None
+
+    return teams_token, date_token, parts[-1].upper()
+
+
+def _normalize_epl_outcome_token(outcome_token: str, teams_token: str) -> str:
+    """Normalize EPL outcome token into HOME/AWAY/DRAW/TIE."""
+    outcome = outcome_token.upper()
+    if outcome in EPL_DRAW_OUTCOMES or outcome in EPL_SIDE_OUTCOMES:
+        return outcome
+    if outcome == teams_token[:3]:
+        return "HOME"
+    if outcome == teams_token[3:]:
+        return "AWAY"
+    return outcome
+
+
+def _normalize_epl_market_identity(market: dict) -> dict:
+    """Mutate an EPL market into the canonical contract ticker shape when possible."""
+    ticker = market.get("ticker")
+    if not ticker:
+        return market
+
+    metadata = _extract_epl_ticker_metadata(ticker)
+    if not metadata:
+        return market
+
+    teams_token, date_token, outcome_token = metadata
+    canonical_ticker = (
+        f"KXHEPL-{teams_token}-{date_token}-"
+        f"{_normalize_epl_outcome_token(outcome_token, teams_token)}"
+    )
+    market["ticker"] = canonical_ticker
+    market["market_id"] = canonical_ticker
+    return market
+
+
+class EPLTickerParser(TickerParser):
+    """Parse EPL Kalshi tickers using EPL-specific title and contract rules."""
+
+    @staticmethod
+    def _parse_title_matchup(title: str) -> Optional[Tuple[str, str]]:
+        cleaned_title = StandardTickerParser._strip_title_market_suffix(title)
+
+        at_match = re.match(
+            r"^\s*(.*?)\s+at\s+(.*?)\s*$", cleaned_title, flags=re.IGNORECASE
+        )
+        if at_match:
+            away_team, home_team = at_match.groups()
+            return home_team.strip(), away_team.strip()
+
+        vs_match = re.match(
+            r"^\s*(.*?)\s+vs\.?\s+(.*?)\s*$", cleaned_title, flags=re.IGNORECASE
+        )
+        if vs_match:
+            home_team, away_team = vs_match.groups()
+            return home_team.strip(), away_team.strip()
+
+        return None
+
+    def parse(self, ticker: str, title: str) -> Optional[Tuple[str, str, str]]:
+        metadata = _extract_epl_ticker_metadata(ticker)
+        if not metadata:
+            return None
+
+        _, date_token, _ = metadata
+        try:
+            game_date = datetime.strptime(date_token, "%Y%m%d").strftime("%Y-%m-%d")
+        except ValueError:
+            return None
+
+        title_matchup = self._parse_title_matchup(title)
+        if not title_matchup:
+            return None
+
+        return title_matchup[0], title_matchup[1], game_date
+
+
 class StandardTickerParser(TickerParser):
     """Parses standard sport tickers (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB)."""
 
@@ -614,8 +766,11 @@ class TennisTickerParser(TickerParser):
 
 def _get_parser(sport: str) -> TickerParser:
     """Return appropriate parser for the given sport."""
-    if sport.lower() == "tennis":
+    normalized_sport = sport.lower()
+    if normalized_sport == "tennis":
         return TennisTickerParser()
+    if normalized_sport == "epl":
+        return EPLTickerParser()
     return StandardTickerParser(sport)
 
 
@@ -692,10 +847,27 @@ def _generate_game_id(
     if game_date is None or home_team is None or away_team is None:
         raise ValueError("Missing required parameters for game ID generation")
 
+    if sport.lower() == "epl":
+        return (
+            f"EPL-{game_date}-"
+            f"{_epl_game_id_team_code(home_team)}-"
+            f"{_epl_game_id_team_code(away_team)}"
+        )
+
     date_str = game_date.replace("-", "")
     home_slug = "".join(filter(str.isalnum, home_team)).upper()
     away_slug = "".join(filter(str.isalnum, away_team)).upper()
     return f"{sport.upper()}_{date_str}_{home_slug}_{away_slug}"
+
+
+def _epl_game_id_team_code(team_name: str) -> str:
+    """Return the canonical three-letter team code used in EPL contract game IDs."""
+    normalized_team_name = team_name.strip().lower()
+    if normalized_team_name in EPL_GAME_ID_TEAM_CODES:
+        return EPL_GAME_ID_TEAM_CODES[normalized_team_name]
+
+    compact_name = re.sub(r"[^a-z]", "", normalized_team_name).upper()
+    return compact_name[:3]
 
 
 def _resolve_existing_mlb_game_id(
@@ -1098,7 +1270,7 @@ def _calculate_decimal_odds(yes_price_cents: float) -> float:
         Decimal odds
     """
     CENTS_PER_DOLLAR = 100.0  # Conversion factor: 100 cents = $1.00
-    return CENTS_PER_DOLLAR / yes_price_cents
+    return round(CENTS_PER_DOLLAR / yes_price_cents, 10)
 
 
 def _determine_outcome_name(outcome_side: str, home_team: str, away_team: str) -> str:
@@ -1113,6 +1285,35 @@ def _determine_outcome_name(outcome_side: str, home_team: str, away_team: str) -
         'home' or 'away'
     """
 
+    normalized_outcome_side = outcome_side.upper()
+    if normalized_outcome_side in EPL_DRAW_OUTCOMES:
+        return "draw"
+    if normalized_outcome_side in EPL_SIDE_OUTCOMES:
+        return normalized_outcome_side.lower()
+
+    # MLB franchise-code aware resolution. Kalshi MLB tickers use franchise
+    # codes (e.g. "SF", "LAD", "NYY") rather than 3-char last-name slugs, so
+    # the legacy ``_last_name_code`` heuristic below misclassifies home-side
+    # tickers like ``...-SF`` for ``San Francisco Giants``. Try resolving the
+    # outcome side via NamingResolver under the MLB Kalshi context first; if
+    # the resolved canonical matches one of the supplied team names, use it.
+    # For non-MLB sports the resolver will not match, so behaviour is
+    # preserved by falling through to the legacy logic.
+    try:
+        from plugins.naming_resolver import NamingContext, NamingResolver
+
+        mlb_resolved = NamingResolver.resolve(
+            NamingContext("mlb", "kalshi", normalized_outcome_side)
+        )
+        if mlb_resolved and mlb_resolved != normalized_outcome_side:
+            if mlb_resolved == home_team:
+                return "home"
+            if mlb_resolved == away_team:
+                return "away"
+    except Exception:
+        # Defensive: never let resolver errors break legacy classification.
+        pass
+
     def _last_name_code(name: str) -> str:
         TEAM_CODE_LENGTH = 3  # Standard team code length (e.g., "LAL", "BOS")
         parts = name.split()
@@ -1125,12 +1326,12 @@ def _determine_outcome_name(outcome_side: str, home_team: str, away_team: str) -
     h_code = _last_name_code(home_team)
     a_code = _last_name_code(away_team)
 
-    if outcome_side == h_code:
+    if normalized_outcome_side == h_code:
         return "home"
-    elif outcome_side == a_code:
+    elif normalized_outcome_side == a_code:
         return "away"
     else:
-        return "home" if outcome_side == home_team else "away"
+        return "home" if normalized_outcome_side == home_team.upper() else "away"
 
 
 def _upsert_odds_to_database(
@@ -1174,6 +1375,225 @@ def _upsert_odds_to_database(
     return True
 
 
+def _kalshi_tennis_full_name(market: dict) -> Optional[str]:
+    """Extract full player name from a Kalshi tennis market.
+
+    Kalshi tennis markets carry the YES-side player's full name in
+    ``yes_sub_title`` (e.g., "Flavio Cobolli"). We fall back to parsing the
+    title prefix ("Will <Full Name> win the …") if that field is absent.
+
+    Args:
+        market: Kalshi market dictionary
+
+    Returns:
+        Full player name or None if it cannot be determined
+    """
+    yes_sub = market.get("yes_sub_title")
+    if isinstance(yes_sub, str) and yes_sub.strip():
+        return yes_sub.strip()
+    title = market.get("title", "") or ""
+    match = re.search(r"Will\s+(.+?)\s+win\s+the\b", title)
+    if match:
+        return match.group(1).strip()
+    return None
+
+
+def _kalshi_tennis_event_key(market: dict) -> Optional[str]:
+    """Return the matchup-level event ticker for a tennis market.
+
+    Both YES-side markets for a single ATP/WTA match share the same
+    ``event_ticker`` (e.g., ``KXATPMATCH-26APR07COBBLO``), which we use as
+    the grouping key when consolidating into a unified game.
+    """
+    event_ticker = market.get("event_ticker")
+    if isinstance(event_ticker, str) and event_ticker:
+        return event_ticker
+    ticker = market.get("ticker", "") or ""
+    parts = ticker.rsplit("-", 1)
+    return parts[0] if len(parts) == 2 else None
+
+
+def _kalshi_tennis_tour(event_key: str) -> str:
+    """Infer ATP vs WTA from the event ticker prefix."""
+    upper = event_key.upper()
+    if "WTA" in upper:
+        return "WTA"
+    return "ATP"
+
+
+def _kalshi_tennis_game_date(market: dict, event_key: str) -> Optional[str]:
+    """Determine the match date from event ticker (preferred) or close_time."""
+    parts = event_key.split("-")
+    if len(parts) >= 2:
+        match = re.match(r"^(\d{2})([A-Z]{3})(\d{2})", parts[1])
+        if match:
+            try:
+                dt = datetime.strptime("".join(match.groups()), "%y%b%d")
+                return dt.strftime("%Y-%m-%d")
+            except ValueError:
+                pass
+    close_time = market.get("close_time")
+    if isinstance(close_time, str) and close_time:
+        return close_time.split("T")[0]
+    if hasattr(close_time, "strftime"):
+        return close_time.strftime("%Y-%m-%d")
+    return None
+
+
+def _save_tennis_kalshi_markets(markets: list, db_manager: DBManager) -> int:
+    """Save Kalshi tennis markets into unified_games / game_odds.
+
+    Tennis on Kalshi exposes one binary market per player ("Will <player> win
+    the <X> vs <Y> match?"), so a single ATP/WTA matchup yields two markets
+    that share an ``event_ticker``. We aggregate by event ticker, derive both
+    full player names from each market's ``yes_sub_title``, and emit:
+
+      * one ``unified_games`` row per matchup, with home/away assigned by
+        alphabetical order of the players' full names (tennis has no real
+        home/away — alphabetical sort gives a deterministic mapping);
+      * one ``game_odds`` row per market, with ``outcome_name`` resolved by
+        comparing the YES-side player to the alphabetic ordering.
+
+    Args:
+        markets: List of raw Kalshi market dictionaries
+        db_manager: Database manager
+
+    Returns:
+        Number of odds rows written
+    """
+    # 1. Group markets by event ticker
+    events: Dict[str, list] = {}
+    for market in markets:
+        event_key = _kalshi_tennis_event_key(market)
+        if not event_key:
+            logger.warning(
+                f"Skipping tennis market without event_ticker: {market.get('ticker')}"
+            )
+            continue
+        events.setdefault(event_key, []).append(market)
+
+    odds_count = 0
+
+    for event_key, event_markets in events.items():
+        # 2. Resolve the full names for each YES side
+        side_to_player: Dict[str, str] = {}
+        for market in event_markets:
+            ticker = market.get("ticker", "") or ""
+            side_code = ticker.rsplit("-", 1)[-1].upper() if "-" in ticker else None
+            full_name = _kalshi_tennis_full_name(market)
+            if not side_code or not full_name:
+                continue
+            side_to_player[side_code] = full_name
+
+        # 3. Need at least one player to proceed; if only one side is present
+        # we fall back to extracting the opponent's last name from the title.
+        if not side_to_player:
+            logger.warning(
+                f"Tennis event {event_key}: could not resolve any player names"
+            )
+            continue
+
+        # Derive opponent last name (last 3 chars of event ticker matchup code
+        # — e.g., COBBLO splits into COB and BLO) so we can hydrate the
+        # opponent slot if we only have one market available.
+        matchup_part = event_key.split("-")[1] if "-" in event_key else ""
+        m = re.match(r"^\d{2}[A-Z]{3}\d{2}([A-Z]{6})$", matchup_part)
+        side_codes = [m.group(1)[:3], m.group(1)[3:]] if m else list(side_to_player)
+
+        for side_code in side_codes:
+            if side_code in side_to_player:
+                continue
+            # Pull last name from the title's "<X> vs <Y>" segment.
+            for market in event_markets:
+                title = market.get("title", "") or ""
+                vs_match = re.search(
+                    r"win\s+the\s+(.+?)\s+vs\s+(.+?)\s*(?:[:\-]|match)", title
+                )
+                if not vs_match:
+                    continue
+                p1, p2 = vs_match.group(1).strip(), vs_match.group(2).strip()
+                for candidate in (p1, p2):
+                    code = candidate.split()[-1][:3].upper()
+                    if code == side_code:
+                        side_to_player[side_code] = candidate
+                        break
+                if side_code in side_to_player:
+                    break
+
+        if len(side_to_player) < 2:
+            logger.warning(
+                f"Tennis event {event_key}: only resolved {len(side_to_player)} player(s); "
+                f"skipping unified game upsert"
+            )
+            continue
+
+        # 4. Build the unified game (alphabetical order is the canonical
+        # home/away mapping for sports without a real home side).
+        ordered_sides = sorted(side_to_player.items(), key=lambda kv: kv[1].lower())
+        home_side, home_name = ordered_sides[0]
+        away_side, away_name = ordered_sides[1]
+
+        game_date = _kalshi_tennis_game_date(event_markets[0], event_key)
+        if not game_date:
+            logger.warning(f"Tennis event {event_key}: missing game_date; skipping")
+            continue
+
+        # Tour goes into the game_id so odds_comparator can detect ATP vs WTA
+        # even when the Kalshi ticker is unavailable downstream.
+        tour = _kalshi_tennis_tour(event_key)
+        game_id = (
+            f"TENNIS_{tour}_{game_date}_"
+            f"{re.sub(r'[^A-Za-z0-9]', '', home_name)}_"
+            f"{re.sub(r'[^A-Za-z0-9]', '', away_name)}"
+        )
+
+        commence_time = event_markets[0].get("close_time")
+        if hasattr(commence_time, "isoformat"):
+            commence_time = commence_time.isoformat()
+
+        game_info = UnifiedGameInfo(
+            sport="tennis",
+            game_date=game_date,
+            home_team=home_name,
+            away_team=away_name,
+            canon_home=home_name,
+            canon_away=away_name,
+            commence_time=commence_time,
+        )
+        game_info.game_id = game_id
+        _upsert_game(db_manager, game_info)
+
+        # 5. Persist odds for each Kalshi market
+        for market in event_markets:
+            ticker = market.get("ticker", "") or ""
+            side_code = ticker.rsplit("-", 1)[-1].upper() if "-" in ticker else None
+            if side_code == home_side:
+                outcome_name = "home"
+            elif side_code == away_side:
+                outcome_name = "away"
+            else:
+                logger.warning(
+                    f"Tennis market {ticker} side '{side_code}' does not match "
+                    f"resolved sides ({home_side}/{away_side}); skipping"
+                )
+                continue
+
+            yes_price_cents = market.get("yes_ask", 0) or 0
+            if yes_price_cents <= 0:
+                logger.warning(
+                    f"Tennis market {ticker}: invalid yes_ask {yes_price_cents}; skipping"
+                )
+                continue
+            decimal_odds = _calculate_decimal_odds(yes_price_cents)
+
+            if _upsert_odds_to_database(
+                db_manager, game_id, outcome_name, decimal_odds, ticker
+            ):
+                odds_count += 1
+
+    return odds_count
+
+
 def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db) -> int:
     """
     Save Kalshi markets to the unified_games and game_odds tables in PostgreSQL.
@@ -1190,12 +1610,21 @@ def save_to_db(sport: str, markets: list, db_manager: DBManager = default_db) ->
     schema_manager = DatabaseSchemaManager(db_manager)
     schema_manager.initialize_schema()
 
+    if sport.lower() == "tennis":
+        # Kalshi tennis markets are one-sided binaries that aggregate by
+        # event_ticker into a single matchup; use a dedicated save path.
+        logger.info(f"💾 Saving {len(markets)} TENNIS Kalshi markets to PostgreSQL...")
+        return _save_tennis_kalshi_markets(markets, db_manager)
+
     odds_count = 0
     logger.info(
         f"💾 Saving {len(markets)} {sport.upper()} Kalshi markets to PostgreSQL..."
     )
 
     for market in markets:
+        if sport.lower() == "epl":
+            market = _normalize_epl_market_identity(market)
+
         ticker = market.get("ticker", "")
         title = market.get("title", "")
 
@@ -1361,6 +1790,10 @@ def _process_series_ticker(api: KalshiAPI, series_ticker: str, limit: int) -> li
 
         # Get detailed market data with prices for each market
         detailed_markets = [_get_detailed_market(api, market) for market in markets]
+        if series_ticker == "KXEPLGAME":
+            detailed_markets = [
+                _normalize_epl_market_identity(market) for market in detailed_markets
+            ]
 
         logger.info(
             f"  📊 {series_ticker}: {len(detailed_markets)} active markets with price data"
@@ -1501,23 +1934,14 @@ fetch_nfl_markets = _create_sport_market_fetcher(
 
 
 def fetch_tennis_markets(date_str: Optional[str] = None) -> list:
-    """Fetch tennis markets from TheOddsAPI."""
-    logger.info("💰 Fetching TENNIS prediction markets from TheOddsAPI...")
+    """Fetch tennis markets (ATP, WTA, Challenger) from Kalshi.
 
-    try:
-        api = TheOddsAPI()
-        # Fetch markets (this returns list of games with odds)
-        markets = api.fetch_markets("tennis")
-
-        # Save to database immediately so they are available for odds comparison
-        if markets:
-            count = api.save_to_db(markets)
-            logger.info(f"✓ Saved {count} tennis odds records to database")
-
-        return markets
-    except Exception as e:
-        logger.error(f"✗ Failed to fetch tennis markets: {e}")
-        return []
+    Tennis on Kalshi is exposed as one binary market per player using the
+    series tickers configured in :data:`SPORT_SERIES`. The shared
+    :func:`_fetch_sport_markets` helper handles credentials, rate limiting,
+    and persistence (which dispatches to :func:`_save_tennis_kalshi_markets`).
+    """
+    return _fetch_sport_markets("tennis")
 
 
 def fetch_cba_markets(date_str: Optional[str] = None) -> list:

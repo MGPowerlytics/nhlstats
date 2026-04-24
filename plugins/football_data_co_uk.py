@@ -78,8 +78,12 @@ class FootballDataCoUkGames(BaseGamesFetcher):
                 # Standardize columns
                 # CSV cols: Date, HomeTeam, AwayTeam, FTHG, FTAG, FTR (H, D, A)
 
-                # Parse dates (usually DD/MM/YYYY)
-                df["Date"] = pd.to_datetime(df["Date"], dayfirst=True)
+                # Parse dates (usually DD/MM/YYYY or DD/MM/YY)
+                try:
+                    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, format="%d/%m/%Y")
+                except ValueError:
+                    # Fallback for YY format
+                    df["Date"] = pd.to_datetime(df["Date"], dayfirst=True, format="%d/%m/%y")
 
                 for _, row in df.iterrows():
                     if pd.isna(row["FTHG"]):  # Skip unplayed
@@ -87,6 +91,14 @@ class FootballDataCoUkGames(BaseGamesFetcher):
 
                     all_games.append(
                         {
+                            "Date": row["Date"].strftime("%Y-%m-%d")
+                            if hasattr(row["Date"], "strftime")
+                            else str(row["Date"])[:10],
+                            "HomeTeam": row["HomeTeam"],
+                            "AwayTeam": row["AwayTeam"],
+                            "FTHG": int(row["FTHG"]),
+                            "FTAG": int(row["FTAG"]),
+                            "FTR": row["FTR"],
                             "date": row["Date"],
                             "home_team": row["HomeTeam"],
                             "away_team": row["AwayTeam"],

@@ -1,17 +1,21 @@
 import pandas as pd
 from pathlib import Path
 from typing import List, Dict, Any
+from datetime import datetime
 import requests
 
 
 class TennisGames:
     """Download and manage ATP/WTA tennis game data."""
 
-    def __init__(self, data_dir="data/tennis"):
+    def __init__(self, data_dir: str = "data/tennis") -> None:
         self.data_dir = Path(data_dir)
         self.data_dir.mkdir(parents=True, exist_ok=True)
-        # Years to fetch (e.g., '2021', '2022'...)
-        self.years = ["2021", "2022", "2023", "2024", "2025", "2026"]
+        # Years to fetch — dynamic so the pipeline never goes stale at year-end.
+        # Always include the next calendar year so an early-January season opener
+        # is captured the moment tennis-data.co.uk publishes it.
+        current_year = datetime.now().year
+        self.years = [str(y) for y in range(2021, current_year + 2)]
         self.tours = ["atp", "wta"]
 
     def download_games(self):
@@ -32,8 +36,10 @@ class TennisGames:
                 xlsx_filename = self.data_dir / f"{tour}_{year}.xlsx"
                 csv_filename = self.data_dir / f"{tour}_{year}.csv"
 
-                # Skip if CSV exists and not current/future year
-                if csv_filename.exists() and year not in ["2025", "2026"]:
+                # Skip if CSV exists and not current/future year (re-fetch only the
+                # actively-played seasons so updates land daily).
+                current_year = datetime.now().year
+                if csv_filename.exists() and int(year) < current_year:
                     continue
 
                 print(f"📥 Downloading {tour.upper()} data ({year}) from {url}...")

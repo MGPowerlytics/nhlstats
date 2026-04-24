@@ -290,6 +290,14 @@ class CSVHistoryLoader:
             for _, row in df.iterrows():
                 row_processor(row, metadata)
 
+    def _normalize_epl_row_for_processing(self, row: pd.Series) -> pd.Series:
+        """Keep EPL CSV rows contract-compatible before processor handoff."""
+        normalized_row = row.copy()
+        game_date = normalized_row.get("Date")
+        if hasattr(game_date, "strftime"):
+            normalized_row["Date"] = game_date.strftime("%Y-%m-%d")
+        return normalized_row
+
     def _process_ncaab_row(self, row: pd.Series) -> None:
         """Process a single NCAAB game row and upsert into database."""
         self._process_csv_row("ncaab", row)
@@ -356,7 +364,9 @@ class CSVHistoryLoader:
                 date_errors=None,  # No error coercion
                 metadata_extractor=lambda fp: {"season_code": season_code},
                 row_processor=lambda row, metadata: self._process_csv_row(
-                    "epl", row, season_code=metadata["season_code"]
+                    "epl",
+                    self._normalize_epl_row_for_processing(row),
+                    season_code=metadata["season_code"],
                 ),
                 require_date_column=False,
                 target_date=target_date,

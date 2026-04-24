@@ -1,0 +1,119 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL team_game_stats Row Contract",
+  "description": "Canonical EPL historical-stats core row contract consumed by stats validation.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "sport",
+    "team",
+    "opponent",
+    "is_home",
+    "game_date",
+    "season",
+    "points_for",
+    "points_against",
+    "won",
+    "margin"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+$"
+    },
+    "sport": {
+      "type": "string",
+      "const": "EPL"
+    },
+    "team": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton and Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich Town",
+        "Leeds United",
+        "Leicester City",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Norwich City",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "Watford",
+        "West Ham United",
+        "Wolverhampton Wanderers"
+      ]
+    },
+    "opponent": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton and Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich Town",
+        "Leeds United",
+        "Leicester City",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Norwich City",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "Watford",
+        "West Ham United",
+        "Wolverhampton Wanderers"
+      ]
+    },
+    "is_home": {
+      "type": "boolean"
+    },
+    "game_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "season": {
+      "type": "string",
+      "pattern": "^[0-9]{4}$"
+    },
+    "points_for": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "points_against": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "won": {
+      "type": "boolean"
+    },
+    "margin": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}

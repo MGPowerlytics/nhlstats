@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL unified_games Row Contract",
+  "description": "Canonical shared-storage EPL row contract for the subset of unified_games fields owned by EPLCSVProcessor.",
+  "type": "object",
+  "required": [
+    "game_id",
+    "sport",
+    "game_date",
+    "season",
+    "status",
+    "home_team_name",
+    "away_team_name",
+    "home_score",
+    "away_score"
+  ],
+  "properties": {
+    "game_id": {
+      "type": "string",
+      "pattern": "^EPL_[0-9]{8}_[A-Z0-9]+_[A-Z0-9]+$"
+    },
+    "sport": {
+      "type": "string",
+      "const": "EPL"
+    },
+    "game_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "season": {
+      "type": "integer",
+      "minimum": 2000
+    },
+    "status": {
+      "type": "string",
+      "const": "Final"
+    },
+    "home_team_name": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton and Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich Town",
+        "Leeds United",
+        "Leicester City",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Norwich City",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "Watford",
+        "West Ham United",
+        "Wolverhampton Wanderers"
+      ]
+    },
+    "away_team_name": {
+      "type": "string",
+      "enum": [
+        "Arsenal",
+        "Aston Villa",
+        "Bournemouth",
+        "Brentford",
+        "Brighton and Hove Albion",
+        "Burnley",
+        "Chelsea",
+        "Crystal Palace",
+        "Everton",
+        "Fulham",
+        "Ipswich Town",
+        "Leeds United",
+        "Leicester City",
+        "Liverpool",
+        "Luton Town",
+        "Manchester City",
+        "Manchester United",
+        "Newcastle United",
+        "Nottingham Forest",
+        "Norwich City",
+        "Sheffield United",
+        "Southampton",
+        "Sunderland",
+        "Tottenham Hotspur",
+        "Watford",
+        "West Ham United",
+        "Wolverhampton Wanderers"
+      ]
+    },
+    "home_score": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "away_score": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

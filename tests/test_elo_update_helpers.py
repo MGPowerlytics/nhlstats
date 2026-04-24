@@ -80,8 +80,8 @@ class TestProcessGamesWithElo:
         # Verify
         assert result == 2
         assert elo_instance.update.call_count == 2
-        elo_instance.update.assert_any_call("Team A", "Team C", True)
-        elo_instance.update.assert_any_call("Team B", "Team D", False)
+        elo_instance.update.assert_any_call("Team A", "Team C", True, game_date="2024-01-01")
+        elo_instance.update.assert_any_call("Team B", "Team D", False, game_date="2024-01-02")
 
     def test_team_mapping(self):
         """Test team mapping functionality."""
@@ -123,8 +123,8 @@ class TestProcessGamesWithElo:
 
         # Verify
         assert result == 2
-        elo_instance.update.assert_any_call("Lakers", "Warriors", True)
-        elo_instance.update.assert_any_call("Celtics", "Heat", False)
+        elo_instance.update.assert_any_call("Lakers", "Warriors", True, game_date="2024-01-01")
+        elo_instance.update.assert_any_call("Celtics", "Heat", False, game_date="2024-01-02")
 
     def test_team_mapping_skips_invalid(self):
         """Test that invalid team mapping results are skipped."""
@@ -162,7 +162,7 @@ class TestProcessGamesWithElo:
 
         # Verify only one game processed
         assert result == 1
-        elo_instance.update.assert_called_once_with("Valid Team", "Other Team", True)
+        elo_instance.update.assert_called_once_with("Valid Team", "Other Team", True, game_date="2024-01-01")
 
     def test_result_column_processing(self):
         """Test processing with result column (H/A/D)."""
@@ -194,9 +194,9 @@ class TestProcessGamesWithElo:
 
         # Verify
         assert result == 3
-        elo_instance.update.assert_any_call("Team A", "Team D", True)  # Home win
-        elo_instance.update.assert_any_call("Team B", "Team E", False)  # Away win
-        elo_instance.update.assert_any_call("Team C", "Team F", 0.5)  # Draw
+        elo_instance.update.assert_any_call("Team A", "Team D", True, game_date="2024-01-01")  # Home win
+        elo_instance.update.assert_any_call("Team B", "Team E", False, game_date="2024-01-02")  # Away win
+        elo_instance.update.assert_any_call("Team C", "Team F", 0.5, game_date="2024-01-03")  # Draw
 
     def test_score_based_result(self):
         """Test result determination from scores."""
@@ -230,14 +230,14 @@ class TestProcessGamesWithElo:
         # Verify
         assert result == 3
         elo_instance.update.assert_any_call(
-            "Team A", "Team D", True, home_score=100, away_score=90
+            "Team A", "Team D", True, home_score=100, away_score=90, game_date="2024-01-01"
         )  # Home win 100-90
         elo_instance.update.assert_any_call(
-            "Team B", "Team E", False, home_score=90, away_score=100
+            "Team B", "Team E", False, home_score=90, away_score=100, game_date="2024-01-02"
         )  # Away win 90-100
         elo_instance.update.assert_any_call(
-            "Team C", "Team F", False, home_score=80, away_score=80
-        )  # Tie 80-80 (home_won=False for tie)
+            "Team C", "Team F", False, home_score=80, away_score=80, game_date="2024-01-03"
+        )  # Draw (returns False for score equality in default implementation)
 
     def test_skip_invalid_scores(self):
         """Test that games with invalid scores are skipped."""
@@ -271,7 +271,7 @@ class TestProcessGamesWithElo:
         # Verify only first game processed
         assert result == 1
         elo_instance.update.assert_called_once_with(
-            "Team A", "Team D", True, home_score=100.0, away_score=90
+            "Team A", "Team D", True, home_score=100.0, away_score=90, game_date="2024-01-01"
         )
 
     def test_legacy_update_mode(self):
@@ -342,7 +342,7 @@ class TestProcessGamesWithElo:
 
         # Verify
         assert result == 3
-        # First call: scores + neutral=False + tour=None
+        # First call: scores + neutral=False + tour=None + game_date
         elo_instance.update.assert_any_call(
             "Team A",
             "Team D",
@@ -351,8 +351,9 @@ class TestProcessGamesWithElo:
             away_score=90,
             is_neutral=False,
             tour=None,
+            game_date="2024-01-01",
         )
-        # Second call: scores + neutral=True + tour=None
+        # Second call: scores + neutral=True + tour=None + game_date
         elo_instance.update.assert_any_call(
             "Team B",
             "Team E",
@@ -361,8 +362,9 @@ class TestProcessGamesWithElo:
             away_score=100,
             is_neutral=True,
             tour=None,
+            game_date="2024-01-02",
         )
-        # Third call: scores + neutral=False + tour='ATP' (tennis)
+        # Third call: scores + neutral=False + tour=ATP + game_date
         elo_instance.update.assert_any_call(
             "Team C",
             "Team F",
@@ -371,6 +373,7 @@ class TestProcessGamesWithElo:
             away_score=70,
             is_neutral=False,
             tour="ATP",
+            game_date="2024-01-03",
         )
 
     def test_nba_season_detection(self):
