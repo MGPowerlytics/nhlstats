@@ -142,6 +142,7 @@ def test_dag_schedule(dag) -> None:
     )
     assert schedule == "0 8 * * *", f"Expected schedule '0 8 * * *', got '{schedule}'"
 
+
 def test_dag_catchup_disabled(dag) -> None:
     """Catchup must be False to avoid backfilling historical runs."""
     assert dag is not None
@@ -190,3 +191,152 @@ def test_direct_module_import() -> None:
 
     mod = importlib.import_module("dags.historical_stats_daily")
     assert hasattr(mod, "dag"), "Module must expose a 'dag' object"
+
+
+# ---------------------------------------------------------------------------
+# (g) _run_sport_fetch_by_date remap logic — unit tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeFetcher:
+    """Minimal fetcher stub for remap unit tests."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+        self.upserted: list[dict] = []
+
+    def fetch_date_range(self, start, end):  # noqa: D401
+        return list(self._rows)
+
+    def upsert_rows(self, rows: list[dict]) -> int:
+        self.upserted = rows
+        return len(rows)
+
+
+def test_remap_replaces_native_ids(monkeypatch) -> None:
+    """_run_sport_fetch_by_date must remap native game IDs to unified IDs."""
+    import importlib
+    from datetime import date
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    unified_rows = [
+        {
+            "game_id": "NHL_20260423_BOS_BUF",
+            "home_team_id": "BOS",
+            "away_team_id": "BUF",
+        }
+    ]
+
+    import pandas as pd
+
+    fake_df = pd.DataFrame(unified_rows)
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return fake_df
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    native_rows = [
+        {
+            "game_id": "2026030101",
+            "sport": "NHL",
+            "team": "BOS",
+            "opponent": "BUF",
+            "is_home": True,
+            "game_date": "2026-04-23",
+            "season": "2026",
+            "points_for": 4,
+            "points_against": 2,
+            "won": True,
+            "margin": 2,
+            "ext": {"game_id": "2026030101", "team": "BOS"},
+        },
+        {
+            "game_id": "2026030101",
+            "sport": "NHL",
+            "team": "BUF",
+            "opponent": "BOS",
+            "is_home": False,
+            "game_date": "2026-04-23",
+            "season": "2026",
+            "points_for": 2,
+            "points_against": 4,
+            "won": False,
+            "margin": -2,
+            "ext": {"game_id": "2026030101", "team": "BUF"},
+        },
+    ]
+    fetcher = _FakeFetcher(native_rows)
+
+    mod._run_sport_fetch_by_date(fetcher, "NHL", date(2026, 4, 23))
+
+    assert len(fetcher.upserted) == 2
+    for row in fetcher.upserted:
+        assert (
+            row["game_id"] == "NHL_20260423_BOS_BUF"
+        ), f"Expected unified ID, got {row['game_id']!r}"
+        assert row["ext"]["game_id"] == "NHL_20260423_BOS_BUF"
+
+
+def test_remap_no_unified_games_skips_gracefully(monkeypatch) -> None:
+    """_run_sport_fetch_by_date must return early when unified_games is empty."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return pd.DataFrame()
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    fetcher = _FakeFetcher(
+        [{"game_id": "2026030101", "team": "BOS", "opponent": "BUF", "is_home": True}]
+    )
+    mod._run_sport_fetch_by_date(fetcher, "NHL", date(2026, 4, 23))
+    # upsert_rows should never be called
+    assert fetcher.upserted == []
+
+
+def test_remap_raises_when_all_unmapped(monkeypatch) -> None:
+    """_run_sport_fetch_by_date must raise RuntimeError when 0 rows can be mapped."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    unified_rows = [
+        {
+            "game_id": "NHL_20260423_BOS_BUF",
+            "home_team_id": "BOS",
+            "away_team_id": "BUF",
+        }
+    ]
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return pd.DataFrame(unified_rows)
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    # Row has wrong team abbreviations — won't match lookup
+    bad_rows = [
+        {
+            "game_id": "2026030101",
+            "team": "MTL",
+            "opponent": "TOR",
+            "is_home": True,
+            "ext": {},
+        }
+    ]
+    fetcher = _FakeFetcher(bad_rows)
+
+    with pytest.raises(RuntimeError, match="none matched unified_games"):
+        mod._run_sport_fetch_by_date(fetcher, "NHL", date(2026, 4, 23))

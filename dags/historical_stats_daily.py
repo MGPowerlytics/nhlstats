@@ -114,11 +114,17 @@ def _run_sport_fetch(
     sport: str,
     game_date: date,
 ) -> None:
-    """Core ingestion loop shared by all sport tasks.
+    """Core ingestion loop shared by sports whose fetchers accept unified IDs.
 
-    Iterates over games scheduled for *game_date*, fetches box-score rows
-    via the provided *fetcher*, upserts them to PostgreSQL, and logs a
-    summary of processed / upserted / skipped / failed counts.
+    Iterates over games scheduled for *game_date* (queried from
+    ``unified_games`` or the sport's own table), fetches box-score rows via
+    the provided *fetcher*, upserts them to PostgreSQL, and logs a summary
+    of processed / upserted / skipped / failed counts.
+
+    Used by MLB, NFL, EPL, Ligue1, NCAAB, WNCAAB, and Tennis — sports whose
+    fetchers are designed to accept the internal ``unified_games`` game IDs.
+    For NHL and NBA (which need native numeric API IDs) see
+    :func:`_run_sport_fetch_by_date`.
 
     Args:
         fetcher: A concrete :class:`~plugins.stats.base.BoxScoreFetcher`
@@ -167,6 +173,132 @@ def _run_sport_fetch(
         )
 
 
+def _run_sport_fetch_by_date(
+    fetcher: Any,
+    sport: str,
+    game_date: date,
+) -> None:
+    """Fetch stats via native API schedule and remap game IDs to unified format.
+
+    This helper is used for sports (NHL, NBA) where ``unified_games`` stores
+    internal string IDs such as ``NHL_20260423_BOS_BUF`` or
+    ``NBA_20260423_ATLANTAHAWKS_NEWYORKKNICKS``, but the sport's public API
+    requires native numeric game IDs (e.g. ``2026030101``, ``0042500101``).
+    Passing the internal string IDs directly to those APIs results in 404 or
+    missing-key errors.
+
+    Workflow:
+
+    1. Build a ``{(home_abbrev, away_abbrev) -> unified_game_id}`` lookup from
+       ``unified_games`` for the target sport and date.
+    2. Call ``fetcher.fetch_date_range(game_date, game_date)``, which queries
+       the sport's native API schedule for completed games, fetches each
+       box-score, and returns rows keyed by the native numeric game ID.
+    3. Remap ``row["game_id"]`` (and ``row["ext"]["game_id"]`` when present)
+       to the matching ``unified_games`` ID using the lookup from step 1.
+    4. Call ``fetcher.upsert_rows(remapped_rows)`` — the FK check inside
+       ``upsert_rows`` will now pass because the IDs match ``unified_games``.
+
+    Args:
+        fetcher: A concrete :class:`~plugins.stats.base.BoxScoreFetcher`
+            instance that implements ``fetch_date_range``.
+        sport: Upper-case sport identifier used for log messages and DB
+            queries.
+        game_date: Calendar date to process (typically yesterday in UTC).
+
+    Raises:
+        RuntimeError: If rows were returned by the native API but none could
+            be remapped to a ``unified_games`` ID, indicating a data sync
+            problem that should trigger a task retry.
+    """
+    from plugins.db_manager import DBManager
+
+    sport_upper = sport.upper()
+    db = DBManager()
+
+    # Step 1: Build home/away → unified_game_id lookup from unified_games.
+    lu_df = db.fetch_df(
+        "SELECT game_id, home_team_id, away_team_id FROM unified_games "
+        "WHERE sport = :sport AND game_date = :gdate",
+        {"sport": sport_upper, "gdate": str(game_date)},
+    )
+
+    if lu_df.empty:
+        logger.info("📅 %s — no games in unified_games for %s", sport, game_date)
+        return
+
+    lookup: dict[tuple[str, str], str] = {}
+    for _, lu_row in lu_df.iterrows():
+        home = str(lu_row["home_team_id"]).upper() if lu_row["home_team_id"] else ""
+        away = str(lu_row["away_team_id"]).upper() if lu_row["away_team_id"] else ""
+        if home and away:
+            lookup[(home, away)] = str(lu_row["game_id"])
+
+    logger.info(
+        "📅 %s — fetching via native API for %s (%d game(s) scheduled)",
+        sport,
+        game_date,
+        len(lu_df),
+    )
+
+    # Step 2: Fetch rows using the native API schedule (returns numeric IDs).
+    rows = fetcher.fetch_date_range(game_date, game_date)
+
+    if not rows:
+        logger.info(
+            "✅ %s %s — native API returned 0 completed game rows", sport, game_date
+        )
+        return
+
+    # Step 3: Remap native game IDs → unified_games IDs.
+    remapped: list[dict[str, Any]] = []
+    unmapped = 0
+    for row in rows:
+        is_home: bool = bool(row.get("is_home", False))
+        home_abbrev = (row["team"] if is_home else row["opponent"]).upper()
+        away_abbrev = (row["opponent"] if is_home else row["team"]).upper()
+        unified_id = lookup.get((home_abbrev, away_abbrev))
+        if unified_id is None:
+            logger.warning(
+                "⚠️ %s: no unified_games match for home=%s away=%s on %s — skipping",
+                sport,
+                home_abbrev,
+                away_abbrev,
+                game_date,
+            )
+            unmapped += 1
+            continue
+        remapped_row = dict(row)
+        remapped_row["game_id"] = unified_id
+        if isinstance(remapped_row.get("ext"), dict):
+            remapped_row["ext"] = {**remapped_row["ext"], "game_id": unified_id}
+        remapped.append(remapped_row)
+
+    logger.info(
+        "📊 %s %s — API returned %d row(s), remapped %d, unmapped %d",
+        sport,
+        game_date,
+        len(rows),
+        len(remapped),
+        unmapped,
+    )
+
+    if not remapped:
+        raise RuntimeError(
+            f"{sport}: {len(rows)} row(s) fetched from native API but none matched "
+            f"unified_games for {game_date} — team abbreviation mismatch?"
+        )
+
+    # Step 4: Upsert remapped rows; FK check in upsert_rows now passes.
+    upserted = fetcher.upsert_rows(remapped)
+    logger.info("✅ %s %s — %d row(s) upserted", sport, game_date, upserted)
+
+    if len(remapped) > 0 and upserted == 0:
+        raise RuntimeError(
+            f"{sport}: {len(remapped)} row(s) remapped but 0 upserted for {game_date}"
+        )
+
+
 # ---------------------------------------------------------------------------
 # Sport task callables
 # ---------------------------------------------------------------------------
@@ -175,6 +307,9 @@ def _run_sport_fetch(
 def _fetch_stats_nba(**context: Any) -> None:
     """Fetch and store NBA team game stats for the execution date.
 
+    Uses :func:`_run_sport_fetch_by_date` to query the native NBA Stats API
+    schedule (via ``LeagueGameFinder``) for completed games, remap native
+    numeric game IDs to unified internal IDs, then upsert to PostgreSQL.
     Gracefully skips if ``nba_api`` is not installed.
 
     Args:
@@ -188,11 +323,15 @@ def _fetch_stats_nba(**context: Any) -> None:
 
     yesterday = _yesterday_from_context(context)
     fetcher = NBABoxScoreFetcher()
-    _run_sport_fetch(fetcher, "NBA", yesterday)
+    _run_sport_fetch_by_date(fetcher, "NBA", yesterday)
 
 
 def _fetch_stats_nhl(**context: Any) -> None:
     """Fetch and store NHL team game stats for the execution date.
+
+    Uses :func:`_run_sport_fetch_by_date` to query the native NHL API
+    schedule for completed games, remap native numeric game IDs to unified
+    internal IDs, then upsert to PostgreSQL.
 
     Args:
         **context: Airflow task context dictionary.
@@ -201,7 +340,7 @@ def _fetch_stats_nhl(**context: Any) -> None:
 
     yesterday = _yesterday_from_context(context)
     fetcher = NHLBoxScoreFetcher()
-    _run_sport_fetch(fetcher, "NHL", yesterday)
+    _run_sport_fetch_by_date(fetcher, "NHL", yesterday)
 
 
 def _fetch_stats_mlb(**context: Any) -> None:

@@ -1,5 +1,24 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Fix: historical_stats_daily NHL/NBA game-ID mismatch (2026-04-24)
+- **Root cause**: `_run_sport_fetch()` queried `unified_games` for internal
+  string IDs (e.g. `NHL_20260423_BOS_BUF`, `NBA_20260423_ATLANTAHAWKS_NEWYORKKNICKS`)
+  and passed them directly to the NHL/NBA API fetchers, which expect native
+  numeric IDs (e.g. `2026030101`, `0042500101`). NHL returned HTTP 404; NBA
+  returned `KeyError: 'resultSet'`. The DAG had been failing for 3 consecutive
+  days (Apr 22–24) on all NHL/NBA games.
+- **Fix**: Added `_run_sport_fetch_by_date()` to `dags/historical_stats_daily.py`.
+  This helper: (1) builds a `{(home_abbrev, away_abbrev) → unified_game_id}`
+  lookup from `unified_games`; (2) calls `fetcher.fetch_date_range()` which
+  uses the sport's native API schedule to obtain correct numeric game IDs;
+  (3) remaps `row["game_id"]` and `row["ext"]["game_id"]` to the matching
+  unified ID so the FK check in `upsert_rows()` passes; (4) raises
+  `RuntimeError` if rows are returned but none can be matched.
+- `_fetch_stats_nba` and `_fetch_stats_nhl` now call `_run_sport_fetch_by_date`.
+  All other sports continue to use `_run_sport_fetch` unchanged.
+- Added 3 new unit tests covering the remap happy path, graceful empty-schedule
+  skip, and all-unmapped error path.
+
 ### Tennis contract layer (2026-04-24)
 - Landed the full Tennis contract suite under `tests/contracts/`, mirroring
   the EPL/MLB contract layout with **9 new JSON Schemas** (CSV ingestion,
