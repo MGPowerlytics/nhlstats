@@ -1,5 +1,17 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Fix: MLBEnsembleAdapter missing has_real_rating — 0 MLB bets (2026-04-24)
+- **Root cause**: `MLBEnsembleAdapter` (a `@dataclass`, not inheriting from
+  `BaseEloRating`) was missing the `has_real_rating()` method required by
+  `OddsComparator._both_teams_have_real_ratings()`. Every call raised
+  `AttributeError`, which was caught by `find_opportunities()`'s outer
+  `try/except`, silently returning `[]` — resulting in zero MLB bets being
+  identified or saved to the database despite 14 scheduled games with Kalshi
+  odds in the DB.
+- **Fix**: Added `has_real_rating(team)` to `MLBEnsembleAdapter` delegating
+  to `self.ensemble.team_elo.has_real_rating(team)`.
+- **Tests**: Added 3 regression tests in `tests/test_mlb_ensemble_adapter.py`.
+
 ### Fix: historical_stats_daily tennis fetch — ID mismatch (2026-04-24)
 - **Root cause**: `_fetch_stats_tennis` called `_run_sport_fetch()` which passed
   `unified_games` IDs like `TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse`

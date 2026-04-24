@@ -239,3 +239,25 @@ def test_populate_from_db_form_is_idempotent():
     assert form.win_pct("Yankees") == pytest.approx(1.0)
     assert len(form._records["Yankees"]) == 2
     assert len(form._records["Red Sox"]) == 2
+
+
+def test_adapter_has_real_rating_present():
+    """MLBEnsembleAdapter.has_real_rating returns True for loaded teams."""
+    adapter = MLBEnsembleAdapter()
+    adapter.ratings = {"Los Angeles Dodgers": 1550.0, "New York Yankees": 1600.0}
+    assert adapter.has_real_rating("Los Angeles Dodgers") is True
+    assert adapter.has_real_rating("New York Yankees") is True
+
+
+def test_adapter_has_real_rating_absent():
+    """MLBEnsembleAdapter.has_real_rating returns False for unknown teams."""
+    adapter = MLBEnsembleAdapter()
+    adapter.ratings = {"Los Angeles Dodgers": 1550.0}
+    assert adapter.has_real_rating("Fake Team") is False
+    assert adapter.has_real_rating("") is False
+
+
+def test_adapter_has_real_rating_empty_store():
+    """has_real_rating returns False when no ratings have been loaded."""
+    adapter = MLBEnsembleAdapter()
+    assert adapter.has_real_rating("Los Angeles Dodgers") is False

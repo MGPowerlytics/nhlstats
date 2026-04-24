@@ -100,6 +100,21 @@ class MLBEnsembleAdapter:
         """Return a copy of all current team ratings."""
         return dict(self.ensemble.team_elo.ratings)
 
+    def has_real_rating(self, team: str) -> bool:
+        """Check if team has a computed (non-default) Elo rating.
+
+        Delegates to the underlying team Elo store so OddsComparator can
+        safely guard against betting on teams with only the default 1500
+        rating (i.e. teams the system has never processed a game for).
+
+        Args:
+            team: Canonical team name.
+
+        Returns:
+            True if the team's rating was computed from at least one game.
+        """
+        return self.ensemble.team_elo.has_real_rating(team)
+
     def predict(self, home_team: str, away_team: str) -> float:
         """Return ensemble P(home wins).
 
