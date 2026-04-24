@@ -299,6 +299,154 @@ def _run_sport_fetch_by_date(
         )
 
 
+def _run_tennis_fetch_by_date(
+    fetcher: Any,
+    game_date: date,
+) -> None:
+    """Fetch tennis stats via Sackmann CSV and remap to unified game IDs.
+
+    Tennis has a unique ID mismatch problem: ``unified_games`` stores IDs
+    in the format ``TENNIS_{TOUR}_{DATE}_{WINNER_SLUG}_{LOSER_SLUG}`` (built
+    from Kalshi market data), but :class:`~plugins.stats.tennis_box_score.TennisBoxScoreFetcher`
+    uses Sackmann CSV IDs like ``wta_2026-560_R64_0001``.
+
+    Additional complication: ``fetch_date_range`` filters by Sackmann's
+    ``tourney_date`` (tournament *start* date), not the individual match
+    date.  A match played on Apr 23 may belong to a tournament that started
+    Apr 20, so a single-day query often returns 0 rows.  We widen the
+    lookback window to 14 days to capture mid-tournament rounds.
+
+    Workflow:
+
+    1. Query ``unified_games`` for tennis games on *game_date*.  Build a
+       player-slug lookup ``{frozenset([slug_p1, slug_p2]) -> unified_game_id}``.
+    2. Call ``fetcher.fetch_date_range(game_date - 14d, game_date)`` to fetch
+       all Sackmann rows whose tournament started within the past 14 days.
+    3. Group returned rows by Sackmann-native ``game_id``.  For each group
+       identify winner (``won=True``) and loser (``won=False``), then
+       slugify their ``player_name`` and look up the unified ID.
+    4. Remap matching rows and call ``fetcher.upsert_rows``.
+    5. If 0 rows are returned from Sackmann, or none match ``unified_games``,
+       log an info/warning but **do not raise** — this is expected when
+       tournament start dates precede the game date by more than the lookback
+       window, or when no Sackmann CSV is available yet for new matches.
+
+    Args:
+        fetcher: A :class:`~plugins.stats.tennis_box_score.TennisBoxScoreFetcher`
+            instance.
+        game_date: Calendar date to process (typically yesterday in UTC).
+    """
+    import re
+    from collections import defaultdict
+
+    from plugins.db_manager import DBManager
+
+    db = DBManager()
+
+    # Step 1: Build player-slug lookup from unified_games tennis entries.
+    lu_df = db.fetch_df(
+        "SELECT game_id FROM unified_games WHERE sport = 'TENNIS' AND game_date = :gdate",
+        {"gdate": str(game_date)},
+    )
+
+    if lu_df.empty:
+        logger.info("📅 Tennis — no games in unified_games for %s", game_date)
+        return
+
+    def _slugify(name: str) -> str:
+        return re.sub(r"[^a-z0-9]", "", name.lower())
+
+    def _parse_player_slugs(gid: str) -> tuple[str, str] | None:
+        """Extract (winner_slug, loser_slug) from a TENNIS_... game_id."""
+        # Format: TENNIS_{TOUR}_{DATE}_{P1SLUG}_{P2SLUG}
+        # Date uses hyphens, so split("_", 3) correctly isolates the player part.
+        parts = gid.split("_", 3)
+        if len(parts) < 4:
+            return None
+        remainder = parts[3]  # e.g. "ElenaRybakina_ElenaGabrielaRuse"
+        idx = remainder.find("_")
+        if idx < 0:
+            return None
+        return _slugify(remainder[:idx]), _slugify(remainder[idx + 1 :])
+
+    lookup: dict[frozenset, str] = {}
+    for gid in lu_df["game_id"].tolist():
+        slugs = _parse_player_slugs(str(gid))
+        if slugs:
+            lookup[frozenset(slugs)] = str(gid)
+
+    logger.info(
+        "📅 Tennis — fetching via Sackmann CSV for %s (%d game(s) in unified_games)",
+        game_date,
+        len(lu_df),
+    )
+
+    # Step 2: Widen lookback to 14 days so mid-tournament rounds are included.
+    window_start = game_date - timedelta(days=14)
+    rows = fetcher.fetch_date_range(window_start, game_date)
+
+    if not rows:
+        logger.info(
+            "✅ Tennis %s — Sackmann returned 0 rows (tournament may have started "
+            "more than 14 days ago; skipping stats ingestion)",
+            game_date,
+        )
+        return
+
+    # Step 3: Group by native Sackmann game_id; identify winner/loser pair.
+    by_game: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in rows:
+        by_game[row["game_id"]].append(row)
+
+    remapped: list[dict[str, Any]] = []
+    unmapped = 0
+    for native_gid, game_rows in by_game.items():
+        winner_row = next((r for r in game_rows if r.get("won")), None)
+        loser_row = next((r for r in game_rows if not r.get("won")), None)
+        if not winner_row or not loser_row:
+            unmapped += 1
+            continue
+        w_slug = _slugify(winner_row.get("player_name", ""))
+        l_slug = _slugify(loser_row.get("player_name", ""))
+        unified_id = lookup.get(frozenset([w_slug, l_slug]))
+        if unified_id is None:
+            logger.debug(
+                "⚠️ Tennis: no unified_games match for %s vs %s (from Sackmann id %s)",
+                w_slug,
+                l_slug,
+                native_gid,
+            )
+            unmapped += 1
+            continue
+        for row in game_rows:
+            rr = dict(row)
+            rr["game_id"] = unified_id
+            remapped.append(rr)
+
+    logger.info(
+        "📊 Tennis %s — Sackmann: %d row(s) across %d match(es); "
+        "remapped %d, unmapped %d",
+        game_date,
+        len(rows),
+        len(by_game),
+        len(remapped),
+        unmapped,
+    )
+
+    if not remapped:
+        logger.warning(
+            "⚠️ Tennis %s — %d Sackmann match(es) found but none matched "
+            "unified_games slugs (name format may differ between sources)",
+            game_date,
+            len(by_game),
+        )
+        return
+
+    # Step 4: Upsert; FK check inside upsert_rows will now pass.
+    upserted = fetcher.upsert_rows(remapped)
+    logger.info("✅ Tennis %s — %d row(s) upserted", game_date, upserted)
+
+
 # ---------------------------------------------------------------------------
 # Sport task callables
 # ---------------------------------------------------------------------------
@@ -436,6 +584,10 @@ def _fetch_stats_wncaab(**context: Any) -> None:
 def _fetch_stats_tennis(**context: Any) -> None:
     """Fetch and store tennis player-match stats for the execution date.
 
+    Uses :func:`_run_tennis_fetch_by_date` to match Sackmann CSV rows against
+    ``unified_games`` IDs (which use a slug-based format derived from Kalshi
+    market data) rather than passing raw Sackmann IDs to ``fetch_game_stats``.
+
     Args:
         **context: Airflow task context dictionary.
     """
@@ -443,7 +595,7 @@ def _fetch_stats_tennis(**context: Any) -> None:
 
     yesterday = _yesterday_from_context(context)
     fetcher = TennisBoxScoreFetcher()
-    _run_sport_fetch(fetcher, "Tennis", yesterday)
+    _run_tennis_fetch_by_date(fetcher, yesterday)
 
 
 def _validate_stats_ingestion(**context: Any) -> None:

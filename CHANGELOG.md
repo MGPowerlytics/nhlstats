@@ -1,5 +1,27 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Fix: historical_stats_daily tennis fetch — ID mismatch (2026-04-24)
+- **Root cause**: `_fetch_stats_tennis` called `_run_sport_fetch()` which passed
+  `unified_games` IDs like `TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse`
+  directly to `TennisBoxScoreFetcher.fetch_game_stats()`, which expects Sackmann
+  CSV IDs in the form `{tour}_{tourney_id}_{match_num}`. This raised
+  `ValueError: Cannot extract year from game_id: 'TENNIS_WTA_...'` causing the
+  task to fail and consume all retries.
+- Additional complication: Sackmann `fetch_date_range()` filters by `tourney_date`
+  (tournament *start* date, not match date), so single-day queries miss
+  mid-tournament rounds. The fix widens the lookback window to 14 days.
+- **Fix**: Added `_run_tennis_fetch_by_date()` to `dags/historical_stats_daily.py`.
+  This helper: (1) builds a `{frozenset([slug_p1, slug_p2]) → unified_game_id}`
+  lookup from `unified_games` by parsing player slugs out of the game_id;
+  (2) calls `fetcher.fetch_date_range(game_date-14d, game_date)` with a 14-day
+  lookback; (3) groups rows by native Sackmann game_id, extracts winner/loser
+  names, slugifies them, and looks up the matching unified ID; (4) if no match
+  is found (name format mismatch between Sackmann and Kalshi sources), logs a
+  warning and returns without raising — tennis stats ingestion is best-effort.
+- `_fetch_stats_tennis` now calls `_run_tennis_fetch_by_date`.
+- Added 4 new unit tests covering: successful remap, empty unified_games,
+  Sackmann returns 0 rows, and unmatched player names (graceful degradation).
+
 ### Fix: historical_stats_daily NHL/NBA game-ID mismatch (2026-04-24)
 - **Root cause**: `_run_sport_fetch()` queried `unified_games` for internal
   string IDs (e.g. `NHL_20260423_BOS_BUF`, `NBA_20260423_ATLANTAHAWKS_NEWYORKKNICKS`)

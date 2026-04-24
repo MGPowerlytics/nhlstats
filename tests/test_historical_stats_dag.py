@@ -340,3 +340,144 @@ def test_remap_raises_when_all_unmapped(monkeypatch) -> None:
 
     with pytest.raises(RuntimeError, match="none matched unified_games"):
         mod._run_sport_fetch_by_date(fetcher, "NHL", date(2026, 4, 23))
+
+
+# ---------------------------------------------------------------------------
+# (h) _run_tennis_fetch_by_date remap logic — unit tests
+# ---------------------------------------------------------------------------
+
+
+class _FakeTennisFetcher:
+    """Minimal tennis fetcher stub."""
+
+    def __init__(self, rows: list[dict]) -> None:
+        self._rows = rows
+        self.upserted: list[dict] = []
+
+    def fetch_date_range(self, start, end):  # noqa: D401
+        return list(self._rows)
+
+    def upsert_rows(self, rows: list[dict]) -> int:
+        self.upserted = rows
+        return len(rows)
+
+
+def test_tennis_remap_replaces_sackmann_ids(monkeypatch) -> None:
+    """_run_tennis_fetch_by_date must remap Sackmann IDs to unified TENNIS_ IDs."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    unified_rows = pd.DataFrame(
+        [{"game_id": "TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse"}]
+    )
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return unified_rows
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    sackmann_rows = [
+        {
+            "game_id": "wta_2026-560_R64_0001",
+            "player_name": "Elena Rybakina",
+            "won": True,
+        },
+        {
+            "game_id": "wta_2026-560_R64_0001",
+            "player_name": "Elena Gabriela Ruse",
+            "won": False,
+        },
+    ]
+    fetcher = _FakeTennisFetcher(sackmann_rows)
+
+    mod._run_tennis_fetch_by_date(fetcher, date(2026, 4, 23))
+
+    assert len(fetcher.upserted) == 2
+    for row in fetcher.upserted:
+        assert row["game_id"] == "TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse"
+
+
+def test_tennis_remap_no_unified_games_returns_early(monkeypatch) -> None:
+    """_run_tennis_fetch_by_date returns without error when unified_games is empty."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return pd.DataFrame()
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    fetcher = _FakeTennisFetcher(
+        [{"game_id": "wta_2026-560_R64_0001", "player_name": "A", "won": True}]
+    )
+    mod._run_tennis_fetch_by_date(fetcher, date(2026, 4, 23))
+    assert fetcher.upserted == []
+
+
+def test_tennis_remap_no_sackmann_rows_returns_early(monkeypatch) -> None:
+    """_run_tennis_fetch_by_date returns without error when Sackmann returns 0 rows."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    unified_rows = pd.DataFrame(
+        [{"game_id": "TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse"}]
+    )
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return unified_rows
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    fetcher = _FakeTennisFetcher([])  # Sackmann returns nothing
+    mod._run_tennis_fetch_by_date(fetcher, date(2026, 4, 23))
+    assert fetcher.upserted == []
+
+
+def test_tennis_remap_unmatched_names_warns_but_does_not_raise(monkeypatch) -> None:
+    """_run_tennis_fetch_by_date logs a warning but does NOT raise when slugs don't match."""
+    import importlib
+    from datetime import date
+
+    import pandas as pd
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+
+    unified_rows = pd.DataFrame(
+        [{"game_id": "TENNIS_WTA_2026-04-23_ElenaRybakina_ElenaGabrielaRuse"}]
+    )
+
+    class _FakeDB:
+        def fetch_df(self, query, params):
+            return unified_rows
+
+    monkeypatch.setattr("plugins.db_manager.DBManager", _FakeDB)
+
+    # Sackmann returns rows with completely different player names
+    sackmann_rows = [
+        {"game_id": "wta_2026-560_R64_0002", "player_name": "Iga Swiatek", "won": True},
+        {
+            "game_id": "wta_2026-560_R64_0002",
+            "player_name": "Aryna Sabalenka",
+            "won": False,
+        },
+    ]
+    fetcher = _FakeTennisFetcher(sackmann_rows)
+
+    # Must NOT raise — graceful degradation
+    mod._run_tennis_fetch_by_date(fetcher, date(2026, 4, 23))
+    assert fetcher.upserted == []
