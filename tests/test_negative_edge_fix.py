@@ -71,6 +71,7 @@ def test_no_bet_when_negative_edge():
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home wins with 83.9% (slightly lower than market)
     elo_system = SimpleNamespace(
+        has_real_rating=lambda *a, **kw: True,
         predict=lambda home, away: 0.839,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -134,6 +135,7 @@ def test_bet_when_small_positive_edge():
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home wins with 81.1% (higher than market)
     elo_system = SimpleNamespace(
+        has_real_rating=lambda *a, **kw: True,
         predict=lambda home, away: 0.811,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -199,6 +201,7 @@ def test_high_edge_disagreement_still_works_with_positive_edge():
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home wins with 80% (much higher than market)
     elo_system = SimpleNamespace(
+        has_real_rating=lambda *a, **kw: True,
         predict=lambda home, away: 0.80,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -218,9 +221,9 @@ def test_high_edge_disagreement_still_works_with_positive_edge():
         results = comparator.find_opportunities(config)
 
     # SHOULD bet because edge = 0.80 - 0.43 = 0.37 > 0.05 min_edge
-    assert len(results) == 1, (
-        f"Expected 1 bet with high positive edge, got {len(results)}"
-    )
+    assert (
+        len(results) == 1
+    ), f"Expected 1 bet with high positive edge, got {len(results)}"
     assert results[0]["edge"] > 0.12
     # In positive EV, edge > 15% = HIGH confidence
     assert results[0]["confidence"] == "HIGH"

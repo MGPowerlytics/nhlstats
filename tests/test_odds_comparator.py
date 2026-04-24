@@ -30,6 +30,16 @@ class DummyDB:
         return pd.DataFrame()
 
 
+def _elo_ns(**kwargs) -> SimpleNamespace:
+    """Build a SimpleNamespace elo_system stub with has_real_rating=True for all teams.
+
+    Always add ``has_real_rating`` so the safety guard in OddsComparator passes.
+    """
+    kwargs.setdefault("has_real_rating", lambda *a, **kw: True)
+    kwargs.setdefault("get_rating", lambda team, **kw: 1500)
+    return SimpleNamespace(**kwargs)
+
+
 def test_get_best_odds_returns_expected_dict():
     def frame_for_side(params):
         side = params.get("side")
@@ -114,7 +124,7 @@ def test_find_opportunities_basic_flow():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts home wins with 65%
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict=lambda home, away: 0.65,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -184,7 +194,7 @@ def test_find_opportunities_epl_3way():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts home with 65%
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15},
         get_rating=lambda team: 1600 if team == "Arsenal" else 1500,
     )
@@ -212,7 +222,7 @@ def test_find_opportunities_handles_db_error():
             raise RuntimeError("db error")
 
     comparator = OddsComparator(db_manager=ErrorDB())
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.8)
+    elo_system = _elo_ns(predict=lambda home, away: 0.8)
 
     results = comparator.find_opportunities(
         config=BettingOpportunityConfig(
@@ -259,7 +269,7 @@ def test_find_opportunities_skips_when_no_odds():
 
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
-    elo_system = SimpleNamespace(predict=lambda home, away: 0.8)
+    elo_system = _elo_ns(predict=lambda home, away: 0.8)
 
     with patch("plugins.odds_comparator.NamingResolver.resolve", return_value=None):
         results = comparator.find_opportunities(
@@ -326,7 +336,7 @@ def test_find_opportunities_named_outcomes_resolve():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts Arsenal (home) with 65%
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict_3way=lambda home, away: {"home": 0.65, "draw": 0.20, "away": 0.15},
         get_rating=lambda team: 1600 if team == "Arsenal" else 1500,
     )
@@ -386,7 +396,7 @@ def test_find_opportunities_no_bet_when_disagreement():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home wins with 70% - positive edge of 30% against market's 40%
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict=lambda home, away: 0.70,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -512,7 +522,7 @@ def test_find_opportunities_market_below_cutoff_no_bet():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo says home wins with 60% - edge is only ~2% (below 5% min_edge)
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict=lambda home, away: 0.60,
         get_rating=lambda team: 1520 if team == "Lakers" else 1500,
     )
@@ -573,7 +583,7 @@ def test_find_opportunities_confidence_levels():
     db = DummyDB({"FROM unified_games": games_df, "FROM game_odds": frame_for_query})
     comparator = OddsComparator(db_manager=db)
     # Elo predicts home with 65% - edge ~5% over market's 60%
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict=lambda home, away: 0.65,
         get_rating=lambda team: 1550 if team == "Lakers" else 1500,
     )
@@ -636,7 +646,7 @@ def test_find_opportunities_away_team_agreement():
     comparator = OddsComparator(db_manager=db)
     # Elo also predicts away wins (home win prob = 30%, away = 70%)
     # Away edge: 70% - 65% = 5% positive edge on away
-    elo_system = SimpleNamespace(
+    elo_system = _elo_ns(
         predict=lambda home, away: 0.30,
         get_rating=lambda team: 1450 if team == "Lakers" else 1600,
     )

@@ -328,6 +328,23 @@ class BaseEloRating(ABC):
         """
         return self.calculator.expected_score(rating_a, rating_b)
 
+    def has_real_rating(self, team: str) -> bool:
+        """Check if a team has a real (non-default) rating stored.
+
+        This is the safe guard against betting on teams that only have the
+        ``initial_rating`` default — i.e. teams the Elo system has never
+        processed a game for.  Unlike ``get_rating``, this method does **not**
+        insert a default entry into the store.
+
+        Args:
+            team: Name of team/player.
+
+        Returns:
+            True if the team's rating was computed from at least one game,
+            False if the team is unknown to the Elo system.
+        """
+        return self.store.has_rating(team)
+
     def get_all_ratings(self) -> Dict[str, float]:
         """
         Get all current ratings.

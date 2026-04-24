@@ -1,5 +1,107 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Safety guard: never bet on default Elo ratings (2026-04-23)
+
+**Problem**: EPL/Ligue1 (and any sport) bets were being placed with
+`home_rating=1500.0` / `away_rating=1500.0` because `RatingStore.get_rating()`
+silently inserts the initial-rating default for unknown teams.
+
+**Changes**:
+- `plugins/elo/base_elo_rating.py`: Added `has_real_rating(team) -> bool`
+  method on `BaseEloRating` that delegates to `self.store.has_rating(team)`
+  (checks membership without creating a default entry).
+- `plugins/elo/tennis_elo_rating.py`: Added `has_real_rating(player, tour="ATP") -> bool`
+  that checks the raw `atp_ratings` / `wta_ratings` dicts without inserting.
+- `plugins/odds_comparator.py`: Added `_both_teams_have_real_ratings()` helper
+  and a guard at the top of `_resolve_game_context` — if either team is missing
+  a real Elo rating the game is skipped with a `⚠️ WARNING` log. This blocks
+  default-rated games for **all** sports.
+- `tests/test_no_elo_guard.py`: 71 new tests covering `has_real_rating` on all
+  sport Elo classes (NBA, NHL, MLB, NFL, EPL, Ligue1, NCAAB, Tennis),
+  `_both_teams_have_real_ratings`, `_resolve_game_context` short-circuit, and
+  `find_opportunities` returning empty lists for teams with default ratings.
+- Fixed `tests/test_high_edge_disagreement.py`, `tests/test_odds_comparator.py`,
+  and `tests/test_negative_edge_fix.py`: added `has_real_rating` to all
+  `SimpleNamespace`/`DummyEloSystem` test stubs.
+
+### Tennis pipeline overhaul — Kalshi-native ingestion (2026-04-22)
+- Switched `fetch_tennis_markets()` to the shared Kalshi `_fetch_sport_markets`
+  path. The previous implementation called `TheOddsAPI("tennis")`, which has no
+  tennis sport key, so tennis market fetches were a silent no-op.
+- Added `_save_tennis_kalshi_markets()` in `plugins/kalshi_markets.py`. Kalshi
+  exposes tennis as one-sided binary markets that share an `event_ticker`
+  (e.g. `KXATPMATCH-26APR07COBBLO`), so a single matchup yields two rows.
+  The new save path groups markets by `event_ticker`, derives both player
+  full names from `yes_sub_title` (with a fallback that pulls last-name
+  candidates from the `"<X> vs <Y>"` segment of the title), assigns
+  home/away by alphabetical sort of full names, and emits one
+  `unified_games` row plus one `game_odds` row per Kalshi market.
+- Added tennis-specific helpers `_kalshi_tennis_full_name`,
+  `_kalshi_tennis_event_key`, `_kalshi_tennis_tour`, and
+  `_kalshi_tennis_game_date` to centralize event ticker parsing.
+- Game IDs now embed the tour (`TENNIS_ATP_…` / `TENNIS_WTA_…`) so
+  downstream `odds_comparator` tour detection still works when the raw
+  Kalshi ticker is unavailable.
+- `plugins/tennis_games.py`: hard-coded year list replaced with a dynamic
+  range derived from `datetime.now().year`, and the CSV cache-skip now
+  refreshes only current/future-year files so ATP/WTA results stay current
+  daily.
+- Tests: added `tests/test_kalshi_tennis_save.py` covering aggregation by
+  event ticker, single-market fallback to title-derived opponent, skipping
+  events that cannot be resolved, the `_kalshi_tennis_tour` helper, and
+  the Kalshi delegation contract for `fetch_tennis_markets`. Updated
+  `tests/test_kalshi_markets.py::TestFetchTennisMarkets` and
+  `tests/test_fetch_markets_smoke.py` to reflect the Kalshi (not
+  TheOddsAPI) path.
+- NOTE: TENNIS confidence segments remain excluded in
+  `_get_excluded_segments()` pending a fresh backtest under the new
+  ingestion. This change unblocks data flow; bet placement gating will be
+  revisited once recommendations accumulate.
+
+### Order-aware persistence sync (2026-04-22)
+- Added `sync_orders_to_database` and `load_orders_from_kalshi` in
+  `plugins/bet_tracker.py` to persist Kalshi orders into `placed_bets`
+  immediately after placement, keyed by `order_id` so resting and just-executed
+  orders no longer wait on `/portfolio/fills` propagation. Rows are tagged with
+  `source='system'` so reconciliation can distinguish them from Kalshi-discovered
+  fills.
+- `plugins/portfolio_betting.py::process_daily_bets` now invokes the new sync
+  immediately after placement, so the DAG run that places bets also persists
+  them. This closes the gap where 2026-04-22's MLB and EPL live orders existed
+  on Kalshi but never reached Postgres.
+- `dags/bet_sync_hourly.py` gained a `sync_orders_from_kalshi` task running
+  alongside the existing fills sync so resting → executed transitions are
+  reflected hourly.
+- `plugins/bet_tracker.BetData` now carries an optional `source` field, and
+  `UPSERT_BET_QUERY` preserves origin via `COALESCE` on update so existing rows
+  are not relabeled by later syncs.
+- `tests/test_order_sync.py` covers pagination, status mapping, sport detection
+  from ticker, count/price extraction for executed vs resting orders, and the
+  `backfill_bet_metrics` enrichment hook.
+
+### Bug fixes — morning bet placement recovery (2026-04-22)
+- `plugins/portfolio_optimizer.py::filter_opportunities` no longer rejects
+  positive-EV opportunities using the stale raw `elo_prob` floor. Confidence is
+  already derived from edge size plus `excluded_segments`, so the old 65%/60%/55%
+  gate was incorrectly discarding valid EPL/Ligue1 and MLB underdog value bets
+  before the portfolio placer ever saw them.
+- `plugins/portfolio_optimizer.py::_allocate_kelly_sizing` now seeds the
+  allocation queue with the top opportunity from each sport before filling the
+  remainder by EV. This prevents one slate of cheap soccer longshots from
+  consuming the entire daily budget before MLB's best value bets are considered.
+- `plugins/elo/mlb_ensemble_adapter.py` now restores the standard Elo surface
+  (`get_rating`, `expected_score`, `get_all_ratings`) expected by
+  `plugins/odds_comparator.py`. The missing `get_rating()` method caused the
+  2026-04-22 `mlb_identify_bets` task to throw an `AttributeError`, then write
+  an empty MLB bet file.
+- Added governed migration `migrations/stats_schema/V005__add_placed_bets_source.sql`
+  so `bet_reconciliation.insert_missing_bet()` can persist Kalshi-discovered
+  fills into `placed_bets`. The live table was missing the `source` column even
+  though reconciliation and its tests already depended on it.
+- Added regressions in `tests/test_portfolio_optimizer.py` and
+  `tests/test_mlb_ensemble_adapter.py` to keep edge-based EPL/MLB opportunities
+  and the ensemble adapter contract covered.
+
 ### Bug fixes — MLB scoring and placement consistency (2026-04-22 audit)
 - `plugins/portfolio_optimizer.py::load_opportunities_from_database` now
   normalizes sport filters to uppercase before querying `bet_recommendations`.

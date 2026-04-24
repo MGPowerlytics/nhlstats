@@ -382,6 +382,14 @@ class OddsComparator:
         if "Kalshi" not in odds_by_bm:
             return None
 
+        # Safety guard: never bet when either team lacks a real Elo rating.
+        # get_rating() silently inserts a 1500 default for unknown teams; we
+        # must use has_real_rating() to distinguish "computed" from "default".
+        if not self._both_teams_have_real_ratings(
+            elo_system, sport, elo_home, elo_away, game_id
+        ):
+            return None
+
         return GameContext(
             sport=sport,
             game_id=game_id,
@@ -396,6 +404,52 @@ class OddsComparator:
             tickers_by_bm=tickers_by_bm,
             elo_system=elo_system,
         )
+
+    def _both_teams_have_real_ratings(
+        self,
+        elo_system: Any,
+        sport: str,
+        elo_home: str,
+        elo_away: str,
+        game_id: str,
+    ) -> bool:
+        """Check that both teams have real (non-default) Elo ratings.
+
+        Args:
+            elo_system: The Elo system to query.
+            sport: Sport identifier (used for tennis tour detection).
+            elo_home: Elo-canonical name for the home team/player.
+            elo_away: Elo-canonical name for the away team/player.
+            game_id: Game identifier (for logging only).
+
+        Returns:
+            True if both teams have ratings computed from real game data,
+            False if either team is unknown to the Elo system.
+        """
+        if sport.lower() == "tennis":
+            tour = (
+                "atp"
+                if "ATP" in game_id.upper() or "KXATP" in game_id.upper()
+                else "wta"
+            )
+            home_ok = elo_system.has_real_rating(elo_home, tour=tour)
+            away_ok = elo_system.has_real_rating(elo_away, tour=tour)
+        else:
+            home_ok = elo_system.has_real_rating(elo_home)
+            away_ok = elo_system.has_real_rating(elo_away)
+
+        if not home_ok:
+            print(
+                f"⚠️  Skipping {game_id}: no real Elo for home team '{elo_home}' "
+                f"— would have used default 1500. Refusing to bet."
+            )
+        if not away_ok:
+            print(
+                f"⚠️  Skipping {game_id}: no real Elo for away team '{elo_away}' "
+                f"— would have used default 1500. Refusing to bet."
+            )
+
+        return home_ok and away_ok
 
     def _get_source(self, game_id: str) -> str:
         """Resolves the source of the game ID."""

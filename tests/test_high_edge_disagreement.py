@@ -48,6 +48,10 @@ class DummyEloSystem:
     def get_rating(self, team, tour=None):
         return self.ratings.get(team, 1500)
 
+    def has_real_rating(self, team, tour=None):
+        # In tests, DummyEloSystem treats all teams as having real ratings
+        return True
+
 
 def test_large_positive_edge_bet():
     """Test that large positive edge bets are identified with HIGH confidence."""

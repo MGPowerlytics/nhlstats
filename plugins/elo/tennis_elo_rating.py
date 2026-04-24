@@ -115,7 +115,24 @@ class TennisEloRating(BaseEloRating):
             matches[player] = 0
         return ratings[player]
 
-    def get_match_count(self, player: str, tour: str = "ATP") -> int:
+    def has_real_rating(self, player: str, tour: str = "ATP") -> bool:
+        """Check if a player has a real (non-default) rating stored.
+
+        Unlike ``get_rating``, this method does **not** insert a default entry.
+        Use this as the safety guard before placing bets.
+
+        Args:
+            player: Player name.
+            tour: Tournament type ("ATP" or "WTA").
+
+        Returns:
+            True if the player has been seen in at least one processed match,
+            False if they are unknown to the Elo system.
+        """
+        ratings, _ = self._get_tour_dicts(tour)
+        normalized = self._normalize_name(player, tour)
+        return normalized in ratings
+
         """Get number of matches played by a player.
 
         Args:
@@ -199,6 +216,21 @@ class TennisEloRating(BaseEloRating):
             loser=loser,
         )
 
+    def _infer_tour(self, player_name: str) -> str:
+        """Infer whether a player belongs to ATP or WTA."""
+        # Simple exact match check first
+        if player_name in self.wta_ratings and player_name not in self.atp_ratings:
+            return "WTA"
+        if player_name in self.atp_ratings:
+            return "ATP"
+
+        # Try to match start (last name)
+        name_prefix = str(player_name).strip().title() + " "
+        for name in self.wta_ratings:
+            if name.startswith(name_prefix):
+                return "WTA"
+        return "ATP"
+
     def _create_team_match_context(
         self, home_team: str, away_team: str, is_neutral: bool = False
     ) -> TennisMatchContext:
@@ -214,7 +246,13 @@ class TennisEloRating(BaseEloRating):
         Returns:
             TennisMatchContext object
         """
-        return TennisMatchContext.from_team_interface(home_team, away_team, is_neutral)
+        tour = self._infer_tour(home_team)
+        return TennisMatchContext(
+            player_a=home_team,
+            player_b=away_team,
+            tour=tour,
+            is_neutral=True,
+        )
 
     def _create_team_match_result(
         self,
@@ -335,33 +373,38 @@ class TennisEloRating(BaseEloRating):
         params = TennisEloUpdateParams(
             rating_winner=rw, rating_loser=rl, matches_winner=mw, matches_loser=ml
         )
-        return self._calculate_update_change_with_params(params)
+        cw, cl = self._calculate_update_changes(params)
+        return cw
 
-    def _calculate_update_change_with_params(
+    def _calculate_update_changes(
         self,
         params: TennisEloUpdateParams,
-    ) -> float:
-        """Calculate Elo rating change using TennisEloUpdateParams dataclass.
+    ) -> tuple[float, float]:
+        """Calculate Elo rating changes using TennisEloUpdateParams dataclass.
 
         Args:
             params: TennisEloUpdateParams dataclass with rating and match data
 
         Returns:
-            Elo rating change for winner (negative for loser)
+            Tuple of (winner_change, loser_change)
         """
         expected_win = 1.0 / (1.0 + 10.0 ** ((params.rl - params.rw) / 400.0))
 
-        # Calculate K-Factor
+        # Calculate K-Factor per player
         # Higher K for newer players to converge faster
-        k = self.config.k_factor
+        kw = self.config.k_factor
+        kl = self.config.k_factor
 
         # Simple dynamic K:
         if params.mw < 20:
-            k *= 1.5
+            kw *= 1.5
         if params.ml < 20:
-            k *= 1.5
+            kl *= 1.5
 
-        return k * (1.0 - expected_win)
+        winner_change = kw * (1.0 - expected_win)
+        loser_change = kl * (1.0 - expected_win)  # Magnitude of loss
+
+        return winner_change, loser_change
 
     def update(
         self,
@@ -454,15 +497,16 @@ class TennisEloRating(BaseEloRating):
             matches_winner=matches[winner],
             matches_loser=matches[loser],
         )
-        change = self._calculate_update_change_with_params(params)
+        change_w, change_l = self._calculate_update_changes(params)
 
-        ratings[winner] += change
-        ratings[loser] -= change
+        ratings[winner] += change_w
+        ratings[loser] -= change_l
 
         matches[winner] += 1
         matches[loser] += 1
 
-        return change
+        # Return winner's change for backward compatibility
+        return change_w
 
     def get_all_ratings(self):
         """
