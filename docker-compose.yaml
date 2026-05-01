@@ -320,7 +320,7 @@ services:
     build:
       context: .
     entrypoint: /bin/bash
-    command: -c "streamlit run /opt/airflow/dashboard/dashboard_app.py --server.address=0.0.0.0 --server.fileWatcherType=none"
+    command: -c "streamlit run /opt/airflow/dashboard/app.py --server.address=0.0.0.0 --server.fileWatcherType=none"
     ports:
       - "8501:8501"
     working_dir: /opt/airflow
@@ -338,6 +338,7 @@ services:
       - ./scripts:/opt/airflow/scripts:rw
       - ./dags:/opt/airflow/dags:rw
       - ./tests:/opt/airflow/tests:rw
+      - ./dashboard:/opt/airflow/dashboard:rw
     depends_on:
       postgres:
         condition: service_healthy
