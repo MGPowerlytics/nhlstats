@@ -18,6 +18,36 @@ TEST_DB_URL = f"sqlite:///{TEST_DB_FILE}"
 _TEST_ENGINE = create_engine(TEST_DB_URL)
 
 
+def pytest_configure(config):
+    """Apply DBManager patches before any test module is imported.
+
+    Without this hook, modules that create DBManager instances at import time
+    (e.g. dashboard.data_layer._db) would connect to the real PostgreSQL server
+    because session-scoped fixtures don't run until after collection.
+    """
+    # Import the real module and swap its create_engine so _every_ DBManager
+    # instance (including those created at module level) uses the test engine.
+    import plugins.db_manager as pdm
+
+    # Also available as a bare import through sys.path
+    import db_manager  # noqa: F811
+
+    _original_create_engine = pdm.create_engine
+
+    def _test_create_engine(connection_string, **kwargs):
+        return _TEST_ENGINE
+
+    pdm.create_engine = _test_create_engine
+    db_manager.create_engine = _test_create_engine
+
+    # Clear the global engine registry so cached engines don't leak
+    pdm._ENGINE_REGISTRY.clear()
+
+    # Also patch default_db on the plugins.db_manager module
+    pdm.default_db.connection_string = str(_TEST_ENGINE.url)
+    pdm.default_db.engine = _TEST_ENGINE
+
+
 def regexp(expr, item):
     if item is None:
         return False

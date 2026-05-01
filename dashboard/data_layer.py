@@ -22,45 +22,56 @@ TTL_LONG = 3600     # calibration, historical
 @st.cache_data(ttl=TTL_LIVE)
 def get_portfolio_summary() -> dict:
     """Return KPIs: portfolio_value, daily_pnl, open_bets_count, total_exposure, win_rate, total_bets, settled_count."""
-    latest_snapshot = _db.fetch_scalar(
-        "SELECT portfolio_value FROM portfolio_value_snapshots ORDER BY timestamp DESC LIMIT 1"
-    )
-    portfolio_value = float(latest_snapshot) if latest_snapshot else 0.0
+    try:
+        latest_snapshot = _db.fetch_scalar(
+            "SELECT portfolio_value FROM portfolio_value_snapshots ORDER BY timestamp DESC LIMIT 1"
+        )
+        portfolio_value = float(latest_snapshot) if latest_snapshot else 0.0
 
-    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    daily_result = _db.fetch_df(
-        "SELECT COALESCE(SUM(CASE WHEN status = 'WON' THEN payout - stake "
-        "WHEN status = 'LOST' THEN -stake ELSE 0 END), 0) AS daily_pnl "
-        "FROM placed_bets WHERE DATE(settled_at) = %(today)s",
-        {"today": today},
-    )
-    daily_pnl = float(daily_result["daily_pnl"].iloc[0]) if len(daily_result) > 0 else 0.0
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        daily_result = _db.fetch_df(
+            "SELECT COALESCE(SUM(CASE WHEN status = 'WON' THEN payout - stake "
+            "WHEN status = 'LOST' THEN -stake ELSE 0 END), 0) AS daily_pnl "
+            "FROM placed_bets WHERE DATE(settled_at) = %(today)s",
+            {"today": today},
+        )
+        daily_pnl = float(daily_result["daily_pnl"].iloc[0]) if len(daily_result) > 0 else 0.0
 
-    open_bets = _db.fetch_df(
-        "SELECT COUNT(*) AS cnt, COALESCE(SUM(stake), 0) AS exposure "
-        "FROM placed_bets WHERE status = 'PENDING'"
-    )
-    open_bets_count = int(open_bets["cnt"].iloc[0]) if len(open_bets) > 0 else 0
-    total_exposure = float(open_bets["exposure"].iloc[0]) if len(open_bets) > 0 else 0.0
+        open_bets = _db.fetch_df(
+            "SELECT COUNT(*) AS cnt, COALESCE(SUM(stake), 0) AS exposure "
+            "FROM placed_bets WHERE status = 'PENDING'"
+        )
+        open_bets_count = int(open_bets["cnt"].iloc[0]) if len(open_bets) > 0 else 0
+        total_exposure = float(open_bets["exposure"].iloc[0]) if len(open_bets) > 0 else 0.0
 
-    settled = _db.fetch_df(
-        "SELECT COUNT(*) AS total, "
-        "SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END) AS wins "
-        "FROM placed_bets WHERE status IN ('WON', 'LOST')"
-    )
-    total_bets = int(settled["total"].iloc[0]) if len(settled) > 0 else 0
-    wins = int(settled["wins"].iloc[0]) if len(settled) > 0 else 0
-    win_rate = wins / total_bets if total_bets > 0 else 0.0
+        settled = _db.fetch_df(
+            "SELECT COUNT(*) AS total, "
+            "SUM(CASE WHEN status = 'WON' THEN 1 ELSE 0 END) AS wins "
+            "FROM placed_bets WHERE status IN ('WON', 'LOST')"
+        )
+        total_bets = int(settled["total"].iloc[0]) if len(settled) > 0 else 0
+        wins = int(settled["wins"].iloc[0]) if len(settled) > 0 else 0
+        win_rate = wins / total_bets if total_bets > 0 else 0.0
 
-    return {
-        "portfolio_value": portfolio_value,
-        "daily_pnl": daily_pnl,
-        "open_bets_count": open_bets_count,
-        "total_exposure": total_exposure,
-        "win_rate": win_rate,
-        "total_bets": total_bets,
-        "settled_count": total_bets,
-    }
+        return {
+            "portfolio_value": portfolio_value,
+            "daily_pnl": daily_pnl,
+            "open_bets_count": open_bets_count,
+            "total_exposure": total_exposure,
+            "win_rate": win_rate,
+            "total_bets": total_bets,
+            "settled_count": total_bets,
+        }
+    except Exception:
+        return {
+            "portfolio_value": 0.0,
+            "daily_pnl": 0.0,
+            "open_bets_count": 0,
+            "total_exposure": 0.0,
+            "win_rate": 0.0,
+            "total_bets": 0,
+            "settled_count": 0,
+        }
 
 
 @st.cache_data(ttl=TTL_LIVE)
@@ -398,67 +409,81 @@ def get_bet_recommendations(sport: Optional[str] = None) -> pd.DataFrame:
 @st.cache_data(ttl=TTL_LONG)
 def get_calibration_data(sport: Optional[str] = None) -> dict:
     """Return calibration data: individual bet predictions vs outcomes, buckets, and by-sport summary."""
-    query = (
-        "SELECT sport, elo_prob, status AS result, edge, stake, "
-        "COALESCE(payout, 0) AS payout "
-        "FROM placed_bets WHERE status IN ('WON', 'LOST')"
-    )
-    params: dict = {}
-    if sport:
-        query += " AND sport = %(sport)s"
-        params["sport"] = sport
-    df = _db.fetch_df(query, params)
+    try:
+        query = (
+            "SELECT sport, elo_prob, status AS result, edge, stake, "
+            "COALESCE(payout, 0) AS payout "
+            "FROM placed_bets WHERE status IN ('WON', 'LOST')"
+        )
+        params: dict = {}
+        if sport:
+            query += " AND sport = %(sport)s"
+            params["sport"] = sport
+        df = _db.fetch_df(query, params)
 
-    bets = []
-    for _, row in df.iterrows():
-        bets.append({
-            "sport": row["sport"],
-            "elo_prob": float(row["elo_prob"]) if not pd.isna(row.get("elo_prob")) else 0.5,
-            "result": row["result"],
-            "edge": float(row["edge"]) if not pd.isna(row.get("edge")) else 0.0,
-            "stake": float(row["stake"]),
-            "payout": float(row["payout"]),
-        })
+        bets = []
+        for _, row in df.iterrows():
+            bets.append({
+                "sport": row["sport"],
+                "elo_prob": float(row["elo_prob"]) if not pd.isna(row.get("elo_prob")) else 0.5,
+                "result": row["result"],
+                "edge": float(row["edge"]) if not pd.isna(row.get("edge")) else 0.0,
+                "stake": float(row["stake"]),
+                "payout": float(row["payout"]),
+            })
 
-    # Build buckets
-    bucket_edges = [0.0, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1.0]
-    bucket_labels = ["<50%", "50-55%", "55-60%", "60-65%", "65-70%", "70-75%", "75-80%", "80%+"]
-    buckets = []
-    for i, label in enumerate(bucket_labels):
-        lo = bucket_edges[i]
-        hi = bucket_edges[i + 1]
-        in_bucket = [b for b in bets if lo <= b["elo_prob"] < hi]
-        count = len(in_bucket)
-        wins = sum(1 for b in in_bucket if b["result"] == "WON")
-        actual = wins / count if count > 0 else 0.0
-        buckets.append({
-            "label": label, "predicted_min": lo, "predicted_max": hi,
-            "count": count, "actual_win_rate": round(actual, 4),
-        })
+        # Build buckets
+        bucket_edges = [0.0, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1.0]
+        bucket_labels = ["<50%", "50-55%", "55-60%", "60-65%", "65-70%", "70-75%", "75-80%", "80%+"]
+        buckets = []
+        for i, label in enumerate(bucket_labels):
+            lo = bucket_edges[i]
+            hi = bucket_edges[i + 1]
+            in_bucket = [b for b in bets if lo <= b["elo_prob"] < hi]
+            count = len(in_bucket)
+            wins = sum(1 for b in in_bucket if b["result"] == "WON")
+            actual = wins / count if count > 0 else 0.0
+            buckets.append({
+                "label": label, "predicted_min": lo, "predicted_max": hi,
+                "count": count, "actual_win_rate": round(actual, 4),
+            })
 
-    # By sport
-    sport_groups = {}
-    for b in bets:
-        s = b["sport"]
-        if s not in sport_groups:
-            sport_groups[s] = {"count": 0, "wins": 0, "total_edge": 0, "total_stake": 0, "total_payout": 0}
-        sport_groups[s]["count"] += 1
-        if b["result"] == "WON":
-            sport_groups[s]["wins"] += 1
-        sport_groups[s]["total_edge"] += b["edge"]
-        sport_groups[s]["total_stake"] += b["stake"]
-        sport_groups[s]["total_payout"] += b["payout"]
+        # By sport
+        sport_groups = {}
+        for b in bets:
+            s = b["sport"]
+            if s not in sport_groups:
+                sport_groups[s] = {"count": 0, "wins": 0, "total_edge": 0, "total_stake": 0, "total_payout": 0}
+            sport_groups[s]["count"] += 1
+            if b["result"] == "WON":
+                sport_groups[s]["wins"] += 1
+            sport_groups[s]["total_edge"] += b["edge"]
+            sport_groups[s]["total_stake"] += b["stake"]
+            sport_groups[s]["total_payout"] += b["payout"]
 
-    by_sport = []
-    for s, g in sorted(sport_groups.items()):
-        by_sport.append({
-            "sport": s, "bet_count": g["count"],
-            "win_rate": round(g["wins"] / g["count"], 4) if g["count"] else 0,
-            "avg_edge": round(g["total_edge"] / g["count"], 4) if g["count"] else 0,
-            "roi": round((g["total_payout"] - g["total_stake"]) / g["total_stake"], 4) if g["total_stake"] else 0,
-        })
+        by_sport = []
+        for s, g in sorted(sport_groups.items()):
+            by_sport.append({
+                "sport": s, "bet_count": g["count"],
+                "win_rate": round(g["wins"] / g["count"], 4) if g["count"] else 0,
+                "avg_edge": round(g["total_edge"] / g["count"], 4) if g["count"] else 0,
+                "roi": round((g["total_payout"] - g["total_stake"]) / g["total_stake"], 4) if g["total_stake"] else 0,
+            })
 
-    return {"bets": bets, "buckets": buckets, "by_sport": by_sport}
+        return {"bets": bets, "buckets": buckets, "by_sport": by_sport}
+    except Exception:
+        bucket_edges = [0.0, 0.50, 0.55, 0.60, 0.65, 0.70, 0.75, 0.80, 1.0]
+        bucket_labels = ["<50%", "50-55%", "55-60%", "60-65%", "65-70%", "70-75%", "75-80%", "80%+"]
+        buckets = []
+        for i, label in enumerate(bucket_labels):
+            buckets.append({
+                "label": label,
+                "predicted_min": bucket_edges[i],
+                "predicted_max": bucket_edges[i + 1],
+                "count": 0,
+                "actual_win_rate": 0.0,
+            })
+        return {"bets": [], "buckets": buckets, "by_sport": []}
 
 
 @st.cache_data(ttl=TTL_STANDARD)
@@ -483,70 +508,86 @@ def get_data_quality_report() -> dict:
     sport_reports = []
     total_score = 0
 
-    for sport in sports:
-        score = 100
-        issues_list = []
+    try:
+        for sport in sports:
+            score = 100
+            issues_list = []
 
-        # Check for missing recent games
-        missing = _db.fetch_scalar(
-            "SELECT COUNT(*) FROM unified_games WHERE sport = %(sport)s "
-            "AND start_time >= CURRENT_DATE - INTERVAL '3 days'",
-            {"sport": sport},
-        )
-        missing_count = max(0, 3 - (int(missing) if missing else 0))
-        if missing_count > 0:
-            score -= missing_count * 10
-            issues_list.append(f"Missing recent games")
+            # Check for missing recent games
+            missing = _db.fetch_scalar(
+                "SELECT COUNT(*) FROM unified_games WHERE sport = %(sport)s "
+                "AND start_time >= CURRENT_DATE - INTERVAL '3 days'",
+                {"sport": sport},
+            )
+            missing_count = max(0, 3 - (int(missing) if missing else 0))
+            if missing_count > 0:
+                score -= missing_count * 10
+                issues_list.append(f"Missing recent games")
 
-        # Check for stale Elo ratings
-        stale = _db.fetch_scalar(
-            "SELECT COUNT(*) FROM elo_ratings WHERE sport = %(sport)s "
-            "AND timestamp < CURRENT_DATE - INTERVAL '7 days'",
-            {"sport": sport},
-        )
-        stale_count = int(stale) if stale else 0
-        if stale_count > 0:
-            score -= min(30, stale_count * 5)
-            issues_list.append(f"{stale_count} stale Elo ratings")
+            # Check for stale Elo ratings
+            stale = _db.fetch_scalar(
+                "SELECT COUNT(*) FROM elo_ratings WHERE sport = %(sport)s "
+                "AND timestamp < CURRENT_DATE - INTERVAL '7 days'",
+                {"sport": sport},
+            )
+            stale_count = int(stale) if stale else 0
+            if stale_count > 0:
+                score -= min(30, stale_count * 5)
+                issues_list.append(f"{stale_count} stale Elo ratings")
 
-        # Check odds freshness
-        last_odds = _db.fetch_scalar(
-            "SELECT MAX(timestamp) FROM game_odds WHERE sport = %(sport)s",
-            {"sport": sport},
-        )
-        odds_minutes = 999
-        if last_odds:
-            try:
-                if hasattr(last_odds, "isoformat"):
-                    last_odds_dt = last_odds
-                else:
-                    last_odds_dt = datetime.fromisoformat(str(last_odds).replace("Z", "+00:00"))
-                delta = datetime.now(timezone.utc) - last_odds_dt.replace(tzinfo=timezone.utc)
-                odds_minutes = int(delta.total_seconds() / 60)
-            except (ValueError, TypeError):
-                pass
+            # Check odds freshness
+            last_odds = _db.fetch_scalar(
+                "SELECT MAX(timestamp) FROM game_odds WHERE sport = %(sport)s",
+                {"sport": sport},
+            )
+            odds_minutes = 999
+            if last_odds:
+                try:
+                    if hasattr(last_odds, "isoformat"):
+                        last_odds_dt = last_odds
+                    else:
+                        last_odds_dt = datetime.fromisoformat(str(last_odds).replace("Z", "+00:00"))
+                    delta = datetime.now(timezone.utc) - last_odds_dt.replace(tzinfo=timezone.utc)
+                    odds_minutes = int(delta.total_seconds() / 60)
+                except (ValueError, TypeError):
+                    pass
 
-        # Last game date
-        last_game = _db.fetch_scalar(
-            "SELECT MAX(start_time) FROM unified_games WHERE sport = %(sport)s",
-            {"sport": sport},
-        )
-        last_game_str = last_game.isoformat() if hasattr(last_game, "isoformat") else str(last_game) if last_game else "N/A"
+            # Last game date
+            last_game = _db.fetch_scalar(
+                "SELECT MAX(start_time) FROM unified_games WHERE sport = %(sport)s",
+                {"sport": sport},
+            )
+            last_game_str = last_game.isoformat() if hasattr(last_game, "isoformat") else str(last_game) if last_game else "N/A"
 
-        score = max(0, min(100, score))
-        total_score += score
-        sport_reports.append({
-            "sport": sport,
-            "health_score": score,
-            "missing_games": missing_count,
-            "stale_elo": stale_count,
-            "odds_freshness_minutes": odds_minutes,
-            "last_game_date": last_game_str,
-            "last_dag_run": "N/A",
-            "issues": issues_list,
-        })
+            score = max(0, min(100, score))
+            total_score += score
+            sport_reports.append({
+                "sport": sport,
+                "health_score": score,
+                "missing_games": missing_count,
+                "stale_elo": stale_count,
+                "odds_freshness_minutes": odds_minutes,
+                "last_game_date": last_game_str,
+                "last_dag_run": "N/A",
+                "issues": issues_list,
+            })
 
-    overall = total_score // len(sports) if sports else 0
+        overall = total_score // len(sports) if sports else 0
+    except Exception:
+        # Return defaults when tables don't exist yet
+        for sport in sports:
+            sport_reports.append({
+                "sport": sport,
+                "health_score": 0,
+                "missing_games": 3,
+                "stale_elo": 0,
+                "odds_freshness_minutes": 999,
+                "last_game_date": "N/A",
+                "last_dag_run": "N/A",
+                "issues": ["Tables not yet created"],
+            })
+        overall = 0
+
     return {"overall_health": overall, "sports": sport_reports}
 
 
