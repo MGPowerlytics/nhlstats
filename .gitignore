@@ -39,6 +39,10 @@ Thumbs.db
 .env
 .env
 
+# Worktrees and superpowers
+.worktrees/
+.superpowers/
+
 # Local secret artifacts
 kalshkey
 odds_api_key
