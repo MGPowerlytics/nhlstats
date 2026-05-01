@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Calibration Data",
+  "description": "Model calibration data consumed by the Calibration page.",
+  "type": "object",
+  "required": ["bets", "buckets", "by_sport"],
+  "properties": {
+    "bets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sport", "elo_prob", "result", "edge", "stake", "payout"],
+        "properties": {
+          "sport": {"type": "string"},
+          "elo_prob": {"type": "number", "minimum": 0, "maximum": 1},
+          "result": {"type": "string", "enum": ["WON", "LOST"]},
+          "edge": {"type": "number"},
+          "stake": {"type": "number"},
+          "payout": {"type": "number"}
+        }
+      }
+    },
+    "buckets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["label", "predicted_min", "predicted_max", "count", "actual_win_rate"],
+        "properties": {
+          "label": {"type": "string"},
+          "predicted_min": {"type": "number"},
+          "predicted_max": {"type": "number"},
+          "count": {"type": "integer"},
+          "actual_win_rate": {"type": "number"}
+        }
+      }
+    },
+    "by_sport": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sport", "bet_count", "win_rate", "avg_edge", "roi"],
+        "properties": {
+          "sport": {"type": "string"},
+          "bet_count": {"type": "integer", "minimum": 0},
+          "win_rate": {"type": "number", "minimum": 0, "maximum": 1},
+          "avg_edge": {"type": "number"},
+          "roi": {"type": "number"}
+        }
+      }
+    }
+  }
+}

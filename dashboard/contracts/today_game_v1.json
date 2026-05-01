@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Today Games",
+  "description": "Today's games with Elo probabilities and odds, consumed by the Live Markets page.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["game_id", "sport", "home_team", "away_team", "start_time"],
+    "properties": {
+      "game_id": {"type": "string"},
+      "sport": {"type": "string"},
+      "home_team": {"type": "string"},
+      "away_team": {"type": "string"},
+      "start_time": {"type": "string"},
+      "home_elo": {"type": "number"},
+      "away_elo": {"type": "number"},
+      "home_win_prob": {"type": "number", "minimum": 0, "maximum": 1},
+      "best_home_odds": {"type": "number"},
+      "best_away_odds": {"type": "number"},
+      "best_home_bookmaker": {"type": "string"},
+      "best_away_bookmaker": {"type": "string"},
+      "edge": {"type": "number"},
+      "edge_side": {"type": "string"},
+      "confidence": {"type": "string"}
+    },
+    "additionalProperties": true
+  }
+}

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Elo History",
+  "description": "Elo rating timeseries for one team, consumed by Rankings and Bet Detail pages.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["date", "team", "rating"],
+    "properties": {
+      "date": {"type": "string"},
+      "team": {"type": "string"},
+      "rating": {"type": "number"}
+    }
+  }
+}

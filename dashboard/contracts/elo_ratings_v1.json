@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Elo Ratings",
+  "description": "Current Elo ratings for teams/players in a sport, consumed by the Rankings page.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["team", "rating", "sport", "last_updated"],
+    "properties": {
+      "team": {"type": "string"},
+      "rating": {"type": "number"},
+      "sport": {"type": "string"},
+      "last_updated": {"type": "string"},
+      "trend_7d": {"type": "number"},
+      "trend_30d": {"type": "number"},
+      "rank": {"type": "integer", "minimum": 1}
+    },
+    "additionalProperties": true
+  }
+}

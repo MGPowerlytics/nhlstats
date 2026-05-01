@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bet Recommendations",
+  "description": "Current bet recommendations the system wants to place, consumed by the Live Markets page.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["sport", "game_id", "bet_on", "elo_prob", "market_prob", "edge", "confidence"],
+    "properties": {
+      "sport": {"type": "string"},
+      "game_id": {"type": "string"},
+      "bet_on": {"type": "string"},
+      "home_team": {"type": "string"},
+      "away_team": {"type": "string"},
+      "side": {"type": "string"},
+      "elo_prob": {"type": "number", "minimum": 0, "maximum": 1},
+      "market_prob": {"type": "number", "minimum": 0, "maximum": 1},
+      "market_odds": {"type": "number"},
+      "bookmaker": {"type": "string"},
+      "edge": {"type": "number"},
+      "expected_value": {"type": "number"},
+      "kelly_fraction": {"type": "number"},
+      "confidence": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+      "ticker": {"type": "string"}
+    },
+    "additionalProperties": true
+  }
+}

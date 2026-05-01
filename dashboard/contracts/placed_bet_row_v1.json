@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Placed Bet Row",
+  "description": "A single row from the placed_bets table consumed by the Portfolio and Bet Detail pages.",
+  "type": "object",
+  "required": ["bet_id", "sport", "market", "team", "placed_at", "stake", "status"],
+  "properties": {
+    "bet_id": {"type": "string", "minLength": 1},
+    "sport": {"type": "string", "minLength": 1},
+    "market": {"type": "string"},
+    "team": {"type": "string"},
+    "placed_at": {"type": "string"},
+    "stake": {"type": "number", "minimum": 0},
+    "status": {"type": "string", "enum": ["PENDING", "WON", "LOST", "CANCELLED"]},
+    "edge": {"type": "number"},
+    "elo_prob": {"type": "number", "minimum": 0, "maximum": 1},
+    "market_prob": {"type": "number", "minimum": 0, "maximum": 1},
+    "kelly_fraction": {"type": "number"},
+    "confidence": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+    "payout": {"type": "number"},
+    "settled_at": {"type": "string"},
+    "ticker": {"type": "string"},
+    "bookmaker": {"type": "string"},
+    "game_id": {"type": "string"},
+    "home_team": {"type": "string"},
+    "away_team": {"type": "string"},
+    "side": {"type": "string"},
+    "elo_home_rating": {"type": "number"},
+    "elo_away_rating": {"type": "number"}
+  },
+  "additionalProperties": true
+}

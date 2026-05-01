@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Data Quality Report",
+  "description": "System health report consumed by the Data Quality page.",
+  "type": "object",
+  "required": ["overall_health", "sports"],
+  "properties": {
+    "overall_health": {"type": "integer", "minimum": 0, "maximum": 100},
+    "sports": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["sport", "health_score"],
+        "properties": {
+          "sport": {"type": "string"},
+          "health_score": {"type": "integer", "minimum": 0, "maximum": 100},
+          "missing_games": {"type": "integer"},
+          "stale_elo": {"type": "integer"},
+          "odds_freshness_minutes": {"type": "integer"},
+          "last_game_date": {"type": "string"},
+          "last_dag_run": {"type": "string"},
+          "issues": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    }
+  }
+}

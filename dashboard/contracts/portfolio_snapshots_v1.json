@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Portfolio Snapshots",
+  "description": "Timeseries of portfolio value snapshots consumed by the Portfolio page.",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "required": ["timestamp", "portfolio_value"],
+    "properties": {
+      "timestamp": {"type": "string"},
+      "portfolio_value": {"type": "number"}
+    }
+  }
+}

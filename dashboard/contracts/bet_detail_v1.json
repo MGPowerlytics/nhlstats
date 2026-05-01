@@ -1,0 +1,105 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bet Detail",
+  "description": "Full bet traceability data consumed by the Bet Detail drill-down page.",
+  "type": "object",
+  "required": ["bet", "odds", "elo_snapshot", "elo_history", "recent_form"],
+  "properties": {
+    "bet": {
+      "type": "object",
+      "required": ["bet_id", "sport", "market", "team", "placed_at", "stake", "status", "edge", "elo_prob", "market_prob", "kelly_fraction", "confidence"],
+      "properties": {
+        "bet_id": {"type": "string"},
+        "sport": {"type": "string"},
+        "market": {"type": "string"},
+        "team": {"type": "string"},
+        "placed_at": {"type": "string"},
+        "stake": {"type": "number"},
+        "status": {"type": "string"},
+        "edge": {"type": "number"},
+        "elo_prob": {"type": "number"},
+        "market_prob": {"type": "number"},
+        "kelly_fraction": {"type": "number"},
+        "confidence": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},
+        "payout": {"type": "number"},
+        "settled_at": {"type": "string"},
+        "bookmaker": {"type": "string"},
+        "ticker": {"type": "string"},
+        "home_team": {"type": "string"},
+        "away_team": {"type": "string"},
+        "side": {"type": "string"}
+      }
+    },
+    "odds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["source", "price", "implied_prob", "timestamp"],
+        "properties": {
+          "source": {"type": "string", "enum": ["kalshi", "betmgm", "draftkings", "sbr"]},
+          "price": {"type": "number"},
+          "implied_prob": {"type": "number", "minimum": 0, "maximum": 1},
+          "timestamp": {"type": "string"}
+        }
+      }
+    },
+    "elo_snapshot": {
+      "type": "object",
+      "required": ["team_a_rating", "team_b_rating", "team_a_name", "team_b_name", "rating_diff", "home_advantage", "effective_diff"],
+      "properties": {
+        "team_a_rating": {"type": "number"},
+        "team_b_rating": {"type": "number"},
+        "team_a_name": {"type": "string"},
+        "team_b_name": {"type": "string"},
+        "rating_diff": {"type": "number"},
+        "home_advantage": {"type": "number"},
+        "effective_diff": {"type": "number"}
+      }
+    },
+    "elo_history": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["date", "team", "rating"],
+        "properties": {
+          "date": {"type": "string"},
+          "team": {"type": "string"},
+          "rating": {"type": "number"}
+        }
+      }
+    },
+    "recent_form": {
+      "type": "object",
+      "required": ["team_a", "team_b"],
+      "properties": {
+        "team_a": {
+          "type": "object",
+          "required": ["team", "games"],
+          "properties": {
+            "team": {"type": "string"},
+            "games": {"type": "array", "items": {
+              "type": "object",
+              "required": ["opponent", "result", "score", "date"],
+              "properties": {
+                "opponent": {"type": "string"},
+                "result": {"type": "string", "enum": ["W", "L", "D"]},
+                "score": {"type": "string"},
+                "date": {"type": "string"}
+              }
+            }},
+            "record": {"type": "string"}
+          }
+        },
+        "team_b": {
+          "type": "object",
+          "required": ["team", "games"],
+          "properties": {
+            "team": {"type": "string"},
+            "games": {"type": "array"},
+            "record": {"type": "string"}
+          }
+        }
+      }
+    }
+  }
+}
