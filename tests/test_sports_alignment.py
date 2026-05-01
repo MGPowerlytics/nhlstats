@@ -25,54 +25,37 @@ def _extract_sports_config_keys(dag_path: Path) -> Set[str]:
     raise AssertionError("Could not find SPORTS_CONFIG assignment")
 
 
-def _extract_dashboard_leagues(dashboard_path: Path) -> List[str]:
-    """Extract the dashboard league list from the sidebar selectbox.
+def _extract_dashboard_leagues(data_layer_path: Path) -> List[str]:
+    """Extract sports from the data layer's _get_home_advantage dict.
 
     We intentionally parse the file AST (not import it) to avoid
     executing Streamlit at import time.
     """
 
-    tree = ast.parse(dashboard_path.read_text(encoding="utf-8"))
+    tree = ast.parse(data_layer_path.read_text(encoding="utf-8"))
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Call):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        if node.name != "_get_home_advantage":
             continue
 
-        # Match calls like: st.sidebar.selectbox("Select League", [...])
-        func = node.func
-        if not isinstance(func, ast.Attribute) or func.attr != "selectbox":
-            continue
+        # Find the dict literal inside the function
+        for child in ast.walk(node):
+            if isinstance(child, ast.Dict):
+                leagues: List[str] = []
+                for k in child.keys:
+                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
+                        leagues.append(k.value)
+                return leagues
 
-        # Try to detect first arg "Select League"
-        if not node.args:
-            continue
-        first = node.args[0]
-        if not (isinstance(first, ast.Constant) and first.value == "Select League"):
-            continue
-
-        if len(node.args) < 2:
-            raise AssertionError("Select League selectbox missing options list")
-
-        second = node.args[1]
-        if not isinstance(second, ast.List):
-            raise AssertionError("Select League options are not a list literal")
-
-        leagues: List[str] = []
-        for elt in second.elts:
-            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
-                leagues.append(elt.value)
-            else:
-                raise AssertionError("Select League options contain a non-string")
-
-        return leagues
-
-    raise AssertionError("Could not find the dashboard Select League selectbox")
+    raise AssertionError("Could not find _get_home_advantage dict")
 
 
 def test_dag_and_dashboard_sports_aligned() -> None:
     repo_root = Path(__file__).resolve().parents[1]
     dag_path = repo_root / "dags" / "multi_sport_betting_workflow.py"
-    dashboard_path = repo_root / "dashboard" / "dashboard_app.py"
+    dashboard_path = repo_root / "dashboard" / "data_layer.py"
 
     dag_sports = _extract_sports_config_keys(dag_path)
     dashboard_leagues = _extract_dashboard_leagues(dashboard_path)
