@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_portfolio_v1.schema.json",
+  "title": "Dashboard Portfolio Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_portfolio_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "snapshot_hour_utc",
+    "balance_dollars",
+    "portfolio_value_dollars",
+    "cumulative_deposits_dollars",
+    "realized_profit_dollars",
+    "open_risk_dollars",
+    "settled_bet_count",
+    "open_bet_count",
+    "roi",
+    "created_at_utc"
+  ],
+  "properties": {
+    "snapshot_hour_utc": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "balance_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "portfolio_value_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "cumulative_deposits_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "realized_profit_dollars": {
+      "type": "number"
+    },
+    "open_risk_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "settled_bet_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_bet_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "roi": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "created_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

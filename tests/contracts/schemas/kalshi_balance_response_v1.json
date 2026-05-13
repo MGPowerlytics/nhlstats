@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/kalshi_balance_response_v1.json",
+  "title": "Kalshi Balance Response Contract v1",
+  "description": "Canonical Kalshi balance response schema for /trade-api/v2/portfolio/balance.",
+  "type": "object",
+  "required": [
+    "balance",
+    "portfolio_value"
+  ],
+  "properties": {
+    "balance": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Cash balance (in cents as integer, or dollar value as float)"
+    },
+    "portfolio_value": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Portfolio value including open positions (in cents as integer, or dollar value as float)"
+    }
+  },
+  "additionalProperties": false
+}

@@ -1,0 +1,174 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_advanced_features_v1.json",
+  "title": "MLB Advanced Feature Vector v1",
+  "description": "Canonical pregame MLB feature vector for calibrated moneyline and prop modeling. Public-source-first fields include availability/provenance so proprietary-only signals can force abstention when unavailable.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "home_team",
+    "away_team",
+    "as_of_ts",
+    "feature_version",
+    "feature_hash",
+    "feature_availability",
+    "sabermetrics",
+    "plate_discipline",
+    "matchup_dynamics",
+    "bullpen_fatigue",
+    "recency"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "advanced_feature_vector"},
+    "game_id": {"type": "string", "minLength": 1},
+    "home_team": {"type": "string", "minLength": 1},
+    "away_team": {"type": "string", "minLength": 1},
+    "as_of_ts": {"type": "string", "format": "date-time"},
+    "feature_version": {"type": "string", "minLength": 1},
+    "feature_hash": {"type": "string", "minLength": 12},
+    "feature_availability": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["available", "derived", "unavailable", "stale", "abstain_required"]
+      }
+    },
+    "sabermetrics": {
+      "type": "object",
+      "required": [
+        "home_woba",
+        "away_woba",
+        "home_wrc_plus",
+        "away_wrc_plus",
+        "home_starter_fip",
+        "away_starter_fip",
+        "home_starter_xfip",
+        "away_starter_xfip",
+        "home_starter_siera",
+        "away_starter_siera",
+        "home_starter_k_bb_pct",
+        "away_starter_k_bb_pct"
+      ],
+      "properties": {
+        "home_woba": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_woba": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_wrc_plus": {"type": "number", "minimum": 0.0},
+        "away_wrc_plus": {"type": "number", "minimum": 0.0},
+        "home_starter_fip": {"type": "number", "minimum": 0.0},
+        "away_starter_fip": {"type": "number", "minimum": 0.0},
+        "home_starter_xfip": {"type": "number", "minimum": 0.0},
+        "away_starter_xfip": {"type": "number", "minimum": 0.0},
+        "home_starter_siera": {"type": "number", "minimum": 0.0},
+        "away_starter_siera": {"type": "number", "minimum": 0.0},
+        "home_starter_k_bb_pct": {"type": "number", "minimum": -1.0, "maximum": 1.0},
+        "away_starter_k_bb_pct": {"type": "number", "minimum": -1.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "plate_discipline": {
+      "type": "object",
+      "required": [
+        "home_o_swing_pct",
+        "away_o_swing_pct",
+        "home_z_contact_pct",
+        "away_z_contact_pct",
+        "home_hard_hit_pct",
+        "away_hard_hit_pct",
+        "home_exit_velocity",
+        "away_exit_velocity",
+        "home_launch_angle",
+        "away_launch_angle",
+        "home_whiff_rate",
+        "away_whiff_rate",
+        "home_csw_pct",
+        "away_csw_pct"
+      ],
+      "properties": {
+        "home_o_swing_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_o_swing_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_z_contact_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_z_contact_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_hard_hit_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_hard_hit_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_exit_velocity": {"type": "number", "minimum": 0.0},
+        "away_exit_velocity": {"type": "number", "minimum": 0.0},
+        "home_launch_angle": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+        "away_launch_angle": {"type": "number", "minimum": -90.0, "maximum": 90.0},
+        "home_whiff_rate": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_whiff_rate": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_csw_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "away_csw_pct": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "matchup_dynamics": {
+      "type": "object",
+      "required": [
+        "pitcher_batter_k_rate_delta",
+        "pitcher_batter_contact_rate_delta",
+        "pitch_mix_mismatch",
+        "platoon_advantage",
+        "catcher_framing_runs",
+        "umpire_zone_runs",
+        "pitch_accuracy",
+        "vertical_location_score"
+      ],
+      "properties": {
+        "pitcher_batter_k_rate_delta": {"type": "number"},
+        "pitcher_batter_contact_rate_delta": {"type": "number"},
+        "pitch_mix_mismatch": {"type": "number"},
+        "platoon_advantage": {"type": "number"},
+        "catcher_framing_runs": {"type": ["number", "null"]},
+        "umpire_zone_runs": {"type": ["number", "null"]},
+        "pitch_accuracy": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+        "vertical_location_score": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "bullpen_fatigue": {
+      "type": "object",
+      "required": [
+        "home_pitches_last_3_days",
+        "away_pitches_last_3_days",
+        "home_pitches_last_5_days",
+        "away_pitches_last_5_days",
+        "home_relievers_over_15_pitches",
+        "away_relievers_over_15_pitches",
+        "home_relievers_over_20_pitches",
+        "away_relievers_over_20_pitches",
+        "home_velocity_penalty",
+        "away_velocity_penalty"
+      ],
+      "properties": {
+        "home_pitches_last_3_days": {"type": "integer", "minimum": 0},
+        "away_pitches_last_3_days": {"type": "integer", "minimum": 0},
+        "home_pitches_last_5_days": {"type": "integer", "minimum": 0},
+        "away_pitches_last_5_days": {"type": "integer", "minimum": 0},
+        "home_relievers_over_15_pitches": {"type": "integer", "minimum": 0},
+        "away_relievers_over_15_pitches": {"type": "integer", "minimum": 0},
+        "home_relievers_over_20_pitches": {"type": "integer", "minimum": 0},
+        "away_relievers_over_20_pitches": {"type": "integer", "minimum": 0},
+        "home_velocity_penalty": {"type": "number", "maximum": 0.0},
+        "away_velocity_penalty": {"type": "number", "maximum": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "recency": {
+      "type": "object",
+      "required": ["window_days", "plate_appearance_window", "recency_weight"],
+      "properties": {
+        "window_days": {"type": "integer", "minimum": 1, "maximum": 30},
+        "plate_appearance_window": {"type": "integer", "minimum": 1, "maximum": 500},
+        "recency_weight": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

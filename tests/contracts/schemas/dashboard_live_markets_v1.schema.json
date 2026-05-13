@@ -1,0 +1,115 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_live_markets_v1.schema.json",
+  "title": "Dashboard Live Markets Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_live_markets_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "market_external_id",
+    "game_date",
+    "commence_time",
+    "home_team_name",
+    "away_team_name",
+    "bookmaker",
+    "market_name",
+    "outcome_name",
+    "price",
+    "last_update",
+    "recommendation_bet_id",
+    "edge",
+    "expected_value",
+    "confidence",
+    "ticker"
+  ],
+  "properties": {
+    "market_external_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "game_date": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "commence_time": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "home_team_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "away_team_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bookmaker": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "outcome_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "price": {
+      "type": "number"
+    },
+    "last_update": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "recommendation_bet_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "edge": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": -1,
+      "maximum": 1
+    },
+    "expected_value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "confidence": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        null
+      ]
+    },
+    "ticker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

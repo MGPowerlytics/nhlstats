@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "DBManager Contract v1",
+  "description": "Contract for DBManager SQL query outputs: fetch_df, fetch_scalar, and execute results.",
+  "oneOf": [
+    {"$ref": "#/$defs/fetch_df_result"},
+    {"$ref": "#/$defs/fetch_scalar_result"},
+    {"$ref": "#/$defs/execution_result"}
+  ],
+  "$defs": {
+    "fetch_df_result": {
+      "title": "fetch_df Result",
+      "description": "Result of DBManager.fetch_df() — a dict with columns and rows.",
+      "type": "object",
+      "required": ["columns", "rows"],
+      "properties": {
+        "columns": {
+          "type": "array",
+          "description": "Ordered list of column names.",
+          "items": {"type": "string"},
+          "minItems": 0,
+          "uniqueItems": true
+        },
+        "rows": {
+          "type": "array",
+          "description": "List of row tuples, one per result row.",
+          "items": {
+            "type": "array",
+            "description": "A single row of values. Types must be JSON-compatible (null, number, string, boolean).",
+            "items": {}
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "fetch_scalar_result": {
+      "title": "fetch_scalar Result",
+      "description": "Result of DBManager.fetch_scalar() — a dict wrapping the scalar value.",
+      "type": "object",
+      "required": ["value"],
+      "properties": {
+        "value": {
+          "description": "The scalar value from the first column of the first row. May be null when no rows are returned.",
+          "oneOf": [
+            {"type": "number"},
+            {"type": "string"},
+            {"type": "null"}
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "execution_result": {
+      "title": "execute Result",
+      "description": "Result of DBManager.execute() — rowcount and success flag.",
+      "type": "object",
+      "required": ["rowcount", "success"],
+      "properties": {
+        "rowcount": {
+          "type": "integer",
+          "description": "Number of rows affected by the statement. -1 indicates unknown (e.g. DDL).",
+          "minimum": -1
+        },
+        "success": {
+          "type": "boolean",
+          "description": "Whether the statement completed without error."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

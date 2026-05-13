@@ -1,122 +1,84 @@
-prd_id: epl-contract-testing-20260423
-version: 1.0.2
-status: final
+prd_id: 2026-05-12-betting-pipeline-implementation
+version: 3.0.1
+status: complete
 
 user_stories:
-  - as_a: pipeline developer
-    i_want: canonical EPL contract schemas and pytest coverage at each owned boundary
-    so_that: payload and row-shape drift fails in tests before it reaches production DAGs or databases
-  - as_a: betting pipeline maintainer
-    i_want: contract enforcement across ingestion, Elo, Kalshi normalization, opportunity generation, and recommendation persistence
-    so_that: EPL betting recommendations remain compatible across producer and consumer steps
-  - as_a: historical stats maintainer
-    i_want: contract enforcement for SoccerBoxScoreFetcher outputs and stats persistence
-    so_that: EPL team_game_stats and soccer extension writes stay trustworthy for validation consumers
+  - as_a: betting system owner
+    i_want: the approved betting pipeline specs implemented in runtime paths
+    so_that: long-term ROI can improve without weakening drawdown controls
+  - as_a: model and risk maintainer
+    i_want: probability, pricing, risk, and evidence contracts enforced consistently
+    so_that: approvals and parameter changes are evidence-based instead of ROI-driven
+  - as_a: engineering lead
+    i_want: a concise implementation-cycle source of truth
+    so_that: backlog execution stays aligned with the completed audit package
 
 scope:
   in_scope:
-    - CSV ingestion contract from FootballDataCoUkGames.load_games CSV rows through CSVHistoryLoader and EPLCSVProcessor into epl_games and unified_games
-    - EPL DB row contract from EPLCSVProcessor._process_soccer_row into update_elo_ratings and EPL consumers over epl_games and unified_games
-    - Elo input/output contract from EPLEloRating and process_games_with_elo into OddsComparator
-    - Kalshi market normalization contract from fetch_epl_markets, ticker parsing, and save_to_db into unified_games and game_odds
-    - Bet opportunity contract from OddsComparator.find_opportunities into identify_good_bets, _save_bets_to_file, and BetLoader
-    - Recommendation persistence contract from BetLoader into bet_recommendations row shape and invariants
-    - Historical stats contract from SoccerBoxScoreFetcher into team_game_stats, soccer_team_game_stats_ext, and EPL stats validation consumers
-    - Contract schema assets, pytest suite wiring, and dependency support required to run EPL contract validation in normal pytest flows
+    - Implement runtime hardening from the completed audit/spec package using the governed probability, pricing/CLV, portfolio-risk, and evidence/read-model contracts.
+    - Execute the approved implementation backlog items: probability-pipeline-hardening, pricing-execution-hardening, risk-control-hardening, sport-validation-framework, portfolio-drawdown-gate, and runtime-docs-and-final-gate.
+    - Enforce evidence-qualified runtime behavior for supported sports: NBA, NHL, MLB, NFL, EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS.
+    - Ship portfolio-level validation, concentration, drawdown, and risk-of-ruin gating that matches the approved roadmap.
+    - Update durable runtime documentation and the final approval gate after implementation parity is verified.
   out_of_scope:
-    - Shared downstream consumers outside the EPL-owned pipeline surface, including portfolio loading, portfolio optimization, and dashboard-facing readers, unless a minimal touch is strictly required to enforce an EPL contract
-    - Non-EPL sports contract suites
-    - Non-EPL feature work; any non-EPL activity is limited to regression validation for retained EPL-required shared-file changes
-    - Broad remediation or refactoring outside contract enforcement
-    - Public API or HTTP pact work not needed for EPL internal provider/consumer boundaries
-
-requirements:
-  - requirement: Retained shared-file changes must be justified by EPL contract enforcement and minimized to the smallest safe delta
-  - requirement: Any retained shared-file change must prove no non-EPL regressions with targeted validation for every affected shared sport path, explicitly including tennis, Ligue1, and MLB when touched
-  - requirement: This regression gate is a delivery safety constraint only and does not expand product scope to new non-EPL features or contract suites
+    - Net-new sportsbook or exchange integrations.
+    - Dashboard or UX redesign work unrelated to governed runtime behavior or approval evidence.
+    - Any bankroll, Kelly, max-risk, or threshold change that lacks CLV, calibration, and walk-forward evidence.
+    - Replacing the approved contracts or roadmap without a new approval cycle.
 
 acceptance_criteria:
-  - criterion: Canonical schema assets exist for every approved EPL boundary
-    verification: tests/contracts/schemas/ contains versioned JSON Schema files covering CSV ingestion, EPL DB rows, Elo outputs, Kalshi normalization payloads, bet opportunities, bet_recommendations rows, and soccer stats payloads
-  - criterion: The repository gains its first dedicated contract suite without widening scope to unrelated consumers
-    verification: tests/contracts/ is added, repo history shows no prior tests/contracts suite, and the new suite targets only EPL-owned boundaries unless a shared consumer is required for enforcement
-  - criterion: CSV ingestion contracts enforce normalized row shape and persistence expectations
-    verification: pytest validates required fields, result enum H/D/A, score/date presence, canonical team-name handling, and deterministic game_id mapping into epl_games and unified_games
-  - criterion: Elo contracts enforce the data shape consumed by OddsComparator
-    verification: pytest validates required team identifiers, rating availability assumptions, explicit draw probability, numeric probability bounds, and probabilities summing to approximately 1.0
-  - criterion: Kalshi normalization contracts enforce stable market-to-game mapping
-    verification: pytest validates ticker parsing, normalized home/away/draw outcome naming, unified_games identity creation, game_odds external_id persistence, and valid odds/price invariants
-  - criterion: Bet opportunity and persistence contracts enforce recommendation compatibility end to end
-    verification: pytest validates the opportunity payload written by identify_good_bets/_save_bets_to_file and the persisted bet_recommendations shape, including stable bet_id, uppercase sport, recommendation_date usage instead of date_str, and allowed bet_on/confidence invariants
-  - criterion: Historical stats contracts enforce EPL stats row and extension payload integrity
-    verification: pytest validates that SoccerBoxScoreFetcher emits two team rows per match with core team_game_stats fields plus schema-validated soccer extension stats written to soccer_team_game_stats_ext
-  - criterion: Contract validation is part of normal developer verification
-    verification: the contract suite runs under pytest, can be run independently, and fails on schema drift or invariant violations
-  - criterion: Retained shared-file changes do not regress non-EPL sports
-    verification: every retained shared-file change includes targeted sport-specific validation for each affected non-EPL path; tennis, Ligue1, and MLB are explicitly validated when their shared paths are touched, and any other affected sport path has equivalent targeted proof of no regression
+  - criterion: Governed probability and calibration semantics are implemented in live selection, persistence, and downstream read paths.
+    verification: Supported sports emit contract-aligned probability artifacts or explicit candidate, shadow, or blocked states across runtime and reporting surfaces.
+  - criterion: Pricing, fair-odds, and CLV behavior is canonical across execution and evidence layers.
+    verification: Reference pricing, executable pricing, and closing-line evidence use one approved pricing/CLV contract with no competing runtime implementations.
+  - criterion: Portfolio risk controls enforce evidence-qualified sizing and exposure behavior.
+    verification: Runtime concentration, drawdown, and exposure controls align with the approved portfolio-risk contract and reject unsupported parameter changes.
+  - criterion: Sport-level validation outputs are operationalized across all supported sports.
+    verification: Comparable evidence-tier outputs, approval states, and parity checks exist for NBA, NHL, MLB, NFL, EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS.
+  - criterion: Portfolio drawdown gating blocks unsafe recommendations at the portfolio level.
+    verification: Unsafe recommendations are blocked when drawdown, concentration, or risk-of-ruin evidence fails, even if single-sport metrics appear strong.
+  - criterion: Durable documentation reflects implemented behavior before final approval.
+    verification: Runtime docs and the final approval package describe actual governed behavior and include evidence-backed eligibility states and blocked recommendations.
 
 needs_clarification: []
 
 features:
-  - name: EPL contract suite foundation
-    overview: Add the repo's first tests/contracts pytest suite, shared fixtures, schema loaders, and boundary-focused helpers for EPL only
-    status: completed
-  - name: CSV ingestion contract coverage
-    overview: Define and test the provider and consumer contract for FootballDataCoUkGames, CSVHistoryLoader, and EPLCSVProcessor through epl_games and unified_games writes
-    status: completed
-  - name: EPL row and Elo contract coverage
-    overview: Define and test the contract from persisted EPL game rows into EPLEloRating/process_games_with_elo outputs consumed by OddsComparator
-    status: completed
-  - name: Kalshi normalization contract coverage
-    overview: Define and test the contract from fetch_epl_markets and save_to_db through parsed tickers, normalized outcomes, unified_games identity, and game_odds persistence
-    status: completed
-  - name: Bet recommendation contract coverage
-    overview: Define and test the contract from OddsComparator.find_opportunities through identify_good_bets, JSON file payload shape, BetLoader normalization, and bet_recommendations persistence
-    status: completed
-  - name: Historical stats contract coverage
-    overview: Define and test the contract from SoccerBoxScoreFetcher into team_game_stats and soccer_team_game_stats_ext row shapes and invariants
-    status: completed
-
-state_machines:
-  - name: EPL contract enforcement lifecycle
-    states: [schemas_defined, provider_verified, consumer_verified, pytest_gated]
-    transitions:
-      - from: schemas_defined
-        to: provider_verified
-        trigger: Providers are validated against canonical JSON Schemas
-      - from: provider_verified
-        to: consumer_verified
-        trigger: Downstream EPL consumers are validated against the same schemas and invariants
-      - from: consumer_verified
-        to: pytest_gated
-        trigger: Contract tests run in normal pytest execution and fail on drift
-
-errors:
-  - code: CONTRACT_001
-    message: An EPL producer emits payloads or persisted rows that do not satisfy the canonical schema
-  - code: CONTRACT_002
-    message: A downstream EPL consumer relies on fields, enums, or invariants not captured by the canonical contract
-  - code: CONTRACT_003
-    message: Kalshi market normalization cannot deterministically map ticker data to unified_games or game_odds expectations
-  - code: CONTRACT_004
-    message: Bet recommendation persistence leaks incompatible fields or violates required bet_recommendations invariants
-  - code: CONTRACT_005
-    message: Soccer stats writes do not preserve required team_game_stats or soccer extension row integrity
+  - name: Probability pipeline hardening
+    overview: Implement governed probability and calibration wiring across live selection, persistence, and downstream consumers.
+    status: done
+  - name: Pricing execution hardening
+    overview: Implement canonical pricing, fair-odds, and CLV behavior across market ingestion, execution decisions, and evidence capture.
+    status: done
+  - name: Risk control hardening
+    overview: Implement evidence-qualified portfolio risk controls for sizing, concentration, and exposure handling.
+    status: done
+  - name: Sport validation framework
+    overview: Operationalize sport-by-sport validation outputs, evidence tiers, and approval-state parity checks.
+    status: done
+  - name: Portfolio drawdown gate
+    overview: Implement portfolio-level drawdown and risk-of-ruin gating across runtime and reporting layers.
+    status: done
+  - name: Runtime docs and final gate
+    overview: Align durable documentation and final approval artifacts with verified implemented behavior.
+    status: done
 
 decisions:
-  - decision: JSON Schema plus pytest is the default contract mechanism for this effort
-  - decision: Contract schema assets live under tests/contracts/schemas/ as versioned repository assets
-  - decision: The repository currently has no dedicated tests/contracts suite; this effort must add one instead of scattering contract checks through unrelated tests
-  - decision: Contracts are boundary-focused and validate normalized payloads, persisted row shapes, enums, ranges, identifiers, and cross-field invariants rather than internal implementation details
-  - decision: Contract coverage is limited to EPL-owned pipeline surfaces; shared downstream consumers remain out of scope unless a minimal dependency is required to enforce an EPL contract
-  - decision: The default execution path is normal pytest, with contract tests also runnable independently for fast validation
-  - decision: Shared-file changes kept for EPL delivery must pass targeted non-EPL regression validation, and failing or missing proof for an affected sport blocks the change from acceptance
-  - decision: Non-EPL regression validation is a safety gate for EPL delivery, not approval to widen scope into non-EPL feature or contract expansion
+  - decision: The prior audit/spec package is complete and now serves as input to this implementation cycle.
+  - decision: This PRD is the source of truth for the implementation cycle.
+  - decision: Runtime work must stay grounded in the approved governed contracts for probability, pricing/CLV, portfolio risk, and evidence/read models.
+  - decision: PostgreSQL-backed evidence and read models remain the verification truth for runtime approval.
+  - decision: Supported sports remain NBA, NHL, MLB, NFL, EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS.
+  - decision: No bankroll, Kelly, or threshold sizing recommendation may be advanced without CLV, calibration, and walk-forward evidence.
+  - decision: Runtime documentation and final approval occur only after implementation parity is verified.
 
 changes:
-  - version: 1.0.2
-    change: Marked EPL contract delivery complete after final review sign-off, with retained shared-file changes accepted only with hard non-EPL regression proof for affected sports.
-  - version: 1.0.1
-    change: Added a hard non-EPL regression safety gate for any retained shared-file changes, requiring targeted validation for affected sports without widening EPL scope
-  - version: 1.0.0
-    change: Replaced the unrelated remediation PRD with an execution-ready PRD for full EPL contract testing across the betting and historical stats pipelines
+  - version: 3.0.1
+    change: Closed the implementation cycle after shipping the explicit governed drawdown guardrail, validating operator/runtime parity, and passing the final governance review gate.
+  - version: 3.0.0
+    change: Completed the prior audit/planning package and moved the repository into the implementation cycle, making the approved runtime hardening backlog active PRD scope.
+  - version: 2.1.1
+    change: Marked the audit/spec/roadmap package complete for this round and confirmed implementation remains deferred to a later execution cycle.
+  - version: 2.1.0
+    change: Recorded approval of the canonical audit/spec-only plan structure, deferred follow-on runtime backlog, and evidence-gated sizing decision after plan review.
+  - version: 2.0.0
+    change: Replaced the prior EPL contract-testing PRD with a concise source-of-truth PRD for the 2026-05-12 multi-sport betting pipeline audit and implementation-planning engagement.

@@ -17,6 +17,13 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
         self.config = PortfolioConfig(bankroll=1000.0)
         self.optimizer = PortfolioOptimizer(self.config)
 
+    @staticmethod
+    def _apply_approval_grade_evidence(opportunity: BetOpportunity) -> BetOpportunity:
+        opportunity.clv_evidence_tier = "approval_grade"
+        opportunity.calibration_evidence_tier = "approval_grade"
+        opportunity.walk_forward_evidence_tier = "approval_grade"
+        return opportunity
+
     def test_blended_prob_calculation(self):
         # Case 1: No BetMGM prob - should return elo_prob
         opp = BetOpportunity(
@@ -156,6 +163,9 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
                     "yes_ask": 55,
                     "no_ask": 45,
                     "bet_id": "MLB_2026-04-21_KXMLBGAME-26APR21CHCSTL-CHC_home",
+                    "clv_evidence_tier": "approval_grade",
+                    "calibration_evidence_tier": "approval_grade",
+                    "walk_forward_evidence_tier": "approval_grade",
                 }
             ]
         )
@@ -173,6 +183,209 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
         self.assertEqual(opportunities[0].sport, "MLB")
         self.assertEqual(opportunities[0].bet_on, "home")
         self.assertEqual(opportunities[0].team, "Chicago Cubs")
+        self.assertEqual(opportunities[0].clv_evidence_tier, "approval_grade")
+        self.assertEqual(
+            opportunities[0].calibration_evidence_tier, "approval_grade"
+        )
+        self.assertEqual(
+            opportunities[0].walk_forward_evidence_tier, "approval_grade"
+        )
+
+    def test_database_row_parser_fail_closes_missing_governance_fields(self):
+        row = pd.Series(
+            {
+                "sport": "MLB",
+                "ticker": "KXMLBGAME-26APR21CHCSTL-CHC",
+                "bet_on": "home",
+                "home_team": "Chicago Cubs",
+                "away_team": "St. Louis Cardinals",
+                "elo_prob": 0.61,
+                "market_prob": 0.55,
+                "edge": 0.06,
+                "confidence": "MEDIUM",
+                "yes_ask": 55,
+                "no_ask": 45,
+                "evidence_state": "shadow_only",
+                "governance_status": "descriptive_only",
+            }
+        )
+
+        opp = self.db_parser.parse(row, "mlb")
+
+        self.assertIsNotNone(opp)
+        self.assertFalse(opp.sizing_eligible)
+        self.assertTrue(opp.abstain)
+        self.assertIn("missing_governance_metadata", opp.abstention_reason)
+
+    def test_database_row_parser_fail_closes_null_governance_fields(self):
+        row = pd.Series(
+            {
+                "sport": "MLB",
+                "ticker": "KXMLBGAME-26APR21CHCSTL-CHC",
+                "bet_on": "home",
+                "home_team": "Chicago Cubs",
+                "away_team": "St. Louis Cardinals",
+                "elo_prob": 0.61,
+                "market_prob": 0.55,
+                "edge": 0.06,
+                "confidence": "MEDIUM",
+                "yes_ask": 55,
+                "no_ask": 45,
+                "evidence_state": "shadow_only",
+                "governance_status": "descriptive_only",
+                "sizing_eligible": float("nan"),
+                "abstain": None,
+            }
+        )
+
+        opp = self.db_parser.parse(row, "mlb")
+
+        self.assertIsNotNone(opp)
+        self.assertFalse(opp.sizing_eligible)
+        self.assertTrue(opp.abstain)
+        self.assertIn("missing_governance_metadata", opp.abstention_reason)
+
+    def test_json_parser_fail_closes_missing_governance_fields(self):
+        data = {
+            "sport": "MLB",
+            "ticker": "KXMLBGAME-26APR21CHCSTL-CHC",
+            "bet_on": "Chicago Cubs",
+            "side": "home",
+            "home_team": "Chicago Cubs",
+            "away_team": "St. Louis Cardinals",
+            "elo_prob": 0.61,
+            "market_prob": 0.55,
+            "edge": 0.06,
+            "confidence": "MEDIUM",
+            "yes_ask": 55,
+            "no_ask": 45,
+            "evidence_state": "shadow_only",
+            "governance_status": "descriptive_only",
+        }
+
+        opp = self.json_parser.parse(data, "mlb")
+
+        self.assertIsNotNone(opp)
+        self.assertFalse(opp.sizing_eligible)
+        self.assertTrue(opp.abstain)
+        self.assertIn("missing_governance_metadata", opp.abstention_reason)
+
+    def test_optimize_daily_bets_blocks_when_governed_recommendations_unavailable(self):
+        legacy_shadow_payload = {
+            "sport": "MLB",
+            "game_id": "mlb-1",
+            "home_team": "Dodgers",
+            "away_team": "Padres",
+            "bet_on": "Dodgers",
+            "side": "home",
+            "ticker": "KXMLBGAME-26MAY10LADSD-LAD",
+            "elo_prob": 0.68,
+            "market_prob": 0.5,
+            "edge": 0.18,
+            "confidence": "HIGH",
+            "probability_source": "mlb_model_predictions",
+            "evidence_state": "shadow_only",
+            "evidence_state_reason": "MLB remains shadow-only pending approval-grade evidence.",
+            "evidence_state_source_artifact": "mlb_model_predictions:mlb_moneyline_public_v3@2026-05-10",
+            "governance_status": "descriptive_only",
+        }
+
+        with patch.object(self.optimizer, "load_opportunities_from_database", return_value=[]):
+            with patch.object(
+                self.optimizer, "load_opportunities_from_files"
+            ) as mock_files:
+                mock_files.return_value = [
+                    self.json_parser.parse(legacy_shadow_payload, "mlb")
+                ]
+
+                allocations, summary = self.optimizer.optimize_daily_bets(
+                    "2026-05-10", sports=["mlb"]
+                )
+
+        self.assertEqual(allocations, [])
+        mock_files.assert_not_called()
+        self.assertEqual(summary["data_source"], "database")
+        self.assertEqual(
+            summary["approval_blocked_reason"],
+            "governed_recommendations_unavailable",
+        )
+        self.assertEqual(summary["opportunities_found"], 0)
+        self.assertEqual(summary["opportunities_filtered"], 0)
+        self.assertEqual(summary["bets_placed"], 0)
+
+    def test_build_runtime_risk_context_raises_when_exposure_query_fails(self):
+        with patch(
+            "plugins.db_manager.default_db.fetch_df",
+            side_effect=Exception("view unavailable"),
+        ):
+            with self.assertRaisesRegex(
+                RuntimeError, "governed portfolio risk state"
+            ):
+                self.optimizer._build_runtime_risk_context(250.0)
+
+    def test_build_runtime_risk_context_raises_when_open_positions_query_fails(self):
+        with patch(
+            "plugins.db_manager.default_db.fetch_df",
+            side_effect=[
+                pd.DataFrame(
+                    [
+                        {
+                            "sport": "NBA",
+                            "open_exposure_amount": 10.0,
+                            "resting_order_exposure_amount": 4.0,
+                            "executed_unsettled_exposure_amount": 6.0,
+                        }
+                    ]
+                ),
+                Exception("placed_bets unavailable"),
+            ],
+        ):
+            with self.assertRaisesRegex(RuntimeError, "open positions"):
+                self.optimizer._build_runtime_risk_context(250.0)
+
+    def test_optimize_daily_bets_blocks_when_runtime_risk_context_unavailable(self):
+        opportunity = BetOpportunity(
+            sport="NBA",
+            ticker="KXNBAGAME-TEST-LALBOS-LAL",
+            bet_on="home",
+            team="Lakers",
+            opponent="Celtics",
+            elo_prob=0.66,
+            market_prob=0.5,
+            edge=0.16,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        self._apply_approval_grade_evidence(opportunity)
+
+        with patch.object(
+            self.optimizer, "load_opportunities_from_database", return_value=[opportunity]
+        ):
+            with patch.object(
+                self.optimizer,
+                "_build_runtime_risk_context",
+                side_effect=RuntimeError("governed open positions unavailable"),
+            ):
+                with patch.object(
+                    self.optimizer, "load_opportunities_from_files"
+                ) as mock_files:
+                    allocations, summary = self.optimizer.optimize_daily_bets(
+                        "2026-05-10", sports=["nba"]
+                    )
+
+        self.assertEqual(allocations, [])
+        mock_files.assert_not_called()
+        self.assertEqual(summary["data_source"], "database")
+        self.assertEqual(
+            summary["approval_blocked_reason"],
+            "governed_risk_context_unavailable",
+        )
+        self.assertEqual(summary["opportunities_found"], 1)
+        self.assertEqual(summary["opportunities_filtered"], 0)
+        self.assertEqual(summary["bets_placed"], 0)
 
     def test_derive_market_prob_from_asks_home_yes_ask_available(self):
         """Test market probability calculation for home bet when yes_ask is available."""
@@ -226,6 +439,271 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
             yes_ask=1.0, no_ask=99.0, bet_direction="away", fallback_prob=0.5
         )
         self.assertAlmostEqual(prob, 0.99)
+
+    def test_live_risk_mode_rejects_missing_and_contaminated_evidence(self):
+        missing = BetOpportunity(
+            sport="MLB",
+            ticker="KXMLBGAME-TEST-LADSD-LAD",
+            bet_on="home",
+            team="Dodgers",
+            opponent="Padres",
+            elo_prob=0.61,
+            market_prob=0.5,
+            edge=0.11,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        contaminated = BetOpportunity(
+            sport="MLB",
+            ticker="KXMLBGAME-TEST-NYYBOS-NYY",
+            bet_on="home",
+            team="Yankees",
+            opponent="Red Sox",
+            elo_prob=0.6,
+            market_prob=0.5,
+            edge=0.1,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        contaminated.clv_contaminated_flag = True
+        contaminated.contamination_reason = "binary_result_placeholder"
+
+        risk_context = self.optimizer._empty_risk_context(250.0)
+        filtered = self.optimizer.filter_opportunities(
+            [missing, contaminated],
+            risk_context=risk_context,
+            enforce_governed_risk=True,
+        )
+
+        self.assertEqual(filtered, [])
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(
+            [row["rejection_reason_code"] for row in audit],
+            ["missing_evidence", "contaminated_evidence"],
+        )
+
+    def test_live_risk_mode_blocks_same_match_conflicts_before_sizing(self):
+        opportunity = BetOpportunity(
+            sport="NHL",
+            ticker="KXNHL-26MAY03NYRBOS-NYR",
+            bet_on="home",
+            team="Rangers",
+            opponent="Bruins",
+            elo_prob=0.58,
+            market_prob=0.5,
+            edge=0.08,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+            game_id="NHL_20260503_NYR_BOS",
+        )
+        self._apply_approval_grade_evidence(opportunity)
+
+        risk_context = self.optimizer._empty_risk_context(250.0)
+        risk_context["open_positions"] = [
+            {
+                "sport": "NHL",
+                "canonical_match_key": "NHL_20260503_NYR_BOS",
+                "selection_key": "bruins",
+                "position_status": "filled",
+                "exposure_amount": 12.0,
+            }
+        ]
+
+        filtered = self.optimizer.filter_opportunities(
+            [opportunity],
+            risk_context=risk_context,
+            enforce_governed_risk=True,
+        )
+
+        self.assertEqual(filtered, [])
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(audit[0]["rejection_reason_code"], "existing_position_conflict")
+        self.assertTrue(audit[0]["same_match_conflict"])
+
+    def test_live_sizing_subtracts_governed_open_exposure(self):
+        opportunity = BetOpportunity(
+            sport="NBA",
+            ticker="KXNBAGAME-TEST-LALBOS-LAL",
+            bet_on="home",
+            team="Lakers",
+            opponent="Celtics",
+            elo_prob=0.66,
+            market_prob=0.5,
+            edge=0.16,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        self._apply_approval_grade_evidence(opportunity)
+
+        risk_context = self.optimizer._empty_risk_context(100.0)
+        risk_context["remaining_daily_risk_budget_dollars"] = 6.0
+        risk_context["governed_open_exposure_dollars"] = 94.0
+
+        allocations = self.optimizer.calculate_portfolio_allocation(
+            [opportunity],
+            risk_context=risk_context,
+        )
+
+        self.assertEqual(len(allocations), 1)
+        self.assertEqual(allocations[0].bet_size, 6.0)
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(audit[-1]["rejection_reason_code"], "remaining_budget_downgrade")
+        self.assertEqual(audit[-1]["approved_bet_size_dollars"], 6.0)
+
+    def test_live_sizing_rejects_governed_concentration_breach(self):
+        opportunity = BetOpportunity(
+            sport="NBA",
+            ticker="KXNBAGAME-TEST-NYKCHI-NYK",
+            bet_on="home",
+            team="Knicks",
+            opponent="Bulls",
+            elo_prob=0.62,
+            market_prob=0.5,
+            edge=0.12,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        self._apply_approval_grade_evidence(opportunity)
+        filtered = self.optimizer.filter_opportunities(
+            [opportunity],
+            risk_context=self.optimizer._empty_risk_context(250.0),
+            enforce_governed_risk=True,
+        )
+
+        risk_context = self.optimizer._empty_risk_context(250.0)
+        risk_context["sport_exposure_amounts"] = {"NBA": 38.0}
+        risk_context["sport_concentration_limit_dollars"] = 40.0
+
+        allocations = self.optimizer.calculate_portfolio_allocation(
+            filtered,
+            risk_context=risk_context,
+        )
+
+        self.assertEqual(allocations, [])
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(audit[-1]["rejection_reason_code"], "concentration_breach")
+
+    def test_live_sizing_emits_drawdown_reporting_without_zero_drawdown_block(
+        self,
+    ):
+        opportunity = BetOpportunity(
+            sport="NBA",
+            ticker="KXNBAGAME-TEST-DALPHX-DAL",
+            bet_on="home",
+            team="Mavericks",
+            opponent="Suns",
+            elo_prob=0.69,
+            market_prob=0.5,
+            edge=0.19,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        self._apply_approval_grade_evidence(opportunity)
+
+        filtered = self.optimizer.filter_opportunities(
+            [opportunity],
+            risk_context=self.optimizer._empty_risk_context(250.0),
+            enforce_governed_risk=True,
+        )
+
+        risk_context = self.optimizer._empty_risk_context(250.0)
+        risk_context.update(
+            {
+                "current_portfolio_value_dollars": 1475.75,
+                "peak_portfolio_value_dollars": 1600.0,
+                "drawdown_amount_dollars": 124.25,
+                "drawdown_ratio": 0.07765625,
+                "drawdown_state": "drawdown_active",
+                "risk_of_ruin_state": "capital_available",
+                "portfolio_guardrail_state": "eligible",
+                "portfolio_guardrail_reason_code": None,
+                "portfolio_guardrail_reason_detail": None,
+            }
+        )
+
+        allocations = self.optimizer.calculate_portfolio_allocation(
+            filtered,
+            risk_context=risk_context,
+        )
+
+        self.assertEqual(len(allocations), 1)
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(audit[-1]["drawdown_state"], "drawdown_active")
+        self.assertEqual(audit[-1]["portfolio_guardrail_state"], "eligible")
+        self.assertIsNone(audit[-1]["rejection_reason_code"])
+        self.assertGreater(audit[-1]["approved_bet_size_dollars"], 0.0)
+
+    def test_live_sizing_rejects_explicit_drawdown_guardrail_before_strong_single_sport_approval(
+        self,
+    ):
+        opportunity = BetOpportunity(
+            sport="NBA",
+            ticker="KXNBAGAME-TEST-DENOKC-DEN",
+            bet_on="home",
+            team="Nuggets",
+            opponent="Thunder",
+            elo_prob=0.71,
+            market_prob=0.5,
+            edge=0.21,
+            confidence="HIGH",
+            yes_ask=50,
+            no_ask=50,
+            sizing_eligible=True,
+            abstain=False,
+        )
+        self._apply_approval_grade_evidence(opportunity)
+
+        filtered = self.optimizer.filter_opportunities(
+            [opportunity],
+            risk_context=self.optimizer._empty_risk_context(250.0),
+            enforce_governed_risk=True,
+        )
+
+        risk_context = self.optimizer._empty_risk_context(250.0)
+        risk_context.update(
+            {
+                "current_portfolio_value_dollars": 1475.75,
+                "peak_portfolio_value_dollars": 1600.0,
+                "drawdown_amount_dollars": 124.25,
+                "drawdown_ratio": 0.07765625,
+                "drawdown_state": "drawdown_active",
+                "risk_of_ruin_state": "capital_available",
+                "portfolio_guardrail_state": "blocked_drawdown",
+                "portfolio_guardrail_reason_code": "drawdown_gate_blocked",
+                "portfolio_guardrail_reason_detail": (
+                    "Explicit governed drawdown regime is active for new approvals."
+                ),
+            }
+        )
+
+        allocations = self.optimizer.calculate_portfolio_allocation(
+            filtered,
+            risk_context=risk_context,
+        )
+
+        self.assertEqual(allocations, [])
+        audit = self.optimizer.get_last_risk_audit()
+        self.assertEqual(audit[-1]["rejection_reason_code"], "drawdown_gate_blocked")
+        self.assertEqual(audit[-1]["portfolio_guardrail_state"], "blocked_drawdown")
+        self.assertEqual(audit[-1]["drawdown_state"], "drawdown_active")
 
     def test_filter_opportunities_keeps_edge_based_high_confidence_soccer_and_mlb(self):
         optimizer = PortfolioOptimizer(

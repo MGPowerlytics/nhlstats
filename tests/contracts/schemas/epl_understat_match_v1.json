@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "EPL Understat Match Contract",
+  "description": "Canonical normalized EPL match payload produced by the Understat xG provider and consumed by soccer stats enrichment.",
+  "type": "object",
+  "required": [
+    "source",
+    "sport",
+    "season",
+    "match_id",
+    "game_date",
+    "home_team",
+    "away_team",
+    "home_xg",
+    "away_xg"
+  ],
+  "properties": {
+    "source": {
+      "type": "string",
+      "const": "UNDERSTAT"
+    },
+    "sport": {
+      "type": "string",
+      "const": "EPL"
+    },
+    "season": {
+      "type": "integer",
+      "minimum": 2014
+    },
+    "match_id": {
+      "type": "string",
+      "pattern": "^[0-9]+$"
+    },
+    "game_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "home_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "away_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "home_xg": {
+      "type": "number",
+      "minimum": 0.0
+    },
+    "away_xg": {
+      "type": "number",
+      "minimum": 0.0
+    },
+    "forecast_home_win": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "forecast_draw": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "forecast_away_win": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "additionalProperties": false
+}

@@ -6,7 +6,7 @@ This module:
 3. Tracks results and updates bankroll
 """
 
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
 from dataclasses import dataclass
@@ -27,6 +27,7 @@ class BetPlacementContext:
     bet_line_prob: float
     date_str: str
     results: Dict
+    quote_lineage: Dict[str, Any]
 
     def place_bet(self, kalshi_client: KalshiBetting, dry_run: bool = False) -> None:
         """Place the bet using the provided client."""
@@ -45,6 +46,7 @@ class BetPlacementContext:
             {
                 "ticker": opp.ticker,
                 "side": self.side,
+                "bet_on": opp.bet_on,
                 "amount": self.allocation.bet_size,
                 "price": self.price,
                 "bet_line_prob": self.bet_line_prob,
@@ -54,7 +56,9 @@ class BetPlacementContext:
                 "expected_value": opp.expected_value,
                 "kelly_fraction": opp.kelly_fraction,
                 "sport": opp.sport,
+                "recommendation_id": getattr(opp, "recommendation_id", None),
                 "dry_run": True,
+                **self.quote_lineage,
             }
         )
 
@@ -77,6 +81,7 @@ class BetPlacementContext:
                 {
                     "ticker": opp.ticker,
                     "side": self.side,
+                    "bet_on": opp.bet_on,
                     "amount": self.allocation.bet_size,
                     "price": self.price,
                     "order_id": order_result.get("order_id"),
@@ -87,7 +92,9 @@ class BetPlacementContext:
                     "expected_value": opp.expected_value,
                     "kelly_fraction": opp.kelly_fraction,
                     "sport": opp.sport,
+                    "recommendation_id": getattr(opp, "recommendation_id", None),
                     "dry_run": False,
+                    **self.quote_lineage,
                 }
             )
         else:
@@ -185,6 +192,7 @@ class PortfolioBettingManager:
             # waiting for /portfolio/fills propagation.
             try:
                 from bet_tracker import sync_orders_to_database
+                from bet_tracker import persist_execution_lineage
 
                 added, updated = sync_orders_to_database(
                     client=self.kalshi_client
@@ -192,6 +200,8 @@ class PortfolioBettingManager:
                 print(
                     f"📥 Order sync: {added} new, {updated} updated in placed_bets"
                 )
+                persisted = persist_execution_lineage(results["placed_bets"])
+                print(f"🧾 Execution lineage persisted on {persisted} placed_bets row(s)")
             except Exception as exc:  # noqa: BLE001 — non-blocking
                 print(f"⚠️  Order-aware sync failed (non-blocking): {exc}")
 
@@ -281,7 +291,10 @@ class PortfolioBettingManager:
 
         # Calculate bet line probability
         side = "yes"  # Since tickers are specific to the outcome, we always buy YES
-        price = self._resolve_order_price(market_details, allocation, side)
+        quote_lineage = self._resolve_order_quote_lineage(
+            market_details, allocation, side
+        )
+        price = quote_lineage.get("entry_price_cents")
         if price is None:
             print("   ❌ No ask price available")
             results["errors"].append(
@@ -298,6 +311,7 @@ class PortfolioBettingManager:
             bet_line_prob=bet_line_prob,
             date_str=date_str,
             results=results,
+            quote_lineage=quote_lineage,
         )
 
         # Place the bet
@@ -429,6 +443,75 @@ class PortfolioBettingManager:
                 return candidate_price
 
         return None
+
+    def _resolve_order_quote_lineage(
+        self,
+        market_details: Dict,
+        allocation: PortfolioAllocation,
+        side: str,
+    ) -> Dict[str, Any]:
+        """Resolve executable order quote plus persisted lineage metadata."""
+        price_keys = {
+            "yes": ("yes_ask", allocation.opportunity.yes_ask),
+            "no": ("no_ask", allocation.opportunity.no_ask),
+        }
+        market_key, fallback_price = price_keys.get(
+            side, ("yes_ask", allocation.opportunity.yes_ask)
+        )
+
+        observed_at = market_details.get("last_update") or market_details.get("updated_at")
+        loaded_at = market_details.get("loaded_at") or observed_at
+        payload_ref = market_details.get("orderbook_id") or market_details.get("ticker")
+        bookmaker = market_details.get("bookmaker") or "Kalshi"
+
+        for source_label, candidate in (
+            (market_key, market_details.get(market_key)),
+            (f"recommendation_{market_key}_fallback", fallback_price),
+        ):
+            if candidate in (None, ""):
+                continue
+            try:
+                candidate_price = int(round(float(candidate)))
+            except (TypeError, ValueError):
+                continue
+            if candidate_price <= 0:
+                continue
+
+            using_fallback = source_label.startswith("recommendation_")
+            source_system = (
+                "bet_recommendations" if using_fallback else "kalshi_market_details"
+            )
+            return {
+                "entry_price_cents": candidate_price,
+                "entry_quote_role": "executable",
+                "entry_price_source": source_label,
+                "entry_quote_source_system": source_system,
+                "entry_quote_bookmaker": bookmaker,
+                "entry_quote_observed_at": observed_at,
+                "entry_quote_loaded_at": loaded_at,
+                "entry_quote_payload_ref": payload_ref or allocation.opportunity.ticker,
+                "entry_quote_freshness_result": (
+                    "fresh" if observed_at else "missing_source_timestamp"
+                ),
+                "entry_quote_fallback_status": (
+                    "recommendation_fallback"
+                    if using_fallback
+                    else "direct_market_quote"
+                ),
+            }
+
+        return {
+            "entry_price_cents": None,
+            "entry_quote_role": "executable",
+            "entry_price_source": "missing_quote",
+            "entry_quote_source_system": "quote_lineage_placeholder",
+            "entry_quote_bookmaker": None,
+            "entry_quote_observed_at": None,
+            "entry_quote_loaded_at": None,
+            "entry_quote_payload_ref": allocation.opportunity.ticker,
+            "entry_quote_freshness_result": "missing_source_timestamp",
+            "entry_quote_fallback_status": "missing_quote",
+        }
 
     def _place_single_bet(
         self,

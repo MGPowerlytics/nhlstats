@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/csv_history_loader_contract_v1.json",
+  "title": "CSVHistoryLoader Contract v1",
+  "description": "Canonical contract for the CSVHistoryLoader ingestion boundary: CSV row shapes consumed by the loader and the params dicts produced by the processors for DB insertion.",
+  "$defs": {
+    "epl_csv_row": {
+      "type": "object",
+      "required": ["Date", "HomeTeam", "AwayTeam", "FTHG", "FTAG", "FTR"],
+      "properties": {
+        "Date": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Match date in DD/MM/YYYY or YYYY-MM-DD format."
+        },
+        "HomeTeam": {"type": "string", "minLength": 1},
+        "AwayTeam": {"type": "string", "minLength": 1},
+        "FTHG": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Full-time home goals."
+        },
+        "FTAG": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Full-time away goals."
+        },
+        "FTR": {
+          "type": "string",
+          "enum": ["H", "D", "A"],
+          "description": "Full-time result: H=home win, D=draw, A=away win."
+        }
+      },
+      "additionalProperties": true
+    },
+    "tennis_csv_row": {
+      "type": "object",
+      "required": ["Date", "Winner", "Loser"],
+      "properties": {
+        "Date": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Match date (YYYY-MM-DD or DD/MM/YYYY)."
+        },
+        "Winner": {"type": "string", "minLength": 1},
+        "Loser": {"type": "string", "minLength": 1},
+        "Tournament": {"type": ["string", "null"]},
+        "Surface": {"type": ["string", "null"]},
+        "Score": {"type": ["string", "null"]},
+        "Round": {"type": ["string", "null"]},
+        "Series": {"type": ["string", "null"]},
+        "Best of": {"type": ["integer", "string", "null"]},
+        "WRank": {"type": ["integer", "string", "null"]},
+        "LRank": {"type": ["integer", "string", "null"]}
+      },
+      "additionalProperties": true
+    },
+    "epl_processor_params": {
+      "type": "object",
+      "required": [
+        "game_id",
+        "game_date",
+        "season",
+        "home_team",
+        "away_team",
+        "home_team_full",
+        "away_team_full",
+        "home_score",
+        "away_score",
+        "result"
+      ],
+      "properties": {
+        "game_id": {"type": "string", "minLength": 1},
+        "game_date": {"type": "string", "format": "date"},
+        "season": {"type": "string"},
+        "home_team": {"type": "string", "minLength": 1},
+        "away_team": {"type": "string", "minLength": 1},
+        "home_team_full": {"type": "string", "minLength": 1},
+        "away_team_full": {"type": "string", "minLength": 1},
+        "home_score": {"type": "integer", "minimum": 0},
+        "away_score": {"type": "integer", "minimum": 0},
+        "result": {"type": "string", "enum": ["H", "D", "A"]}
+      },
+      "additionalProperties": false
+    },
+    "tennis_processor_params": {
+      "type": "object",
+      "required": [
+        "game_id",
+        "game_date",
+        "season",
+        "tour",
+        "tournament",
+        "surface",
+        "winner",
+        "loser",
+        "score"
+      ],
+      "properties": {
+        "game_id": {"type": "string", "minLength": 1},
+        "game_date": {"type": "string", "format": "date"},
+        "season": {"type": "string"},
+        "tour": {"type": "string", "minLength": 1},
+        "tournament": {"type": "string"},
+        "surface": {"type": "string"},
+        "winner": {"type": "string", "minLength": 1},
+        "loser": {"type": "string", "minLength": 1},
+        "score": {"type": "string"}
+      },
+      "additionalProperties": false
+    },
+    "load_csv_summary": {
+      "type": "object",
+      "required": ["sport", "file_name", "rows_loaded"],
+      "properties": {
+        "sport": {"type": "string", "minLength": 1},
+        "file_name": {"type": "string", "minLength": 1},
+        "rows_loaded": {"type": "integer", "minimum": 0}
+      },
+      "additionalProperties": false
+    }
+  }
+}

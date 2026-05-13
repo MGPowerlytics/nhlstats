@@ -17,17 +17,27 @@ snapshot of decimal odds from any acceptable bookmaker, converted to implied pro
 
 import sys
 import os
+from functools import lru_cache
 
 sys.path.append(os.path.dirname(__file__))
 
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
+
+from sqlalchemy import inspect
 
 from plugins.constants import (
     ACCEPTABLE_BOOKMAKERS,
     STALE_CLOSING_PRICE_HOURS,
 )
 from plugins.db_manager import default_db
+from plugins.pricing_governance import (
+    CLVEvidenceTier,
+    GovernedPriceQuote,
+    PriceRole,
+    build_clv_governance_snapshot,
+    select_close_quote,
+)
 
 
 def _resolve_outcome_name(bet_on: str, home_team: str, away_team: str) -> str:
@@ -89,11 +99,12 @@ def compute_real_closing_price(
         return None
 
     # Step 2: Find latest pre-close odds snapshot
-    closing_odds = _find_closing_odds(game_id, outcome_name, market_close_time_utc)
-    if closing_odds is None:
+    closing_quote = _find_closing_quote(game_id, outcome_name, market_close_time_utc)
+    if closing_quote is None:
         return None
 
     # Step 3: Convert decimal odds to implied probability
+    closing_odds = closing_quote["decimal_odds"]
     if closing_odds <= 0:
         return None
     implied_prob = 1.0 / closing_odds
@@ -138,11 +149,11 @@ def _find_game_id(
         return None
 
 
-def _find_closing_odds(
+def _find_closing_quote(
     game_id: str,
     outcome_name: str,
     market_close_time_utc: Optional[datetime] = None,
-) -> Optional[float]:
+) -> Optional[Dict[str, Any]]:
     """Find the last pre-close odds price for a game outcome.
 
     Searches game_odds for the latest snapshot of the specified outcome
@@ -155,55 +166,53 @@ def _find_closing_odds(
         market_close_time_utc: Cutoff time; only snapshots before this are used.
 
     Returns:
-        Decimal odds (float > 1.0), or None if no snapshot found.
+        Governed close quote details, or None if no snapshot found.
     """
-    # Build bookmaker priority CASE expression
-    bookmaker_cases = ", ".join(f"'{b}'" for b in ACCEPTABLE_BOOKMAKERS)
-
-    if market_close_time_utc is not None:
-        query = f"""
-            SELECT price, bookmaker, last_update
-            FROM game_odds
-            WHERE game_id = :game_id
-              AND outcome_name = :outcome_name
-              AND (last_update IS NULL OR last_update <= :close_time)
-            ORDER BY
-              last_update DESC NULLS LAST,
-              CASE bookmaker
-                {_bookmaker_priority_sql()}
-              END ASC
-            LIMIT 1
-        """
-        params = {
-            "game_id": game_id,
-            "outcome_name": outcome_name,
-            "close_time": (
-                market_close_time_utc.isoformat()
-                if isinstance(market_close_time_utc, datetime)
-                else str(market_close_time_utc)
-            ),
-        }
-    else:
-        # No close time — just get the latest snapshot
-        query = f"""
-            SELECT price, bookmaker, last_update
-            FROM game_odds
-            WHERE game_id = :game_id
-              AND outcome_name = :outcome_name
-            ORDER BY
-              last_update DESC NULLS LAST,
-              CASE bookmaker
-                {_bookmaker_priority_sql()}
-              END ASC
-            LIMIT 1
-        """
-        params = {"game_id": game_id, "outcome_name": outcome_name}
-
     try:
-        result = default_db.execute(query, params)
-        row = result.fetchone()
-        if row and row[0] is not None:
-            return float(row[0])
+        query = """
+            SELECT odds_id, bookmaker, price, last_update, loaded_at, external_id, is_pregame
+            FROM game_odds
+            WHERE game_id = :game_id
+              AND outcome_name = :outcome_name
+        """
+        result = default_db.execute(
+            query, {"game_id": game_id, "outcome_name": outcome_name}
+        )
+        rows = result.fetchall()
+        quotes = []
+        for row in rows:
+            odds_id, bookmaker, price, last_update, loaded_at, external_id, _ = row
+            if price is None:
+                continue
+            quotes.append(
+                GovernedPriceQuote(
+                    role=PriceRole.CLOSE,
+                    decimal_price=float(price),
+                    bookmaker=str(bookmaker),
+                    market_ticker=external_id,
+                    selection_key=outcome_name,
+                    observed_at=last_update,
+                    loaded_at=loaded_at,
+                    payload_ref=odds_id or external_id,
+                )
+            )
+        selected = select_close_quote(
+            quotes,
+            market_close_time=market_close_time_utc,
+            source_priority=ACCEPTABLE_BOOKMAKERS,
+            max_age=timedelta(hours=STALE_CLOSING_PRICE_HOURS),
+        )
+        if selected is not None:
+            return {
+                "decimal_odds": float(selected.decimal_price),
+                "bookmaker": selected.bookmaker,
+                "observed_at": selected.observed_at,
+                "loaded_at": selected.loaded_at,
+                "payload_ref": selected.payload_ref,
+                "freshness_result": selected.freshness_result,
+                "selected_close_rule": selected.selection_rule,
+                "selected_close_provenance": selected.selection_provenance,
+            }
         return None
     except Exception:
         return None
@@ -286,7 +295,7 @@ def backfill_real_clv() -> Dict[str, int]:
                 market_close_time_utc = None
 
         # Compute real closing price
-        closing_prob = compute_real_closing_price(
+        closing_quote = build_clv_evidence_snapshot(
             bet_id=bet_id,
             sport=sport,
             home_team=home_team or "",
@@ -295,28 +304,18 @@ def backfill_real_clv() -> Dict[str, int]:
             placed_date=str(placed_date) if placed_date else "",
             market_close_time_utc=market_close_time_utc,
         )
+        closing_prob = closing_quote["closing_probability"] if closing_quote else None
 
         if closing_prob is None:
             counts["null_count"] += 1
             continue
 
-        # Check for stale snapshot
-        game_id = _find_game_id(
-            sport, str(placed_date), home_team or "", away_team or ""
-        )
-        if game_id and market_close_time_utc:
-            _check_and_count_stale(
-                game_id,
-                bet_on or "home",
-                home_team or "",
-                away_team or "",
-                market_close_time_utc,
-                counts,
-            )
+        if closing_quote["close_freshness_result"] == "stale":
+            counts["stale_count"] += 1
 
         # Update the bet with real closing price
         clv = (bet_line_prob - closing_prob) if bet_line_prob is not None else None
-        _update_bet_clv(bet_id, closing_prob, clv)
+        _update_bet_clv(bet_id, closing_prob, clv, closing_quote)
         counts["updated"] += 1
 
     print(
@@ -357,18 +356,152 @@ def _check_and_count_stale(
         pass
 
 
-def _update_bet_clv(bet_id: str, closing_prob: float, clv: Optional[float]) -> None:
+def build_clv_evidence_snapshot(
+    bet_id: str,
+    sport: str,
+    home_team: str,
+    away_team: str,
+    bet_on: str,
+    placed_date: str,
+    market_close_time_utc: Optional[datetime] = None,
+) -> Optional[Dict[str, Any]]:
+    outcome_name = _resolve_outcome_name(bet_on, home_team, away_team)
+    game_id = _find_game_id(sport, placed_date, home_team, away_team)
+    if not game_id:
+        return None
+
+    closing_quote = _find_closing_quote(game_id, outcome_name, market_close_time_utc)
+    if closing_quote is None:
+        snapshot = build_clv_governance_snapshot(
+            entry_quote=GovernedPriceQuote(
+                role=PriceRole.EXECUTABLE,
+                decimal_price=1.0,
+                bookmaker="placed_bets",
+                selection_key=outcome_name,
+            ),
+            close_quote=None,
+            clv_source_type="missing_close",
+        )
+        return {
+            "bet_id": bet_id,
+            "closing_probability": None,
+            "clv_source_type": "missing_close",
+            "close_freshness_result": snapshot.close_freshness_result,
+            "close_quote_source": "missing_close",
+            "close_quote_at": None,
+            "close_quote_loaded_at": None,
+            "close_quote_payload_ref": None,
+            "close_price_role": "descriptive_placeholder",
+            "selected_close_rule": "missing_close",
+            "selected_close_provenance": None,
+            "close_fallback_status": "missing_close",
+            "clv_evidence_tier": snapshot.evidence_tier.value,
+            "clv_contaminated_flag": snapshot.contaminated,
+            "contamination_reason": snapshot.contamination_reason,
+        }
+
+    closing_probability = min(max(1.0 / closing_quote["decimal_odds"], 0.01), 0.99)
+    snapshot = build_clv_governance_snapshot(
+        entry_quote=GovernedPriceQuote(
+            role=PriceRole.EXECUTABLE,
+            decimal_price=1.0,
+            bookmaker="placed_bets",
+            selection_key=outcome_name,
+        ),
+        close_quote=GovernedPriceQuote(
+            role=PriceRole.CLOSE,
+            decimal_price=closing_quote["decimal_odds"],
+            bookmaker=closing_quote["bookmaker"],
+            selection_key=outcome_name,
+            observed_at=closing_quote["observed_at"],
+            loaded_at=closing_quote["loaded_at"],
+            payload_ref=closing_quote["payload_ref"],
+            freshness_result=closing_quote["freshness_result"],
+            selection_rule=closing_quote["selected_close_rule"],
+            selection_provenance=closing_quote["selected_close_provenance"],
+        ),
+        clv_source_type="market_close",
+    )
+    return {
+        "bet_id": bet_id,
+        "closing_probability": closing_probability,
+        "clv_source_type": "market_close",
+        "close_quote_source": closing_quote["bookmaker"],
+        "close_quote_at": closing_quote["observed_at"],
+        "close_quote_loaded_at": closing_quote["loaded_at"],
+        "close_quote_payload_ref": closing_quote["payload_ref"],
+        "close_price_role": "close",
+        "close_freshness_result": snapshot.close_freshness_result,
+        "selected_close_rule": closing_quote["selected_close_rule"],
+        "selected_close_provenance": closing_quote["selected_close_provenance"],
+        "close_fallback_status": closing_quote["selected_close_rule"],
+        "closing_quote_source": closing_quote["bookmaker"],
+        "closing_quote_at": closing_quote["observed_at"],
+        "clv_evidence_tier": snapshot.evidence_tier.value,
+        "clv_contaminated_flag": snapshot.contaminated,
+        "contamination_reason": snapshot.contamination_reason,
+    }
+
+
+@lru_cache(maxsize=1)
+def _placed_bets_columns() -> Tuple[str, ...]:
+    """Return the currently available placed_bets columns for compatibility-safe updates."""
+    try:
+        return tuple(
+            column["name"] for column in inspect(default_db.engine).get_columns("placed_bets")
+        )
+    except Exception:
+        return ()
+
+
+def _update_bet_clv(
+    bet_id: str,
+    closing_prob: Optional[float],
+    clv: Optional[float],
+    snapshot: Optional[Dict[str, Any]] = None,
+) -> None:
     """Update a single bet's closing_line_prob and CLV."""
+    available_columns = set(_placed_bets_columns())
+    assignments = [
+        "closing_line_prob = :closing_prob",
+        "clv = :clv",
+        "updated_at = CURRENT_TIMESTAMP",
+    ]
+    params: Dict[str, Any] = {
+        "closing_prob": closing_prob,
+        "clv": clv,
+        "bet_id": bet_id,
+    }
+    optional_snapshot_fields = {
+        "close_quote_source": "close_quote_source",
+        "close_quote_at": "close_quote_at",
+        "close_quote_loaded_at": "close_quote_loaded_at",
+        "close_quote_payload_ref": "close_quote_payload_ref",
+        "close_price_role": "close_price_role",
+        "close_freshness_result": "close_freshness_result",
+        "selected_close_rule": "selected_close_rule",
+        "selected_close_provenance": "selected_close_provenance",
+        "close_fallback_status": "close_fallback_status",
+        "clv_source_type": "clv_source_type",
+    }
+    snapshot = snapshot or {}
+
+    for column_name, param_name in optional_snapshot_fields.items():
+        if column_name not in available_columns:
+            continue
+        assignments.append(
+            f"{column_name} = COALESCE(:{param_name}, {column_name})"
+        )
+        params[param_name] = snapshot.get(param_name)
+
     try:
         default_db.execute(
-            """
+            f"""
             UPDATE placed_bets
-            SET closing_line_prob = :closing_prob,
-                clv = :clv,
-                updated_at = CURRENT_TIMESTAMP
+            SET {", ".join(assignments)}
             WHERE bet_id = :bet_id
             """,
-            {"closing_prob": closing_prob, "clv": clv, "bet_id": bet_id},
+            params,
         )
     except Exception as e:
         print(f"  ⚠️ Failed to update CLV for {bet_id}: {e}")

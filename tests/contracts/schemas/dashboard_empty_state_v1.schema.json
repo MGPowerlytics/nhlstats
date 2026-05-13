@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_empty_state_v1.schema.json",
+  "title": "Dashboard Empty and Error State v1",
+  "description": "Canonical payload for explicit dashboard empty states and typed sanitized dashboard errors.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "kind",
+    "title",
+    "message",
+    "action",
+    "severity"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "no_portfolio_snapshots",
+        "no_live_markets",
+        "no_rankings",
+        "no_calibration_predictions",
+        "no_settled_calibration_outcomes",
+        "no_bet_details",
+        "bet_not_found",
+        "dashboard_contract_mismatch",
+        "dashboard_read_model_missing",
+        "dashboard_query_failed",
+        "dashboard_unavailable"
+      ]
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1
+    },
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "action": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "info",
+        "warning",
+        "error"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

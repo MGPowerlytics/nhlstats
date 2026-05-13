@@ -1,0 +1,572 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/validation_eligibility_matrix_v1.json",
+  "title": "Validation Eligibility Matrix v1",
+  "description": "Deterministic audited baseline covering governed validation states for all supported sports.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract_kind",
+    "baseline_name",
+    "reviewed_at",
+    "supported_sports",
+    "states_by_sport",
+    "status_index"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "contract_kind": {
+      "const": "validation_eligibility_matrix"
+    },
+    "baseline_name": {
+      "const": "wave_1_audited_baseline"
+    },
+    "reviewed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "supported_sports": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "MLB",
+          "TENNIS",
+          "EPL",
+          "LIGUE1",
+          "NBA",
+          "NHL",
+          "NFL",
+          "NCAAB",
+          "WNCAAB"
+        ]
+      },
+      "uniqueItems": true,
+      "minItems": 9,
+      "maxItems": 9
+    },
+    "states_by_sport": {
+      "type": "object",
+      "required": [
+        "MLB",
+        "TENNIS",
+        "EPL",
+        "LIGUE1",
+        "NBA",
+        "NHL",
+        "NFL",
+        "NCAAB",
+        "WNCAAB"
+      ],
+      "properties": {
+        "MLB": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "MLB"
+                }
+              }
+            }
+          ]
+        },
+        "TENNIS": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "TENNIS"
+                }
+              }
+            }
+          ]
+        },
+        "EPL": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "EPL"
+                }
+              }
+            }
+          ]
+        },
+        "LIGUE1": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "LIGUE1"
+                }
+              }
+            }
+          ]
+        },
+        "NBA": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "NBA"
+                }
+              }
+            }
+          ]
+        },
+        "NHL": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "NHL"
+                }
+              }
+            }
+          ]
+        },
+        "NFL": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "NFL"
+                }
+              }
+            }
+          ]
+        },
+        "NCAAB": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "NCAAB"
+                }
+              }
+            }
+          ]
+        },
+        "WNCAAB": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/state"
+            },
+            {
+              "properties": {
+                "sport": {
+                  "const": "WNCAAB"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "status_index": {
+      "type": "object",
+      "required": [
+        "blocked",
+        "shadow_only",
+        "candidate",
+        "approval_grade",
+        "contaminated",
+        "sizing_eligible"
+      ],
+      "properties": {
+        "blocked": {
+          "$ref": "#/$defs/sport_list"
+        },
+        "shadow_only": {
+          "$ref": "#/$defs/sport_list"
+        },
+        "candidate": {
+          "$ref": "#/$defs/sport_list"
+        },
+        "approval_grade": {
+          "$ref": "#/$defs/sport_list"
+        },
+        "contaminated": {
+          "$ref": "#/$defs/sport_list"
+        },
+        "sizing_eligible": {
+          "$ref": "#/$defs/sport_list"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "sport_list": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "MLB",
+          "TENNIS",
+          "EPL",
+          "LIGUE1",
+          "NBA",
+          "NHL",
+          "NFL",
+          "NCAAB",
+          "WNCAAB"
+        ]
+      },
+      "uniqueItems": true
+    },
+    "window": {
+      "type": "object",
+      "required": [
+        "start_date",
+        "end_date"
+      ],
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    },
+    "missing_reason_code": {
+      "type": "string",
+      "enum": [
+        "missing_market_clv_evidence",
+        "missing_calibration_evidence",
+        "missing_walk_forward_evidence",
+        "missing_governed_holdout_evidence",
+        "missing_governed_artifact_lineage"
+      ]
+    },
+    "contamination_reason_code": {
+      "type": "string",
+      "enum": [
+        "binary_result_clv_contamination",
+        "mixed_cohort_contamination",
+        "recommendation_backfill_contamination",
+        "synthetic_ticker_contamination"
+      ]
+    },
+    "parity_reason_code": {
+      "type": "string",
+      "enum": [
+        "runtime_consumer_mismatch",
+        "governed_artifact_not_consumed",
+        "reporting_runtime_divergence"
+      ]
+    },
+    "dimension_state": {
+      "type": "object",
+      "required": [
+        "status",
+        "missing_reason_codes",
+        "contamination_reason_codes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "contaminated",
+            "shadow_only",
+            "candidate",
+            "approval_grade"
+          ]
+        },
+        "missing_reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/missing_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "contamination_reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contamination_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "cohort_provenance": {
+      "type": "object",
+      "required": [
+        "cohort_type",
+        "placed_bet_only",
+        "includes_recommendation_only",
+        "includes_backfilled_recommendations",
+        "includes_synthetic_tickers"
+      ],
+      "properties": {
+        "cohort_type": {
+          "type": "string",
+          "enum": [
+            "descriptive_only",
+            "placed_bets_only",
+            "mixed_executed_and_recommendation",
+            "recommendation_backfill",
+            "synthetic_identifier_recommendations"
+          ]
+        },
+        "placed_bet_only": {
+          "type": "boolean"
+        },
+        "includes_recommendation_only": {
+          "type": "boolean"
+        },
+        "includes_backfilled_recommendations": {
+          "type": "boolean"
+        },
+        "includes_synthetic_tickers": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact_provenance": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "artifact_version",
+        "runtime_consumer",
+        "evidence_runtime_consumer",
+        "holdout_window",
+        "walk_forward_window",
+        "reviewed_at"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "artifact_version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "runtime_consumer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "evidence_runtime_consumer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "holdout_window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/window"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "walk_forward_window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/window"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime_parity": {
+      "type": "object",
+      "required": [
+        "status",
+        "reason_codes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "aligned",
+            "divergent",
+            "missing"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parity_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "evidence_dimensions": {
+      "type": "object",
+      "required": [
+        "clv",
+        "calibration",
+        "walk_forward"
+      ],
+      "properties": {
+        "clv": {
+          "$ref": "#/$defs/dimension_state"
+        },
+        "calibration": {
+          "$ref": "#/$defs/dimension_state"
+        },
+        "walk_forward": {
+          "$ref": "#/$defs/dimension_state"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_blockers": {
+      "type": "object",
+      "required": [
+        "missing_evidence",
+        "contamination",
+        "parity_failures"
+      ],
+      "properties": {
+        "missing_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/missing_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "contamination": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contamination_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "parity_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parity_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    },
+    "state": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "contract_kind",
+        "sport",
+        "market_type",
+        "validation_status",
+        "sizing_eligible",
+        "cohort_provenance",
+        "artifact_provenance",
+        "runtime_parity",
+        "evidence_dimensions",
+        "approval_blockers"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "v1"
+        },
+        "contract_kind": {
+          "const": "sport_validation_state"
+        },
+        "sport": {
+          "type": "string",
+          "enum": [
+            "MLB",
+            "TENNIS",
+            "EPL",
+            "LIGUE1",
+            "NBA",
+            "NHL",
+            "NFL",
+            "NCAAB",
+            "WNCAAB"
+          ]
+        },
+        "market_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "validation_status": {
+          "type": "string",
+          "enum": [
+            "blocked",
+            "shadow_only",
+            "candidate",
+            "approval_grade"
+          ]
+        },
+        "sizing_eligible": {
+          "type": "boolean"
+        },
+        "cohort_provenance": {
+          "$ref": "#/$defs/cohort_provenance"
+        },
+        "artifact_provenance": {
+          "$ref": "#/$defs/artifact_provenance"
+        },
+        "runtime_parity": {
+          "$ref": "#/$defs/runtime_parity"
+        },
+        "evidence_dimensions": {
+          "$ref": "#/$defs/evidence_dimensions"
+        },
+        "approval_blockers": {
+          "$ref": "#/$defs/approval_blockers"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

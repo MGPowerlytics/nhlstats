@@ -47,6 +47,7 @@ class DBManager:
                 f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db}"
             )
 
+        schema = schema or os.getenv("POSTGRES_SCHEMA")
         if schema:
             # Append search_path to connection string
             separator = "&" if "?" in self.connection_string else "?"
@@ -114,9 +115,7 @@ class DBManager:
             )
             raise
 
-    def fetch_scalar(
-        self, query: str, params: Optional[Dict[str, Any]] = None
-    ) -> Any:
+    def fetch_scalar(self, query: str, params: Optional[Dict[str, Any]] = None) -> Any:
         """
         Execute a query and return the first column of the first row, or None.
 

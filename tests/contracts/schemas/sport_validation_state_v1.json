@@ -1,0 +1,761 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/sport_validation_state_v1.json",
+  "title": "Sport Validation State v1",
+  "description": "Governed validation-state contract for fail-closed sport eligibility and publication gating.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "contract_kind",
+    "sport",
+    "market_type",
+    "validation_status",
+    "sizing_eligible",
+    "cohort_provenance",
+    "artifact_provenance",
+    "runtime_parity",
+    "evidence_dimensions",
+    "approval_blockers"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "contract_kind": {
+      "const": "sport_validation_state"
+    },
+    "sport": {
+      "type": "string",
+      "enum": [
+        "MLB",
+        "TENNIS",
+        "EPL",
+        "LIGUE1",
+        "NBA",
+        "NHL",
+        "NFL",
+        "NCAAB",
+        "WNCAAB"
+      ]
+    },
+    "market_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "validation_status": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "shadow_only",
+        "candidate",
+        "approval_grade"
+      ]
+    },
+    "sizing_eligible": {
+      "type": "boolean"
+    },
+    "cohort_provenance": {
+      "$ref": "#/$defs/cohort_provenance"
+    },
+    "artifact_provenance": {
+      "$ref": "#/$defs/artifact_provenance"
+    },
+    "runtime_parity": {
+      "$ref": "#/$defs/runtime_parity"
+    },
+    "evidence_dimensions": {
+      "$ref": "#/$defs/evidence_dimensions"
+    },
+    "approval_blockers": {
+      "$ref": "#/$defs/approval_blockers"
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "window": {
+      "type": "object",
+      "required": [
+        "start_date",
+        "end_date"
+      ],
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "format": "date"
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date"
+        }
+      },
+      "additionalProperties": false
+    },
+    "missing_reason_code": {
+      "type": "string",
+      "enum": [
+        "missing_market_clv_evidence",
+        "missing_calibration_evidence",
+        "missing_walk_forward_evidence",
+        "missing_governed_holdout_evidence",
+        "missing_governed_artifact_lineage"
+      ]
+    },
+    "contamination_reason_code": {
+      "type": "string",
+      "enum": [
+        "binary_result_clv_contamination",
+        "mixed_cohort_contamination",
+        "recommendation_backfill_contamination",
+        "synthetic_ticker_contamination"
+      ]
+    },
+    "parity_reason_code": {
+      "type": "string",
+      "enum": [
+        "runtime_consumer_mismatch",
+        "governed_artifact_not_consumed",
+        "reporting_runtime_divergence"
+      ]
+    },
+    "dimension_state": {
+      "type": "object",
+      "required": [
+        "status",
+        "missing_reason_codes",
+        "contamination_reason_codes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "missing",
+            "contaminated",
+            "shadow_only",
+            "candidate",
+            "approval_grade"
+          ]
+        },
+        "missing_reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/missing_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "contamination_reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contamination_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "missing_reason_codes": {
+                "minItems": 1
+              },
+              "contamination_reason_codes": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "contaminated"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "missing_reason_codes": {
+                "maxItems": 0
+              },
+              "contamination_reason_codes": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "enum": [
+                  "shadow_only",
+                  "candidate",
+                  "approval_grade"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "missing_reason_codes": {
+                "maxItems": 0
+              },
+              "contamination_reason_codes": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "cohort_provenance": {
+      "type": "object",
+      "required": [
+        "cohort_type",
+        "placed_bet_only",
+        "includes_recommendation_only",
+        "includes_backfilled_recommendations",
+        "includes_synthetic_tickers"
+      ],
+      "properties": {
+        "cohort_type": {
+          "type": "string",
+          "enum": [
+            "descriptive_only",
+            "placed_bets_only",
+            "mixed_executed_and_recommendation",
+            "recommendation_backfill",
+            "synthetic_identifier_recommendations"
+          ]
+        },
+        "placed_bet_only": {
+          "type": "boolean"
+        },
+        "includes_recommendation_only": {
+          "type": "boolean"
+        },
+        "includes_backfilled_recommendations": {
+          "type": "boolean"
+        },
+        "includes_synthetic_tickers": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    },
+    "artifact_provenance": {
+      "type": "object",
+      "required": [
+        "artifact_id",
+        "artifact_version",
+        "runtime_consumer",
+        "evidence_runtime_consumer",
+        "holdout_window",
+        "walk_forward_window",
+        "reviewed_at"
+      ],
+      "properties": {
+        "artifact_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "artifact_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "runtime_consumer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "evidence_runtime_consumer": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "holdout_window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/window"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "walk_forward_window": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/window"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reviewed_at": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "runtime_parity": {
+      "type": "object",
+      "required": [
+        "status",
+        "reason_codes"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "aligned",
+            "divergent",
+            "missing"
+          ]
+        },
+        "reason_codes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parity_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "aligned"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "maxItems": 0
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "divergent"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "minItems": 1
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "missing"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "reason_codes": {
+                "maxItems": 0
+              }
+            }
+          }
+        }
+      ]
+    },
+    "evidence_dimensions": {
+      "type": "object",
+      "required": [
+        "clv",
+        "calibration",
+        "walk_forward"
+      ],
+      "properties": {
+        "clv": {
+          "$ref": "#/$defs/dimension_state"
+        },
+        "calibration": {
+          "$ref": "#/$defs/dimension_state"
+        },
+        "walk_forward": {
+          "$ref": "#/$defs/dimension_state"
+        }
+      },
+      "additionalProperties": false
+    },
+    "approval_blockers": {
+      "type": "object",
+      "required": [
+        "missing_evidence",
+        "contamination",
+        "parity_failures"
+      ],
+      "properties": {
+        "missing_evidence": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/missing_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "contamination": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/contamination_reason_code"
+          },
+          "uniqueItems": true
+        },
+        "parity_failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/parity_reason_code"
+          },
+          "uniqueItems": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "sport": {
+            "enum": [
+              "TENNIS",
+              "EPL",
+              "LIGUE1"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "market_type": {
+            "const": "match_winner"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "market_type": {
+            "const": "moneyline"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "validation_status": {
+            "enum": [
+              "blocked",
+              "shadow_only",
+              "candidate"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sizing_eligible": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "validation_status": {
+            "const": "candidate"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "runtime_parity": {
+            "properties": {
+              "status": {
+                "const": "aligned"
+              },
+              "reason_codes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "approval_blockers": {
+            "properties": {
+              "missing_evidence": {
+                "maxItems": 0
+              },
+              "contamination": {
+                "maxItems": 0
+              },
+              "parity_failures": {
+                "maxItems": 0
+              }
+            }
+          },
+          "artifact_provenance": {
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifact_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runtime_consumer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence_runtime_consumer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "holdout_window": {
+                "$ref": "#/$defs/window"
+              },
+              "walk_forward_window": {
+                "$ref": "#/$defs/window"
+              }
+            }
+          },
+          "evidence_dimensions": {
+            "properties": {
+              "clv": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "candidate",
+                      "approval_grade"
+                    ]
+                  }
+                }
+              },
+              "calibration": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "candidate",
+                      "approval_grade"
+                    ]
+                  }
+                }
+              },
+              "walk_forward": {
+                "properties": {
+                  "status": {
+                    "enum": [
+                      "candidate",
+                      "approval_grade"
+                    ]
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "validation_status": {
+            "const": "approval_grade"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sizing_eligible": {
+            "const": true
+          },
+          "runtime_parity": {
+            "properties": {
+              "status": {
+                "const": "aligned"
+              },
+              "reason_codes": {
+                "maxItems": 0
+              }
+            }
+          },
+          "approval_blockers": {
+            "properties": {
+              "missing_evidence": {
+                "maxItems": 0
+              },
+              "contamination": {
+                "maxItems": 0
+              },
+              "parity_failures": {
+                "maxItems": 0
+              }
+            }
+          },
+          "artifact_provenance": {
+            "properties": {
+              "artifact_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "artifact_version": {
+                "type": "string",
+                "minLength": 1
+              },
+              "runtime_consumer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence_runtime_consumer": {
+                "type": "string",
+                "minLength": 1
+              },
+              "holdout_window": {
+                "$ref": "#/$defs/window"
+              },
+              "walk_forward_window": {
+                "$ref": "#/$defs/window"
+              }
+            }
+          },
+          "evidence_dimensions": {
+            "properties": {
+              "clv": {
+                "properties": {
+                  "status": {
+                    "const": "approval_grade"
+                  },
+                  "missing_reason_codes": {
+                    "maxItems": 0
+                  },
+                  "contamination_reason_codes": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              "calibration": {
+                "properties": {
+                  "status": {
+                    "const": "approval_grade"
+                  },
+                  "missing_reason_codes": {
+                    "maxItems": 0
+                  },
+                  "contamination_reason_codes": {
+                    "maxItems": 0
+                  }
+                }
+              },
+              "walk_forward": {
+                "properties": {
+                  "status": {
+                    "const": "approval_grade"
+                  },
+                  "missing_reason_codes": {
+                    "maxItems": 0
+                  },
+                  "contamination_reason_codes": {
+                    "maxItems": 0
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approval_blockers": {
+            "properties": {
+              "missing_evidence": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sizing_eligible": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approval_blockers": {
+            "properties": {
+              "contamination": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sizing_eligible": {
+            "const": false
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "approval_blockers": {
+            "properties": {
+              "parity_failures": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "sizing_eligible": {
+            "const": false
+          }
+        }
+      }
+    }
+  ]
+}

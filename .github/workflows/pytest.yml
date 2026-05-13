@@ -47,3 +47,43 @@ jobs:
 
       - name: Run default pytest
         run: pytest -q
+
+  dashboard-validation:
+    name: dashboard-validation
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: dashboard_ci
+          POSTGRES_PASSWORD: dashboard_ci_password
+          POSTGRES_DB: dashboard_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U dashboard_ci -d dashboard_ci"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      POSTGRES_HOST: 127.0.0.1
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: dashboard_ci
+      POSTGRES_USER: dashboard_ci
+      POSTGRES_PASSWORD: dashboard_ci_password
+      DASHBOARD_GATE_USE_EXISTING_POSTGRES: "1"
+      DASHBOARD_GATE_INSTALL_DEPS: "1"
+      DASHBOARD_GATE_INSTALL_PLAYWRIGHT: "1"
+      DASHBOARD_GATE_INSTALL_PLAYWRIGHT_DEPS: "1"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Run dashboard validation gate
+        run: bash scripts/validate_dashboard_gate.sh

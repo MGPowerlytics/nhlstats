@@ -27,6 +27,9 @@ from dashboard.data_layer import bust_cache
 PAGE_REFRESH = {
     "Portfolio": 30,
     "Live Markets": 30,
+    "Tennis Predictions": 30,
+    "Tennis Model Health": 300,
+    "Upcoming Games": 300,
     "Rankings": 300,
     "Calibration": 3600,
     "Data Quality": 300,
@@ -42,7 +45,16 @@ def render_sidebar() -> str:
 
         page = st.radio(
             "Navigation",
-            ["Portfolio", "Live Markets", "Rankings", "Calibration", "Data Quality"],
+            [
+                "Portfolio",
+                "Live Markets",
+                "Tennis Predictions",
+                "Tennis Model Health",
+                "Upcoming Games",
+                "Rankings",
+                "Calibration",
+                "Data Quality",
+            ],
             index=0,
         )
 
@@ -50,7 +62,11 @@ def render_sidebar() -> str:
 
         # Refresh controls
         refresh_seconds = PAGE_REFRESH.get(page, 0)
-        st.caption(f"Auto-refresh: {refresh_seconds}s" if refresh_seconds else "Auto-refresh: off")
+        st.caption(
+            f"Auto-refresh: {refresh_seconds}s"
+            if refresh_seconds
+            else "Auto-refresh: off"
+        )
 
         if st.button("🔄 Refresh Now", use_container_width=True):
             bust_cache()
@@ -65,6 +81,9 @@ def render_sidebar() -> str:
 
 def auto_refresh_loop(page: str):
     """Sleep and trigger rerun at the page's refresh interval."""
+    if os.getenv("DASHBOARD_DISABLE_AUTO_REFRESH"):
+        return
+
     seconds = PAGE_REFRESH.get(page, 0)
     if seconds <= 0:
         return  # manual-only pages
@@ -88,6 +107,12 @@ def main():
         from dashboard.pages.portfolio import render
     elif page == "Live Markets":
         from dashboard.pages.live_markets import render
+    elif page == "Tennis Predictions":
+        from dashboard.pages.tennis_predictions import render
+    elif page == "Tennis Model Health":
+        from dashboard.pages.tennis_model_health import render
+    elif page == "Upcoming Games":
+        from dashboard.pages.upcoming_games import render
     elif page == "Rankings":
         from dashboard.pages.rankings import render
     elif page == "Calibration":
@@ -103,11 +128,13 @@ def main():
     query_params = st.query_params
     if "bet_id" in query_params:
         from dashboard.pages.bet_detail import render_bet_detail
+
         render_bet_detail(query_params["bet_id"])
     # Check session state for bet detail navigation from other pages
     if st.session_state.get("show_bet_detail"):
         bet_id = st.session_state["show_bet_detail"]
         from dashboard.pages.bet_detail import render_bet_detail
+
         render_bet_detail(bet_id)
 
     auto_refresh_loop(page)

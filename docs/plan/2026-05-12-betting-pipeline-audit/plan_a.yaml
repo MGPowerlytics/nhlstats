@@ -1,0 +1,764 @@
+plan_id: 2026-05-12-betting-pipeline-audit
+variant: a
+objective: >
+  Audit and then safely upgrade the multi-sport betting pipeline so future execution can
+  maximize long-term ROI with controlled drawdowns, while enforcing a hard governance rule:
+  no future Kelly, bankroll, threshold, or segment-sizing change is eligible unless CLV,
+  calibration, and walk-forward evidence all pass sport-specific approval gates.
+created_at: 2026-05-12T00:00:00Z
+created_by: gem-planner
+status: pending_approval
+research_confidence: medium
+
+plan_metrics:
+  wave_1_task_count: 4
+  total_dependencies: 36
+  risk_score: high
+
+tldr: |
+  This plan treats the current system as an evidence-governed control problem, not just a
+  model-tuning problem. Wave 1 establishes the canonical evidence contract and traces the
+  current live pipeline, PostgreSQL evidence, and parameter drift across NBA, NHL, MLB, NFL,
+  EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS. Wave 2 upgrades the probability, pricing, CLV,
+  and portfolio-risk layers around governed interfaces. Later waves wire runtime approval
+  gates, dashboard read models, validation/review, and operator documentation so no sizing
+  change can bypass CLV + calibration + walk-forward evidence.
+
+open_questions:
+  - Whether NCAAB and WNCAAB have enough unbiased historical quote history to support governed calibration and CLV gates without shadow-only fallback.
+  - Whether current timestamp granularity in game_odds and placed_bets is sufficient to attribute execution quality versus simple pre-close CLV by sport.
+  - Whether any non-soccer sport will require multi-outcome market support beyond binary home/away contracts during the governed rollout.
+
+pre_mortem:
+  overall_risk_level: high
+  critical_failure_modes:
+    - scenario: Selection-biased training cohorts make calibration appear better than live reality, causing premature eligibility for sizing changes.
+      likelihood: high
+      impact: critical
+      mitigation: Require cohort provenance, placed-bet versus recommendation separation, bias flags, and shadow-mode approval before any sport becomes eligible.
+    - scenario: De-vig and best-execution logic diverge between research and the live DAG, producing inconsistent edge, CLV, and sizing decisions.
+      likelihood: high
+      impact: high
+      mitigation: Introduce one canonical normalized-quote and fair-odds contract consumed by selector, CLV, validation, and dashboard layers.
+    - scenario: Portfolio risk stays understated because correlated exposures, stale dashboard read models, or fill timing gaps are not reflected in live controls.
+      likelihood: medium
+      impact: critical
+      mitigation: Add a shared portfolio-risk state contract, force exposure truth reconciliation, and block sizing eligibility until drawdown and concentration evidence is available.
+    - scenario: Historical CLV and backtest evidence remain contaminated by legacy binary-result backfills, leading to false approval decisions.
+      likelihood: medium
+      impact: high
+      mitigation: Tier evidence quality, isolate compromised cohorts, and require walk-forward approval on clean windows before any governed change can advance.
+  assumptions:
+    - PostgreSQL remains the authoritative source of truth for games, odds, recommendations, placed bets, fills, settlements, and audit evidence.
+    - MLB and TENNIS provide the strongest existing governance patterns and should be reused where valid, but not blindly generalized across other sports.
+    - This round is plan-only; no production sizing, model, migration, or live parameter changes are approved until follow-on execution completes and passes review.
+
+implementation_specification:
+  code_structure: >
+    Preserve the current DAG as the orchestration shell, but factor future work around
+    governed interfaces: sport-specific calibrated probability artifacts, normalized market
+    quotes with fair-odds derivation, canonical CLV evidence, portfolio-risk state, runtime
+    gate evaluation, and dashboard read models. PostgreSQL-backed contracts should be the
+    canonical interchange layer so research, live runtime, and observability consume the same
+    evidence objects.
+  affected_areas:
+    - dags/multi_sport_betting_workflow.py
+    - plugins/probability_calibration.py
+    - plugins/elo/epl_ensemble_adapter.py
+    - plugins/the_odds_api.py
+    - plugins/odds_comparator.py
+    - plugins/opportunity_loader.py
+    - plugins/clv_tracker.py
+    - plugins/update_clv_data.py
+    - plugins/portfolio_optimizer.py
+    - plugins/portfolio_betting.py
+    - plugins/bet_loader.py
+    - dashboard/data_layer.py
+    - dashboard/pages/calibration.py
+    - dashboard/pages/portfolio.py
+    - tests/contracts/schemas/
+  component_details:
+    - component: Evidence bundle registry
+      responsibility: Define the fields, provenance rules, approval states, and bias annotations required before any sizing-related change is allowed.
+      interfaces:
+        - EvidenceBundle v1
+        - GovernedSizingChangePolicy v1
+        - ApprovalState {blocked, shadow, eligible}
+    - component: Calibrated probability layer
+      responsibility: Produce sport-specific, bias-aware calibrated probabilities and expose calibration quality evidence suitable for runtime gating and dashboard review.
+      interfaces:
+        - CalibratedProbabilityArtifact v1
+        - SportCalibrationMetrics v1
+    - component: Market pricing and execution layer
+      responsibility: Normalize multi-book quotes, compute fair odds, separate reference pricing from execution venue, and persist freshness/provenance for later CLV analysis.
+      interfaces:
+        - NormalizedQuote v1
+        - FairOddsSnapshot v1
+        - ExecutionPriceDecision v1
+    - component: CLV evidence service
+      responsibility: Compute one canonical CLV signal, grade evidence quality, and publish per-sport approval metrics for thresholds and sizing governance.
+      interfaces:
+        - CLVQualityEvidence v1
+        - ClosingPriceSourceAudit v1
+    - component: Portfolio risk state
+      responsibility: Quantify bankroll allocation, concentration, cross-sport correlation, drawdown, and risk-of-ruin signals consumed by the live gate and dashboard.
+      interfaces:
+        - PortfolioRiskState v1
+        - ExposureTruthReconciliation v1
+    - component: Governance observability layer
+      responsibility: Surface sport-specific evidence, eligibility state, exposure truth, and execution quality to operators and reviewers.
+      interfaces:
+        - DashboardGovernancePayload v1
+        - GateDecisionAudit v1
+  dependencies:
+    - component: Calibrated probability layer
+      relationship: Must satisfy Evidence bundle registry requirements before runtime gate evaluation can consume its outputs.
+    - component: Market pricing and execution layer
+      relationship: Produces normalized quote and fair-odds artifacts used by CLV evidence and opportunity selection.
+    - component: CLV evidence service
+      relationship: Consumes normalized quotes and placed bet/fill records, then feeds approval metrics into portfolio risk and runtime gates.
+    - component: Portfolio risk state
+      relationship: Consumes governed probabilities, CLV evidence, and live exposure data to determine whether sizing decisions remain eligible.
+    - component: Governance observability layer
+      relationship: Reads approval, pricing, CLV, and risk artifacts from PostgreSQL-backed contracts for operator visibility and verification.
+  integration_points:
+    - Airflow DAG task boundaries in dags/multi_sport_betting_workflow.py
+    - PostgreSQL tables and views backing unified_games, game_odds, bet_recommendations, placed_bets, fills, and dashboard read models
+    - Dashboard pages for calibration, portfolio, and operator-facing governance states
+    - Contract tests and smoke tests that keep research, runtime, and observability aligned
+
+contracts:
+  - from_task: evidence-gate-contract-spec
+    to_task: calibrated-probability-governance
+    interface: Canonical EvidenceBundle v1 fields for calibration provenance, bias flags, approval windows, and sport eligibility.
+    format: YAML specification + JSON Schema
+  - from_task: evidence-gate-contract-spec
+    to_task: fair-odds-best-execution-layer
+    interface: GovernedSizingChangePolicy v1 defining which pricing artifacts must exist before selection and sizing changes can be evaluated.
+    format: YAML specification
+  - from_task: pipeline-evidence-inventory
+    to_task: runtime-governance-wiring
+    interface: Per-sport producer/consumer matrix mapping DAG tasks, PostgreSQL tables, and missing evidence hops from ingestion through settlement.
+    format: Markdown/YAML audit matrix
+  - from_task: validation-baseline-matrix
+    to_task: calibrated-probability-governance
+    interface: SportValidationBaseline v1 with calibration, CLV, walk-forward, and evidence-quality status by sport and cohort.
+    format: PostgreSQL view contract + CSV export
+  - from_task: fair-odds-best-execution-layer
+    to_task: canonical-clv-pipeline
+    interface: NormalizedQuote v1 and FairOddsSnapshot v1 containing vig-adjusted probabilities, quote freshness, and bookmaker provenance.
+    format: SQL row contract + JSON Schema
+  - from_task: calibrated-probability-governance
+    to_task: runtime-governance-wiring
+    interface: CalibratedProbabilityArtifact v1 and sport eligibility outputs for gating threshold and sizing changes.
+    format: PostgreSQL artifact contract
+  - from_task: canonical-clv-pipeline
+    to_task: portfolio-risk-governance
+    interface: CLVQualityEvidence v1 with quality tiers, clean windows, and approval metrics by sport and segment.
+    format: SQL view contract
+  - from_task: portfolio-risk-governance
+    to_task: observability-read-models
+    interface: PortfolioRiskState v1 with bankroll allocation, correlation, concentration, drawdown, and exposure reconciliation fields.
+    format: Dashboard read-model contract
+  - from_task: observability-read-models
+    to_task: dashboard-governance-validation
+    interface: DashboardGovernancePayload v1 showing sport-specific evidence, gate state, and exposure truth.
+    format: UI read-model contract
+  - from_task: runtime-governance-wiring
+    to_task: cross-sport-governance-review
+    interface: GateDecisionAudit v1 and override policy contract proving blocked, shadow, and eligible states are enforced consistently.
+    format: DB table contract + config schema
+
+tasks:
+  - id: evidence-gate-contract-spec
+    title: Define the governed evidence bundle and sizing-change gate
+    description: |
+      Create the canonical governance contract that every sport must satisfy before any
+      Kelly, bankroll, threshold, confidence-floor, or segment-exclusion change can move
+      beyond shadow mode. The contract must explicitly require CLV, calibration, and
+      walk-forward evidence, plus cohort provenance, bias labels, drawdown context,
+      and blocked/shadow/eligible approval states.
+    wave: 1
+    agent: gem-planner
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Source-of-truth scope, acceptance criteria, and no-code-change boundary for this round.
+      dags/multi_sport_betting_workflow.py: Current live orchestration and hard-coded threshold/sizing insertion points.
+      plugins/constants.py: Shared thresholds and bookmaker constants likely to become governed config.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: governance contracts
+    verification:
+      - Confirm the contract names every in-scope sport and every required audit dimension.
+      - Confirm the approval logic blocks any future sizing change without CLV, calibration, and walk-forward evidence.
+    acceptance_criteria:
+      - EvidenceBundle v1 specifies required fields, provenance, quality flags, approval windows, and blocked/shadow/eligible states.
+      - The contract clearly separates evidence required for model calibration, market pricing, CLV, and portfolio-risk approval.
+      - The output is implementation-ready and does not itself change live parameters.
+    failure_modes:
+      - scenario: The contract is too generic and fails to encode sport-specific evidence exceptions such as EPL three-way markets.
+        likelihood: medium
+        impact: high
+        mitigation: Include sport overrides only as explicit schema fields, not hidden runtime assumptions.
+      - scenario: Governance focuses on ROI alone and omits drawdown or quality-tier requirements.
+        likelihood: medium
+        impact: high
+        mitigation: Make drawdown, concentration, evidence quality, and cohort provenance required fields in the base contract.
+
+  - id: pipeline-evidence-inventory
+    title: Trace the live betting pipeline and PostgreSQL evidence by sport
+    description: |
+      Produce the end-to-end inventory for NBA, NHL, MLB, NFL, EPL, LIGUE1, NCAAB,
+      WNCAAB, and TENNIS from ingestion and rating updates through market normalization,
+      opportunity selection, sizing, execution, settlement, and dashboard reporting.
+      The output must identify the exact PostgreSQL evidence sources, missing joins,
+      and where the current live DAG diverges from the strongest-governed sports.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dags/multi_sport_betting_workflow.py: Primary multi-sport live workflow and task sequencing.
+      plugins/bet_loader.py: Recommendation persistence and downstream runtime payload boundary.
+      plugins/bet_tracker.py: Fill, settlement, and placed-bet evidence flow into PostgreSQL.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: pipeline audit
+    verification:
+      - Confirm each sport has a traced path from model output to realized outcome evidence.
+      - Confirm the inventory identifies the source-of-truth PostgreSQL tables or views for each stage.
+    acceptance_criteria:
+      - The audit matrix covers all supported sports and all five PRD audit dimensions.
+      - Missing evidence links, duplicate implementations, and live-versus-research divergence points are explicitly listed.
+      - The output is sufficient for later tasks to place contracts at the correct boundaries.
+    failure_modes:
+      - scenario: The inventory overlooks sport-specific branches and falsely treats all sports as sharing MLB/Tennis behavior.
+        likelihood: medium
+        impact: high
+        mitigation: Require a per-sport matrix instead of a single aggregated flow description.
+      - scenario: PostgreSQL evidence sources are inferred from code only and not tied to actual runtime persistence boundaries.
+        likelihood: medium
+        impact: high
+        mitigation: Anchor every stage to named tables/views and explicit producer/consumer code paths.
+
+  - id: validation-baseline-matrix
+    title: Baseline calibration, CLV, and walk-forward evidence quality by sport
+    description: |
+      Build the current-state evidence matrix that distinguishes robust stacks (notably
+      MLB and TENNIS) from sports still relying on raw Elo or weak/static validation.
+      The baseline must tag selection bias, binary-result backfill contamination, EPL
+      three-way incompleteness, and any sport where current evidence can only support
+      shadow-mode governance rather than live sizing eligibility.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      plugins/probability_calibration.py: Current calibration training sources and limitations.
+      plugins/elo/epl_ensemble_adapter.py: EPL ensemble/calibration live-path integration boundary.
+      plugins/mlb_modeling/evidence.py: Example of stronger evidence packaging already present in MLB.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 200
+    focus_area: evidence quality
+    verification:
+      - Confirm each sport is labeled with calibration status, CLV quality, walk-forward status, and bias risk.
+      - Confirm the matrix distinguishes placed-bet evidence from recommendation-selected evidence.
+    acceptance_criteria:
+      - Every supported sport receives an explicit governed status of blocked, shadow-only, or candidate-for-eligibility.
+      - Historical evidence compromised by legacy backfills is tagged so later tasks can exclude or down-weight it.
+      - EPL three-way gaps and dashboard non-sport-specific calibration limitations are captured as implementation inputs.
+    failure_modes:
+      - scenario: Mixed evidence sources are merged without bias flags, overstating calibration quality.
+        likelihood: high
+        impact: critical
+        mitigation: Require cohort labels and separate placed-bet, recommendation, and synthetic/backfill populations.
+      - scenario: Walk-forward quality is inferred from a few backtests instead of a repeatable validation standard.
+        likelihood: medium
+        impact: high
+        mitigation: Specify minimum windowing and leakage checks before any sport can be marked eligible.
+
+  - id: runtime-config-drift-audit
+    title: Reconcile runtime parameters, docs, and dashboard exposure semantics
+    description: |
+      Identify where live hard-coded thresholds, confidence filters, segment exclusions,
+      bankroll caps, and exposure reporting diverge from documentation and dashboard
+      presentation. The output must explain which current controls are evidence-gated,
+      which are arbitrary, and where operators may be seeing understated live risk.
+    wave: 1
+    agent: gem-researcher
+    priority: medium
+    status: pending
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dags/multi_sport_betting_workflow.py: Hard-coded betting parameters and orchestration-time control flow.
+      plugins/portfolio_optimizer.py: Current Kelly, cap, and confidence floor behavior.
+      dashboard/data_layer.py: Dashboard exposure and read-model semantics seen by operators.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 160
+    focus_area: config drift
+    verification:
+      - Confirm every live runtime control has a documented owner and current source.
+      - Confirm the audit identifies where dashboard exposure can understate live filled risk.
+    acceptance_criteria:
+      - A parameter-drift report exists for thresholds, bankroll caps, segment exclusions, and exposure metrics.
+      - The report distinguishes evidence-backed controls from hard-coded heuristics.
+      - Documentation/runtime alignment requirements are ready for later implementation and docs tasks.
+    failure_modes:
+      - scenario: Drift is cataloged without prioritizing controls that can silently change sizing behavior.
+        likelihood: medium
+        impact: medium
+        mitigation: Rank drift items by direct bankroll impact and gate sensitivity.
+
+  - id: calibrated-probability-governance
+    title: Upgrade every sport to a governed calibrated probability stack
+    description: |
+      Implement the shared, sport-specific probability governance layer so live selection
+      stops depending on raw Elo where evidence is insufficient. Complete EPL three-way
+      calibration wiring, separate biased from unbiased training cohorts, define shadow
+      rollout rules for weaker sports, and make dashboard/read-model outputs truly
+      sport-specific rather than globally pooled.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies:
+      - evidence-gate-contract-spec
+      - pipeline-evidence-inventory
+      - validation-baseline-matrix
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      plugins/probability_calibration.py: Existing Platt calibration and training-data fetch behavior.
+      plugins/elo/epl_ensemble_adapter.py: EPL ensemble/calibration handoff into live selection.
+      dashboard/pages/calibration.py: Operator-facing calibration evidence that must become sport-specific.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 420
+    focus_area: probability calibration
+    verification:
+      - Add contract/regression coverage proving each sport emits calibrated probabilities or a shadow-mode fallback state.
+      - Verify EPL three-way probabilities and live DAG consumers preserve calibrated outputs without silently collapsing to binary logic.
+    acceptance_criteria:
+      - Each supported sport has an explicit calibrated-probability strategy and eligibility state.
+      - Training cohorts preserve provenance and bias labels so approval decisions can exclude recommendation-selected contamination.
+      - Dashboard calibration views become sport-specific and aligned with runtime artifacts.
+    failure_modes:
+      - scenario: A sport silently falls back to raw Elo in live runtime while appearing calibrated in research outputs.
+        likelihood: high
+        impact: critical
+        mitigation: Emit explicit blocked/shadow states whenever governed calibration artifacts are missing.
+      - scenario: EPL draw probability remains incomplete in one runtime path, corrupting downstream edge and CLV comparisons.
+        likelihood: medium
+        impact: high
+        mitigation: Treat three-way EPL support as a contract-level invariant and cover it with provider/consumer tests.
+    tech_stack:
+      - Python
+      - scikit-learn
+      - pandas
+      - PostgreSQL
+      - pytest
+    test_coverage: Contract tests for calibrated artifacts, per-sport regression tests, and dashboard/read-model validation for sport-specific calibration metrics.
+
+  - id: fair-odds-best-execution-layer
+    title: Add fair-odds normalization and true best-execution selection
+    description: |
+      Introduce a canonical pricing layer that de-vigs multi-book quotes, fixes the
+      current best-price parser bug, and separates reference pricing from execution venue.
+      The live selector should stop behaving as if Kalshi pricing alone defines edge when
+      other books are already being ingested, and every quote should carry freshness and
+      bookmaker provenance for later CLV and audit use.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies:
+      - evidence-gate-contract-spec
+      - pipeline-evidence-inventory
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      plugins/the_odds_api.py: Multi-book ingestion and current best-price parsing behavior.
+      plugins/odds_comparator.py: Opportunity selection and edge computation entry point.
+      plugins/opportunity_loader.py: Persistence/loading boundary for candidate opportunities.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 460
+    focus_area: pricing and execution
+    verification:
+      - Prove selector outputs use normalized fair odds and best executable price rather than a Kalshi-only shortcut.
+      - Prove quote freshness and bookmaker provenance persist into downstream CLV and audit consumers.
+    acceptance_criteria:
+      - A normalized quote contract exists for Kalshi plus supporting books with de-vig/fair-odds semantics.
+      - The Odds API best-price bug is removed as part of the unified pricing path.
+      - Selection logic distinguishes reference edge estimation from actual execution venue choice.
+    failure_modes:
+      - scenario: Fair-odds logic is added, but downstream consumers still read stale or venue-specific fields and recreate old edge behavior.
+        likelihood: high
+        impact: high
+        mitigation: Replace ad hoc probability derivations with one canonical normalized-quote interface consumed everywhere.
+      - scenario: Best execution favors a quote without timestamp quality, creating phantom edge and bad CLV.
+        likelihood: medium
+        impact: high
+        mitigation: Make freshness thresholds and provenance mandatory parts of the quote contract.
+    tech_stack:
+      - Python
+      - pandas
+      - PostgreSQL
+      - pytest
+    test_coverage: Unit and contract tests for quote normalization, de-vig calculations, bookmaker selection, and live selector regression cases.
+
+  - id: canonical-clv-pipeline
+    title: Canonicalize CLV computation and approval evidence
+    description: |
+      Collapse the split CLV implementations into a single governed pipeline tied to the
+      normalized quote contract. Closing prices, quality tiers, and clean historical
+      windows must be defined consistently so CLV becomes an approval input for thresholds
+      and sizing rather than a passive report. Historical contamination from older binary
+      backfills must be isolated instead of mixed into governed evidence.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies:
+      - evidence-gate-contract-spec
+      - pipeline-evidence-inventory
+      - validation-baseline-matrix
+      - fair-odds-best-execution-layer
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      plugins/clv_tracker.py: Existing canonical-looking CLV logic sourcing from game_odds snapshots.
+      plugins/update_clv_data.py: Alternate CLV implementation currently tied to closed-market outcomes.
+      dashboard/data_layer.py: Downstream consumer of CLV and performance read models.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 440
+    focus_area: CLV governance
+    verification:
+      - Prove only one CLV definition is used by runtime, validation, and dashboard consumers.
+      - Prove CLV evidence exposes quality tiers and excludes contaminated windows from approval decisions.
+    acceptance_criteria:
+      - CLVQualityEvidence v1 is derived from one canonical closing-price source contract.
+      - Historical data quality is tiered so compromised binary-result backfills cannot qualify a sport for eligibility.
+      - CLV metrics are consumable by runtime gate logic and operator dashboards, not just reports.
+    failure_modes:
+      - scenario: The system keeps two CLV paths and operators cannot tell which one gates eligibility.
+        likelihood: high
+        impact: critical
+        mitigation: Delete split semantics at the contract level and force all consumers onto one published CLV interface.
+      - scenario: Clean and compromised historical windows are combined, overstating long-term edge quality.
+        likelihood: medium
+        impact: high
+        mitigation: Publish explicit evidence-quality tiers and require clean-window thresholds for approval.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - pytest
+    test_coverage: Contract tests for closing-price sourcing, regression tests for CLV calculations, and quality-tier validation against historical cohorts.
+
+  - id: portfolio-risk-governance
+    title: Replace single-bet Kelly controls with governed portfolio risk state
+    description: |
+      Upgrade bankroll management from fractional Kelly plus hard caps to a governed
+      portfolio-risk layer that models correlation, concentration, cross-sport allocation,
+      drawdown, risk of ruin, and exposure truth. Confidence filters and segment exclusions
+      must become evidence-gated policies rather than scattered heuristics, and dashboard
+      exposure must reconcile to live filled risk before any sport can become eligible.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies:
+      - evidence-gate-contract-spec
+      - pipeline-evidence-inventory
+      - validation-baseline-matrix
+      - runtime-config-drift-audit
+      - canonical-clv-pipeline
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      plugins/portfolio_optimizer.py: Current Kelly sizing, caps, and allocation behavior.
+      plugins/portfolio_betting.py: Live placement path and bankroll updates.
+      dags/multi_sport_betting_workflow.py: Runtime enforcement point for risk controls and confidence gating.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 480
+    focus_area: portfolio risk
+    verification:
+      - Prove live exposure, fills, and dashboard exposure reconcile against the same portfolio-risk state.
+      - Prove segment exclusions and confidence filters are governed by evidence rather than hard-coded exceptions.
+    acceptance_criteria:
+      - PortfolioRiskState v1 includes concentration, correlation, drawdown, and risk-of-ruin signals.
+      - Confidence enforcement is explicit and consistent across sports and runtime paths.
+      - Cross-sport bankroll allocation and exposure truth are auditable before any sizing eligibility change.
+    failure_modes:
+      - scenario: Correlated same-slate or same-sport exposure remains hidden behind single-bet Kelly math.
+        likelihood: high
+        impact: critical
+        mitigation: Make portfolio state the only input to final bet sizing, not isolated opportunity-level Kelly values.
+      - scenario: Dashboard exposure continues to lag live fills, masking real drawdown risk during rollout.
+        likelihood: medium
+        impact: high
+        mitigation: Add exposure truth reconciliation as a hard prerequisite for eligibility.
+    tech_stack:
+      - Python
+      - pandas
+      - PostgreSQL
+      - pytest
+    test_coverage: Contract tests for portfolio allocation payloads, regression tests for concentration/drawdown logic, and DAG smoke tests for runtime enforcement.
+
+  - id: observability-read-models
+    title: Publish sport-specific governance read models for operators
+    description: |
+      Build the dashboard/read-model layer that shows calibrated probability quality,
+      fair-odds versus execution price, CLV approval state, portfolio concentration,
+      and blocked/shadow/eligible status by sport. The goal is to make the live system's
+      governance state visible enough that operators can spot drift before changing sizing.
+    wave: 3
+    agent: gem-implementer
+    priority: medium
+    status: pending
+    dependencies:
+      - evidence-gate-contract-spec
+      - runtime-config-drift-audit
+      - calibrated-probability-governance
+      - canonical-clv-pipeline
+      - portfolio-risk-governance
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dashboard/data_layer.py: Shared read-model assembly and dashboard query logic.
+      dashboard/pages/calibration.py: Calibration page that must become truly sport-specific.
+      dashboard/pages/portfolio.py: Exposure, allocation, and drawdown presentation layer.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 340
+    focus_area: observability
+    verification:
+      - Verify each sport displays its own calibration, CLV, and eligibility metrics rather than pooled aggregates.
+      - Verify exposure and drawdown views consume the same governed portfolio state used by runtime controls.
+    acceptance_criteria:
+      - DashboardGovernancePayload v1 exists and is populated from canonical evidence contracts.
+      - Operators can distinguish blocked, shadow, and eligible sports plus the evidence reason for each state.
+      - Exposure, CLV, and calibration metrics align with runtime artifacts and not independent dashboard logic.
+    failure_modes:
+      - scenario: The dashboard summarizes governed metrics globally and hides sport-specific failure states.
+        likelihood: medium
+        impact: high
+        mitigation: Key all governance payloads by sport and approval window, not portfolio-level aggregates alone.
+    tech_stack:
+      - Python
+      - Streamlit
+      - PostgreSQL
+      - pytest
+    test_coverage: Read-model tests, dashboard integration tests, and contract tests proving page payloads match governed backend artifacts.
+
+  - id: runtime-governance-wiring
+    title: Enforce approval gates in the live selection and sizing workflow
+    description: |
+      Wire the governed evidence contracts into the actual live workflow so no future
+      threshold, sizing, or segment-policy change can take effect without an approved
+      evidence bundle. The runtime must distinguish blocked, shadow, and eligible states,
+      prevent silent fallback to unguided heuristics, and emit gate-decision audit rows
+      whenever a sport or policy is allowed, shadowed, or blocked.
+    wave: 3
+    agent: gem-implementer
+    priority: high
+    status: pending
+    dependencies:
+      - calibrated-probability-governance
+      - fair-odds-best-execution-layer
+      - canonical-clv-pipeline
+      - portfolio-risk-governance
+    parallelizable: false
+    conflicts_with:
+      - portfolio-risk-governance
+    context_files:
+      dags/multi_sport_betting_workflow.py: Main orchestration entry point where live gates must be enforced.
+      plugins/bet_loader.py: Recommendation payload boundary and persistence semantics.
+      plugins/constants.py: Existing runtime defaults that should become governed config.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 420
+    focus_area: runtime gating
+    verification:
+      - Prove no unapproved sizing or threshold change can enter the runtime path without a corresponding evidence bundle and gate state.
+      - Prove blocked and shadow states are explicit, durable, and auditable.
+    acceptance_criteria:
+      - Runtime gate checks consume canonical calibrated probability, pricing, CLV, and portfolio-risk artifacts.
+      - GateDecisionAudit v1 is persisted for operator review and later compliance checks.
+      - Live workflow behavior remains within PRD scope by enforcing governance rather than changing sizing policy in this round.
+    failure_modes:
+      - scenario: Missing artifacts trigger silent fallback to legacy thresholds or Kelly settings.
+        likelihood: high
+        impact: critical
+        mitigation: Fail closed with explicit blocked or shadow states; never revert silently to unguided defaults.
+      - scenario: Runtime gates exist, but recommendation persistence or downstream loaders ignore the eligibility state.
+        likelihood: medium
+        impact: high
+        mitigation: Carry gate state through bet_loader and related persistence contracts, then cover it with contract tests.
+    tech_stack:
+      - Python
+      - Airflow
+      - PostgreSQL
+      - pytest
+    test_coverage: DAG smoke tests, contract tests for gated recommendation payloads, and regression tests for blocked/shadow/eligible state transitions.
+
+  - id: dashboard-governance-validation
+    title: Validate operator workflows against the governed dashboard state
+    description: |
+      Run browser-level validation once the new governance read models and runtime gate
+      states are available. Focus on whether operators can correctly see sport-specific
+      eligibility, exposure truth, CLV quality, and calibration status without hidden
+      coupling to stale dashboard logic or under-reported live risk.
+    wave: 4
+    agent: gem-browser-tester
+    priority: medium
+    status: pending
+    dependencies:
+      - observability-read-models
+      - runtime-governance-wiring
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dashboard/app.py: Entry point for operator-visible governance views.
+      dashboard/pages/calibration.py: Sport-specific calibration evidence page.
+      dashboard/pages/portfolio.py: Exposure and drawdown visibility page.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: operator validation
+    verification:
+      - Validate that blocked, shadow, and eligible states are visible and consistent across pages.
+      - Validate that exposure and CLV values shown to operators match the governed backend payloads.
+    acceptance_criteria:
+      - Browser validation covers sport-specific calibration, CLV eligibility, portfolio exposure, and gate audit visibility.
+      - UI behavior fails loudly when governed payloads are missing rather than silently showing stale fallback data.
+    failure_modes:
+      - scenario: UI pages continue to display stale aggregate values that hide blocked sports or understated exposure.
+        likelihood: medium
+        impact: high
+        mitigation: Add explicit empty/error states tied to missing governed payloads and validate them in browser scenarios.
+    validation_matrix:
+      - scenario: Blocked sport visibility
+        steps:
+          - Load the dashboard with at least one sport marked blocked by the runtime gate.
+          - Navigate to calibration and portfolio views for that sport.
+        expected_result: The UI clearly shows blocked state, reason code, and no eligible sizing recommendation.
+      - scenario: Shadow-mode evidence display
+        steps:
+          - Load a sport with calibration and CLV evidence present but not yet eligible.
+          - Inspect the approval details and linked evidence metrics.
+        expected_result: The UI shows shadow status, clean-window metrics, and missing approval requirements without implying live eligibility.
+      - scenario: Exposure truth reconciliation
+        steps:
+          - Open the portfolio page after filled bets have changed exposure.
+          - Compare displayed exposure and drawdown fields to governed risk payload values.
+        expected_result: Displayed exposure matches the governed portfolio-risk state with no understated live filled risk.
+
+  - id: cross-sport-governance-review
+    title: Review the governed rollout for logic, security, and bankroll safety
+    description: |
+      Perform a deep review across the new calibrated probability, pricing, CLV,
+      portfolio-risk, dashboard, and runtime-gate surfaces. The review should focus on
+      hidden bypasses, approval-state leakage, bankroll safety regressions, and any path
+      where old heuristics could still alter sizing without the required evidence bundle.
+    wave: 4
+    agent: gem-reviewer
+    priority: high
+    status: pending
+    dependencies:
+      - calibrated-probability-governance
+      - fair-odds-best-execution-layer
+      - canonical-clv-pipeline
+      - portfolio-risk-governance
+      - observability-read-models
+      - runtime-governance-wiring
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      dags/multi_sport_betting_workflow.py: Final live orchestration surface and gate wiring.
+      plugins/portfolio_optimizer.py: Bankroll and concentration logic with highest drawdown sensitivity.
+      tests/contracts/test_portfolio_allocation_provider.py: Existing contract boundary likely to require governed extension coverage.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: review
+    verification:
+      - Review for any path that can change thresholds, bankroll use, or segment eligibility without a governed approval state.
+      - Review for exposure understatement, stale quote use, and inconsistent CLV sources across runtime and dashboard.
+    acceptance_criteria:
+      - Review findings explicitly cover logic safety, approval bypass risk, and bankroll/drawdown impact.
+      - Any release-blocking risks are mapped back to concrete contract or runtime surfaces.
+    failure_modes:
+      - scenario: Review scope treats the work as ordinary refactoring and misses approval bypasses hidden in old utility paths.
+        likelihood: medium
+        impact: critical
+        mitigation: Force the review checklist to center on gate enforcement, fallback behavior, and bankroll safety invariants.
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: true
+
+  - id: docs-runbook-parity
+    title: Publish the governed sizing-change runbook and docs/runtime parity rules
+    description: |
+      Update operator and developer documentation so the new governance workflow is
+      maintainable: what evidence is required, how blocked/shadow/eligible states work,
+      how to validate parity between docs and runtime config, and what rollback steps to
+      take if calibration, CLV, pricing, or portfolio-risk evidence degrades after rollout.
+    wave: 5
+    agent: gem-documentation-writer
+    priority: medium
+    status: pending
+    dependencies:
+      - runtime-config-drift-audit
+      - observability-read-models
+      - runtime-governance-wiring
+      - dashboard-governance-validation
+      - cross-sport-governance-review
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      README.md: High-level system behavior and operator expectations.
+      FUNCTIONAL_TESTS.md: Validation guidance that should reflect governed evidence gates.
+      docs/prd.yaml: Scope boundary and approval requirements that docs must preserve.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: documentation
+    verification:
+      - Confirm docs explain evidence requirements, approval states, and rollback triggers without implying unapproved sizing changes.
+      - Confirm documented runtime parameters and dashboard semantics match the implemented governed contracts.
+    acceptance_criteria:
+      - A runbook exists for proposing, validating, approving, and rolling back any future sizing-related change.
+      - Docs explicitly state that CLV, calibration, and walk-forward evidence are required before sizing recommendations can advance.
+      - Documentation captures docs/runtime parity checks and operator responsibilities after rollout.
+    failure_modes:
+      - scenario: Documentation summarizes the new controls but omits the exact approval order or rollback criteria, causing operational drift.
+        likelihood: medium
+        impact: medium
+        mitigation: Structure docs around concrete workflows, approval artifacts, and parity checkpoints rather than prose summaries.
+    task_type: update
+    audience: developers
+    coverage_matrix:
+      - Governed sizing-change workflow
+      - EvidenceBundle and approval-state definitions
+      - Dashboard interpretation for blocked/shadow/eligible states
+      - Docs/runtime parity checks
+      - Rollback and incident response steps

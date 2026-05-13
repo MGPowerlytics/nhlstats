@@ -57,6 +57,32 @@ class BetData(SqlParamsMixin):
     payout: Optional[float]
     profit: Optional[float]
     source: Optional[str] = None
+    recommendation_id: Optional[str] = None
+    recommendation_canonical_game_id: Optional[str] = None
+    recommendation_market_ticker: Optional[str] = None
+    recommendation_selection_key: Optional[str] = None
+    recommendation_linkage_status: Optional[str] = None
+    recommendation_linkage_basis: Optional[str] = None
+    entry_price_cents: Optional[int] = None
+    entry_quote_role: Optional[str] = None
+    entry_price_source: Optional[str] = None
+    entry_quote_source_system: Optional[str] = None
+    entry_quote_bookmaker: Optional[str] = None
+    entry_quote_observed_at: Optional[datetime] = None
+    entry_quote_loaded_at: Optional[datetime] = None
+    entry_quote_payload_ref: Optional[str] = None
+    entry_quote_freshness_result: Optional[str] = None
+    entry_quote_fallback_status: Optional[str] = None
+    close_quote_source: Optional[str] = None
+    close_quote_at: Optional[datetime] = None
+    close_quote_loaded_at: Optional[datetime] = None
+    close_quote_payload_ref: Optional[str] = None
+    close_price_role: Optional[str] = None
+    close_freshness_result: Optional[str] = None
+    selected_close_rule: Optional[str] = None
+    selected_close_provenance: Optional[str] = None
+    close_fallback_status: Optional[str] = None
+    clv_source_type: Optional[str] = None
 
     def _get_field_mapping(self) -> Dict[str, str]:
         """Get field name mappings for SQL parameters.
@@ -288,7 +314,12 @@ def create_portfolio_value_snapshots_table(db: DBManager = default_db) -> None:
         CREATE TABLE IF NOT EXISTS portfolio_value_snapshots (
             snapshot_hour_utc TEXT PRIMARY KEY,
             balance_dollars REAL,
-            portfolio_value_dollars REAL
+            portfolio_value_dollars REAL,
+            cumulative_deposits_dollars REAL DEFAULT 0.0,
+            drawdown_gate_active BOOLEAN DEFAULT FALSE,
+            drawdown_gate_reason_code TEXT,
+            drawdown_gate_reason_detail TEXT,
+            created_at_utc TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """
     )
@@ -360,6 +391,32 @@ def _placed_bets_compat_sql() -> str:
             payout_dollars DOUBLE PRECISION,
             profit_dollars DOUBLE PRECISION,
             source VARCHAR,
+            recommendation_id VARCHAR,
+            recommendation_canonical_game_id VARCHAR,
+            recommendation_market_ticker VARCHAR,
+            recommendation_selection_key VARCHAR,
+            recommendation_linkage_status VARCHAR,
+            recommendation_linkage_basis VARCHAR,
+            entry_price_cents INTEGER,
+            entry_quote_role VARCHAR,
+            entry_price_source VARCHAR,
+            entry_quote_source_system VARCHAR,
+            entry_quote_bookmaker VARCHAR,
+            entry_quote_observed_at TIMESTAMP,
+            entry_quote_loaded_at TIMESTAMP,
+            entry_quote_payload_ref VARCHAR,
+            entry_quote_freshness_result VARCHAR,
+            entry_quote_fallback_status VARCHAR,
+            close_quote_source VARCHAR,
+            close_quote_at TIMESTAMP,
+            close_quote_loaded_at TIMESTAMP,
+            close_quote_payload_ref VARCHAR,
+            close_price_role VARCHAR,
+            close_freshness_result VARCHAR,
+            selected_close_rule VARCHAR,
+            selected_close_provenance VARCHAR,
+            close_fallback_status VARCHAR,
+            clv_source_type VARCHAR,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
@@ -428,8 +485,27 @@ def backfill_bet_metrics(db: DBManager = default_db) -> None:
         query = """
             WITH latest_recommendations AS (
                 SELECT DISTINCT ON (ticker)
-                    ticker, elo_prob, market_prob, edge, expected_value,
-                    kelly_fraction, confidence, home_team, away_team, bet_on
+                    ticker,
+                    bet_id AS recommendation_id,
+                    canonical_game_id,
+                    elo_prob,
+                    market_prob,
+                    edge,
+                    expected_value,
+                    kelly_fraction,
+                    confidence,
+                    home_team,
+                    away_team,
+                    bet_on,
+                    quote_price_cents,
+                    quote_price_role,
+                    quote_source_system,
+                    quote_bookmaker,
+                    quote_observed_at,
+                    quote_loaded_at,
+                    quote_payload_ref,
+                    quote_freshness_result,
+                    quote_fallback_status
                 FROM bet_recommendations
                 WHERE ticker IS NOT NULL
                 ORDER BY ticker, created_at DESC
@@ -444,12 +520,90 @@ def backfill_bet_metrics(db: DBManager = default_db) -> None:
                 confidence = lr.confidence,
                 home_team = lr.home_team,
                 away_team = lr.away_team,
-                bet_on = lr.bet_on
+                bet_on = lr.bet_on,
+                recommendation_id = COALESCE(placed_bets.recommendation_id, lr.recommendation_id),
+                recommendation_canonical_game_id = COALESCE(
+                    placed_bets.recommendation_canonical_game_id,
+                    lr.canonical_game_id
+                ),
+                recommendation_market_ticker = COALESCE(
+                    placed_bets.recommendation_market_ticker,
+                    lr.ticker
+                ),
+                recommendation_selection_key = COALESCE(
+                    placed_bets.recommendation_selection_key,
+                    lr.bet_on
+                ),
+                recommendation_linkage_status = COALESCE(
+                    placed_bets.recommendation_linkage_status,
+                    'linked'
+                ),
+                recommendation_linkage_basis = COALESCE(
+                    placed_bets.recommendation_linkage_basis,
+                    CASE
+                        WHEN lr.canonical_game_id IS NOT NULL AND lr.bet_on IS NOT NULL
+                            THEN 'market_ticker_selection_key_canonical_game_id'
+                        WHEN lr.bet_on IS NOT NULL
+                            THEN 'market_ticker_selection_key'
+                        ELSE 'market_ticker'
+                    END
+                ),
+                entry_price_cents = COALESCE(
+                    placed_bets.entry_price_cents,
+                    placed_bets.price_cents,
+                    lr.quote_price_cents
+                ),
+                entry_quote_role = COALESCE(
+                    placed_bets.entry_quote_role,
+                    lr.quote_price_role,
+                    'executable'
+                ),
+                entry_price_source = COALESCE(
+                    placed_bets.entry_price_source,
+                    lr.quote_source_system,
+                    placed_bets.source,
+                    'bet_recommendations'
+                ),
+                entry_quote_source_system = COALESCE(
+                    placed_bets.entry_quote_source_system,
+                    lr.quote_source_system,
+                    'bet_recommendations'
+                ),
+                entry_quote_bookmaker = COALESCE(
+                    placed_bets.entry_quote_bookmaker,
+                    lr.quote_bookmaker
+                ),
+                entry_quote_observed_at = COALESCE(
+                    placed_bets.entry_quote_observed_at,
+                    lr.quote_observed_at
+                ),
+                entry_quote_loaded_at = COALESCE(
+                    placed_bets.entry_quote_loaded_at,
+                    lr.quote_loaded_at,
+                    placed_bets.created_at
+                ),
+                entry_quote_payload_ref = COALESCE(
+                    placed_bets.entry_quote_payload_ref,
+                    lr.quote_payload_ref,
+                    lr.ticker
+                ),
+                entry_quote_freshness_result = COALESCE(
+                    placed_bets.entry_quote_freshness_result,
+                    lr.quote_freshness_result,
+                    'missing_source_timestamp'
+                ),
+                entry_quote_fallback_status = COALESCE(
+                    placed_bets.entry_quote_fallback_status,
+                    lr.quote_fallback_status,
+                    'recommendation_backfill'
+                )
             FROM latest_recommendations lr
             WHERE placed_bets.ticker = lr.ticker
               AND (placed_bets.elo_prob IS NULL
                    OR placed_bets.home_team IS NULL
-                   OR placed_bets.home_team = 'None')
+                   OR placed_bets.home_team = 'None'
+                   OR placed_bets.recommendation_id IS NULL
+                   OR placed_bets.entry_quote_freshness_result IS NULL)
         """
         db.execute(query)
         print(
@@ -693,11 +847,27 @@ UPSERT_BET_QUERY = """
         bet_id, sport, placed_date, placed_time_utc, ticker, side, contracts,
         price_cents, cost_dollars, fees_dollars, status,
         settled_date, payout_dollars, profit_dollars, market_title, market_close_time_utc,
-        bet_line_prob, closing_line_prob, clv, source
+        bet_line_prob, closing_line_prob, clv, source,
+        recommendation_id, recommendation_canonical_game_id, recommendation_market_ticker,
+        recommendation_selection_key, recommendation_linkage_status, recommendation_linkage_basis,
+        entry_price_cents, entry_quote_role, entry_price_source, entry_quote_source_system,
+        entry_quote_bookmaker, entry_quote_observed_at, entry_quote_loaded_at,
+        entry_quote_payload_ref, entry_quote_freshness_result, entry_quote_fallback_status,
+        close_quote_source, close_quote_at, close_quote_loaded_at, close_quote_payload_ref,
+        close_price_role, close_freshness_result, selected_close_rule, selected_close_provenance,
+        close_fallback_status, clv_source_type
     ) VALUES (
         :bet_id, :sport, :placed_date, :placed_time_utc, :ticker, :side, :count,
         :price, :cost, :fees, :status, :settled_date, :payout, :profit, :market_title, :market_close_time_utc,
-        :bet_line_prob, :closing_line_prob, :clv, :source
+        :bet_line_prob, :closing_line_prob, :clv, :source,
+        :recommendation_id, :recommendation_canonical_game_id, :recommendation_market_ticker,
+        :recommendation_selection_key, :recommendation_linkage_status, :recommendation_linkage_basis,
+        :entry_price_cents, :entry_quote_role, :entry_price_source, :entry_quote_source_system,
+        :entry_quote_bookmaker, :entry_quote_observed_at, :entry_quote_loaded_at,
+        :entry_quote_payload_ref, :entry_quote_freshness_result, :entry_quote_fallback_status,
+        :close_quote_source, :close_quote_at, :close_quote_loaded_at, :close_quote_payload_ref,
+        :close_price_role, :close_freshness_result, :selected_close_rule, :selected_close_provenance,
+        :close_fallback_status, :clv_source_type
     )
     ON CONFLICT (bet_id) DO UPDATE SET
         contracts = EXCLUDED.contracts,
@@ -715,6 +885,86 @@ UPSERT_BET_QUERY = """
         closing_line_prob = COALESCE(placed_bets.closing_line_prob, EXCLUDED.closing_line_prob),
         clv = COALESCE(placed_bets.clv, EXCLUDED.clv),
         source = COALESCE(placed_bets.source, EXCLUDED.source),
+        recommendation_id = COALESCE(placed_bets.recommendation_id, EXCLUDED.recommendation_id),
+        recommendation_canonical_game_id = COALESCE(
+            placed_bets.recommendation_canonical_game_id,
+            EXCLUDED.recommendation_canonical_game_id
+        ),
+        recommendation_market_ticker = COALESCE(
+            placed_bets.recommendation_market_ticker,
+            EXCLUDED.recommendation_market_ticker
+        ),
+        recommendation_selection_key = COALESCE(
+            placed_bets.recommendation_selection_key,
+            EXCLUDED.recommendation_selection_key
+        ),
+        recommendation_linkage_status = COALESCE(
+            placed_bets.recommendation_linkage_status,
+            EXCLUDED.recommendation_linkage_status
+        ),
+        recommendation_linkage_basis = COALESCE(
+            placed_bets.recommendation_linkage_basis,
+            EXCLUDED.recommendation_linkage_basis
+        ),
+        entry_price_cents = COALESCE(placed_bets.entry_price_cents, EXCLUDED.entry_price_cents),
+        entry_quote_role = COALESCE(placed_bets.entry_quote_role, EXCLUDED.entry_quote_role),
+        entry_price_source = COALESCE(placed_bets.entry_price_source, EXCLUDED.entry_price_source),
+        entry_quote_source_system = COALESCE(
+            placed_bets.entry_quote_source_system,
+            EXCLUDED.entry_quote_source_system
+        ),
+        entry_quote_bookmaker = COALESCE(
+            placed_bets.entry_quote_bookmaker,
+            EXCLUDED.entry_quote_bookmaker
+        ),
+        entry_quote_observed_at = COALESCE(
+            placed_bets.entry_quote_observed_at,
+            EXCLUDED.entry_quote_observed_at
+        ),
+        entry_quote_loaded_at = COALESCE(
+            placed_bets.entry_quote_loaded_at,
+            EXCLUDED.entry_quote_loaded_at
+        ),
+        entry_quote_payload_ref = COALESCE(
+            placed_bets.entry_quote_payload_ref,
+            EXCLUDED.entry_quote_payload_ref
+        ),
+        entry_quote_freshness_result = COALESCE(
+            placed_bets.entry_quote_freshness_result,
+            EXCLUDED.entry_quote_freshness_result
+        ),
+        entry_quote_fallback_status = COALESCE(
+            placed_bets.entry_quote_fallback_status,
+            EXCLUDED.entry_quote_fallback_status
+        ),
+        close_quote_source = COALESCE(placed_bets.close_quote_source, EXCLUDED.close_quote_source),
+        close_quote_at = COALESCE(placed_bets.close_quote_at, EXCLUDED.close_quote_at),
+        close_quote_loaded_at = COALESCE(
+            placed_bets.close_quote_loaded_at,
+            EXCLUDED.close_quote_loaded_at
+        ),
+        close_quote_payload_ref = COALESCE(
+            placed_bets.close_quote_payload_ref,
+            EXCLUDED.close_quote_payload_ref
+        ),
+        close_price_role = COALESCE(placed_bets.close_price_role, EXCLUDED.close_price_role),
+        close_freshness_result = COALESCE(
+            placed_bets.close_freshness_result,
+            EXCLUDED.close_freshness_result
+        ),
+        selected_close_rule = COALESCE(
+            placed_bets.selected_close_rule,
+            EXCLUDED.selected_close_rule
+        ),
+        selected_close_provenance = COALESCE(
+            placed_bets.selected_close_provenance,
+            EXCLUDED.selected_close_provenance
+        ),
+        close_fallback_status = COALESCE(
+            placed_bets.close_fallback_status,
+            EXCLUDED.close_fallback_status
+        ),
+        clv_source_type = COALESCE(placed_bets.clv_source_type, EXCLUDED.clv_source_type),
         updated_at = CURRENT_TIMESTAMP
 """
 
@@ -749,6 +999,66 @@ def _save_bet_to_database(
     except Exception as e:
         print(f"  ⚠️  Failed to save bet {bet_data.bet_id}: {e}")
         return False, False
+
+
+def persist_execution_lineage(
+    placed_bets: List[Dict],
+    db: DBManager = default_db,
+) -> int:
+    """Persist execution-time quote lineage captured during placement."""
+    updated = 0
+    for placed_bet in placed_bets:
+        bet_id = placed_bet.get("order_id") or placed_bet.get("bet_id")
+        if not bet_id:
+            continue
+        db.execute(
+            """
+            UPDATE placed_bets
+            SET recommendation_id = COALESCE(:recommendation_id, recommendation_id),
+                recommendation_market_ticker = COALESCE(:recommendation_market_ticker, recommendation_market_ticker),
+                recommendation_selection_key = COALESCE(:recommendation_selection_key, recommendation_selection_key),
+                entry_price_cents = COALESCE(:entry_price_cents, entry_price_cents),
+                entry_quote_role = COALESCE(:entry_quote_role, entry_quote_role),
+                entry_price_source = COALESCE(:entry_price_source, entry_price_source),
+                entry_quote_source_system = COALESCE(:entry_quote_source_system, entry_quote_source_system),
+                entry_quote_bookmaker = COALESCE(:entry_quote_bookmaker, entry_quote_bookmaker),
+                entry_quote_observed_at = COALESCE(:entry_quote_observed_at, entry_quote_observed_at),
+                entry_quote_loaded_at = COALESCE(:entry_quote_loaded_at, entry_quote_loaded_at),
+                entry_quote_payload_ref = COALESCE(:entry_quote_payload_ref, entry_quote_payload_ref),
+                entry_quote_freshness_result = COALESCE(
+                    :entry_quote_freshness_result,
+                    entry_quote_freshness_result
+                ),
+                entry_quote_fallback_status = COALESCE(
+                    :entry_quote_fallback_status,
+                    entry_quote_fallback_status
+                ),
+                updated_at = CURRENT_TIMESTAMP
+            WHERE bet_id = :bet_id
+            """,
+            {
+                "bet_id": bet_id,
+                "recommendation_id": placed_bet.get("recommendation_id"),
+                "recommendation_market_ticker": placed_bet.get("ticker"),
+                "recommendation_selection_key": placed_bet.get("bet_on"),
+                "entry_price_cents": placed_bet.get("entry_price_cents"),
+                "entry_quote_role": placed_bet.get("entry_quote_role"),
+                "entry_price_source": placed_bet.get("entry_price_source"),
+                "entry_quote_source_system": placed_bet.get("entry_quote_source_system"),
+                "entry_quote_bookmaker": placed_bet.get("entry_quote_bookmaker"),
+                "entry_quote_observed_at": placed_bet.get("entry_quote_observed_at"),
+                "entry_quote_loaded_at": placed_bet.get("entry_quote_loaded_at"),
+                "entry_quote_payload_ref": placed_bet.get("entry_quote_payload_ref"),
+                "entry_quote_freshness_result": placed_bet.get(
+                    "entry_quote_freshness_result"
+                ),
+                "entry_quote_fallback_status": placed_bet.get(
+                    "entry_quote_fallback_status"
+                ),
+            },
+        )
+        updated += 1
+    return updated
 
 
 def _process_and_save_fills(
@@ -799,14 +1109,17 @@ def _order_status_to_local(status: Optional[str]) -> str:
             ``canceled``).
 
     Returns:
-        ``"canceled"`` for canceled/cancelled orders, otherwise ``"open"``
-        so reconciliation/settlement can transition the row later.
+        ``"canceled"`` for canceled/cancelled orders, ``"open"`` for
+        executed/resting/unknown statuses so live exposure remains visible
+        until the fill/reconciliation path settles the row.
     """
     if not status:
         return "open"
     normalized = str(status).strip().lower()
     if normalized in ("canceled", "cancelled"):
         return "canceled"
+    if normalized in ("executed", "filled"):
+        return "open"
     return "open"
 
 
@@ -892,6 +1205,21 @@ def _extract_order_data(order: Dict) -> Optional[BetData]:
         payout=None,
         profit=None,
         source="system",
+        recommendation_market_ticker=ticker,
+        recommendation_linkage_status="unlinked",
+        recommendation_linkage_basis="unlinked",
+        entry_price_cents=price_cents,
+        entry_quote_role="executable",
+        entry_price_source="kalshi_order",
+        entry_quote_source_system="kalshi_order",
+        entry_quote_bookmaker="Kalshi",
+        entry_quote_observed_at=placed_time,
+        entry_quote_loaded_at=placed_time,
+        entry_quote_payload_ref=order_id,
+        entry_quote_freshness_result=(
+            "fresh" if placed_time is not None else "missing_source_timestamp"
+        ),
+        entry_quote_fallback_status="direct_order",
     )
 
 

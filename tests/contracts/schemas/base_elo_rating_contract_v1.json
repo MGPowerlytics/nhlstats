@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/base_elo_rating_contract_v1.json",
+  "title": "Base Elo Rating Contract v1",
+  "description": "Contract between the Elo factory and all sport-specific Elo implementations. Every sport Elo class must produce outputs conforming to one of these payload shapes.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/predict_result"
+    },
+    {
+      "$ref": "#/$defs/update_result"
+    },
+    {
+      "$ref": "#/$defs/get_rating_result"
+    }
+  ],
+  "$defs": {
+    "predict_result": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "payload_kind",
+        "home_team",
+        "away_team",
+        "home_prob",
+        "is_neutral"
+      ],
+      "properties": {
+        "schema_version": { "const": "v1" },
+        "payload_kind": { "const": "predict_result" },
+        "home_team": { "type": "string", "minLength": 1 },
+        "away_team": { "type": "string", "minLength": 1 },
+        "home_prob": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "is_neutral": { "type": "boolean" }
+      },
+      "additionalProperties": false
+    },
+    "update_result": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "payload_kind",
+        "home_team",
+        "away_team",
+        "home_won",
+        "rating_change",
+        "home_rating_after",
+        "away_rating_after"
+      ],
+      "properties": {
+        "schema_version": { "const": "v1" },
+        "payload_kind": { "const": "update_result" },
+        "home_team": { "type": "string", "minLength": 1 },
+        "away_team": { "type": "string", "minLength": 1 },
+        "home_won": { "type": "boolean" },
+        "rating_change": { "type": "number" },
+        "home_rating_after": { "type": "number", "exclusiveMinimum": 0 },
+        "away_rating_after": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "get_rating_result": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "payload_kind",
+        "team",
+        "rating"
+      ],
+      "properties": {
+        "schema_version": { "const": "v1" },
+        "payload_kind": { "const": "get_rating_result" },
+        "team": { "type": "string", "minLength": 1 },
+        "rating": { "type": "number", "exclusiveMinimum": 0 }
+      },
+      "additionalProperties": false
+    }
+  }
+}

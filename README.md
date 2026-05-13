@@ -45,6 +45,7 @@ Supported validation commands:
 ```bash
 pytest --collect-only -q
 pytest -q
+bash scripts/validate_dashboard_gate.sh
 ```
 
 Dashboard browser tests are opt-in:
@@ -52,6 +53,17 @@ Dashboard browser tests are opt-in:
 ```bash
 RUN_DASHBOARD_E2E=1 pytest -q
 ```
+
+Use `bash scripts/validate_dashboard_gate.sh` for the required dashboard gate:
+it installs dashboard and Playwright dependencies, provisions a local test
+PostgreSQL database when needed, applies governed migrations, seeds deterministic
+fixtures, runs provider checks in non-skipped live-PostgreSQL mode, healthchecks
+Streamlit, and runs seeded Playwright tests with `RUN_DASHBOARD_E2E=1`.
+The dashboard's stable data boundary is the governed `dashboard_*_v1`
+PostgreSQL view layer, with canonical dashboard schemas in
+`tests/contracts/schemas`; see
+[`docs/DASHBOARD_POSTGRES_MIGRATION.md`](docs/DASHBOARD_POSTGRES_MIGRATION.md)
+for recovery, empty-state, healthcheck, and contract-evolution guidance.
 
 Schema validation commands:
 
@@ -66,3 +78,4 @@ bash scripts/verify_stats_schema_migrations.sh
 - [Operations Runbook](docs/OPERATIONS_RUNBOOK.md)
 - [Deployment Protocol](docs/deployment_protocol.md)
 - [System Overview](docs/SYSTEM_OVERVIEW.md)
+- [Dashboard PostgreSQL Recovery](docs/DASHBOARD_POSTGRES_MIGRATION.md)

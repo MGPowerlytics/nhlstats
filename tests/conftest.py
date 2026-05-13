@@ -16,6 +16,7 @@ TEST_DB_URL = f"sqlite:///{TEST_DB_FILE}"
 
 # Global engine for all tests
 _TEST_ENGINE = create_engine(TEST_DB_URL)
+_USE_LIVE_DASHBOARD_POSTGRES = os.environ.get("DASHBOARD_USE_LIVE_POSTGRES") == "1"
 
 
 def pytest_configure(config):
@@ -25,6 +26,9 @@ def pytest_configure(config):
     (e.g. dashboard.data_layer._db) would connect to the real PostgreSQL server
     because session-scoped fixtures don't run until after collection.
     """
+    if _USE_LIVE_DASHBOARD_POSTGRES:
+        return
+
     # Import the real module and swap its create_engine so _every_ DBManager
     # instance (including those created at module level) uses the test engine.
     import plugins.db_manager as pdm
@@ -66,6 +70,10 @@ def sqlite_connect(dbapi_connection, connection_record):
 @pytest.fixture(scope="session", autouse=True)
 def setup_test_database():
     """Ensure the test db is clean."""
+    if _USE_LIVE_DASHBOARD_POSTGRES:
+        yield
+        return
+
     if os.path.exists(TEST_DB_FILE):
         os.remove(TEST_DB_FILE)
     yield
@@ -76,6 +84,10 @@ def setup_test_database():
 @pytest.fixture(autouse=True)
 def clean_test_schema():
     """Clean the test schema before EACH test to ensure isolation."""
+    if _USE_LIVE_DASHBOARD_POSTGRES:
+        yield
+        return
+
     # SQLite doesn't have schemas, so simply drop all tables
     with _TEST_ENGINE.connect() as conn:
         # Enable foreign keys
@@ -97,6 +109,10 @@ def clean_test_schema():
 @pytest.fixture(scope="session", autouse=True)
 def mock_db_manager_to_test_engine():
     """Surgically redirect DBManager to the test engine."""
+    if _USE_LIVE_DASHBOARD_POSTGRES:
+        yield
+        return
+
     from db_manager import DBManager, default_db
 
     # Patch the class init for any new instances

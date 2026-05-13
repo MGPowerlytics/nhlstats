@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_prop_prediction_v1.json",
+  "title": "MLB Prop Prediction v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "prediction_id",
+    "model_version",
+    "game_id",
+    "player_id",
+    "player_name",
+    "prop_type",
+    "over_prob",
+    "under_prob",
+    "abstain"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "prop_prediction"},
+    "prediction_id": {"type": "string", "minLength": 1},
+    "model_version": {"type": "string", "minLength": 1},
+    "game_id": {"type": "string", "minLength": 1},
+    "player_id": {"type": "string", "minLength": 1},
+    "player_name": {"type": "string", "minLength": 1},
+    "team": {"type": ["string", "null"]},
+    "prop_type": {"type": "string", "enum": ["strikeouts", "hits", "total_bases"]},
+    "line": {"type": ["number", "null"], "minimum": 0.0},
+    "over_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "under_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "market_prob": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "edge": {"type": ["number", "null"], "minimum": -1.0, "maximum": 1.0},
+    "expected_value": {"type": ["number", "null"]},
+    "simulation_summary": {"type": ["object", "null"]},
+    "abstain": {"type": "boolean"},
+    "abstention_reason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

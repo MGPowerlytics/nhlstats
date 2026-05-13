@@ -1,0 +1,133 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/clv_tracker_contract_v1.json",
+  "title": "CLV Tracker Contract v1",
+  "description": "Canonical payloads produced by CLVTracker — CLV analysis results and report summaries.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/clv_analysis_result"
+    },
+    {
+      "$ref": "#/$defs/clv_report_summary"
+    }
+  ],
+  "$defs": {
+    "clv_analysis_result": {
+      "type": "object",
+      "required": [
+        "bet_id",
+        "sport",
+        "placed_prob",
+        "closing_prob",
+        "clv",
+        "market_close_time",
+        "is_stale",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "bet_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique bet identifier"
+        },
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Sport code (e.g., 'NBA', 'NHL')"
+        },
+        "placed_prob": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Probability at which the bet was placed (0.0 to 1.0)"
+        },
+        "closing_prob": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Closing market probability (0.0 to 1.0)"
+        },
+        "clv": {
+          "type": "number",
+          "description": "Closing Line Value = placed_prob - closing_prob (positive = good)"
+        },
+        "market_close_time": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 datetime when the market closed, or null"
+        },
+        "is_stale": {
+          "type": "boolean",
+          "description": "Whether the closing price snapshot is stale (>4hr before close)"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Contract schema version identifier"
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "clv_analysis_result",
+          "description": "Discriminator for the clv_analysis_result payload kind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "clv_report_summary": {
+      "type": "object",
+      "required": [
+        "total_bets",
+        "total_clv",
+        "avg_clv",
+        "positive_clv_count",
+        "negative_clv_count",
+        "sports_analyzed",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "total_bets": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of bets analyzed"
+        },
+        "total_clv": {
+          "type": "number",
+          "description": "Sum of all CLV values across analyzed bets"
+        },
+        "avg_clv": {
+          "type": "number",
+          "description": "Average CLV across all analyzed bets"
+        },
+        "positive_clv_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of bets with positive CLV"
+        },
+        "negative_clv_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of bets with negative CLV"
+        },
+        "sports_analyzed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct sports in the analysis"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Contract schema version identifier"
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "clv_report_summary",
+          "description": "Discriminator for the clv_report_summary payload kind"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

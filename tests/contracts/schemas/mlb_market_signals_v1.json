@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_market_signals_v1.json",
+  "title": "MLB Market Signals v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "market_signal_id",
+    "game_id",
+    "ticker",
+    "outcome_name",
+    "snapshot_at",
+    "market_prob",
+    "source",
+    "feature_version"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "market_signals"},
+    "market_signal_id": {"type": "string", "minLength": 1},
+    "game_id": {"type": "string", "minLength": 1},
+    "ticker": {"type": "string", "minLength": 1},
+    "outcome_name": {"type": "string", "enum": ["home", "away"]},
+    "snapshot_at": {"type": "string", "format": "date-time"},
+    "market_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "ticket_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "money_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "pro_edge": {"type": ["number", "null"], "minimum": -1.0, "maximum": 1.0},
+    "line_move": {"type": ["number", "null"]},
+    "reverse_line_movement": {"type": "boolean"},
+    "source": {"type": "string", "minLength": 1},
+    "feature_version": {"type": "string", "minLength": 1},
+    "availability": {
+      "type": "string",
+      "enum": ["available", "derived", "unavailable", "stale", "abstain_required"]
+    }
+  },
+  "additionalProperties": false
+}

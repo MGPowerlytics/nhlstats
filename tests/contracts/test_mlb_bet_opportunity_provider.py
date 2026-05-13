@@ -57,9 +57,17 @@ class _MlbEloStub:
 class _FakeOddsDb:
     """Minimal DB stub returning canned games + odds DataFrames."""
 
-    def __init__(self, games_df: pd.DataFrame, odds_df: pd.DataFrame) -> None:
+    def __init__(
+        self,
+        games_df: pd.DataFrame,
+        odds_df: pd.DataFrame,
+        market_signals_df: pd.DataFrame | None = None,
+    ) -> None:
         self.games_df = games_df
         self.odds_df = odds_df
+        self.market_signals_df = (
+            market_signals_df if market_signals_df is not None else pd.DataFrame()
+        )
 
     def fetch_df(
         self, query: str, params: dict[str, Any] | None = None
@@ -68,6 +76,8 @@ class _FakeOddsDb:
             return self.games_df.copy()
         if "FROM game_odds" in query:
             return self.odds_df.copy()
+        if "FROM mlb_market_signals" in query:
+            return self.market_signals_df.copy()
         raise AssertionError(f"Unexpected query: {query}")
 
 
@@ -109,11 +119,13 @@ def _build_mlb_odds(home_price: float = 2.13, away_price: float = 2.0) -> pd.Dat
 def _build_comparator(
     games_df: pd.DataFrame | None = None,
     odds_df: pd.DataFrame | None = None,
+    market_signals_df: pd.DataFrame | None = None,
 ) -> OddsComparator:
     comparator = OddsComparator(
         db_manager=_FakeOddsDb(
             games_df=games_df if games_df is not None else _build_mlb_games(),
             odds_df=odds_df if odds_df is not None else _build_mlb_odds(),
+            market_signals_df=market_signals_df,
         )
     )
     comparator._get_source = lambda _: "kalshi"  # type: ignore[method-assign]
@@ -255,11 +267,45 @@ def test_real_mlb_opportunity_optional_fields_validate_when_present(
         "bookmaker",
         "market_odds",
     ):
-        assert optional_field in payload, (
-            f"Producer is expected to emit '{optional_field}' on MLB opportunity"
-        )
+        assert (
+            optional_field in payload
+        ), f"Producer is expected to emit '{optional_field}' on MLB opportunity"
 
     # Full payload (with sport corrected) must validate including optionals.
+    validate_contract_payload(payload, opportunity_contract)
+
+
+def test_real_mlb_opportunity_uses_market_signal_sharp_confirmation(
+    opportunity_contract: dict[str, Any],
+) -> None:
+    """Latest MLB market-signal metadata should enrich opportunity payloads."""
+    market_signals = pd.DataFrame(
+        [
+            {
+                "outcome_name": "home",
+                "pro_edge": 0.18,
+                "reverse_line_movement": False,
+                "source": "public_market",
+                "availability": "available",
+            }
+        ]
+    )
+    comparator = _build_comparator(market_signals_df=market_signals)
+
+    opportunities = comparator.find_opportunities(
+        BettingOpportunityConfig(
+            sport="mlb",
+            elo_system=_MlbEloStub(home_prob=0.58),
+            thresholds=BettingThresholds(min_edge=0.03, max_edge=1.0),
+            date_str=MLB_DATE,
+        )
+    )
+
+    assert opportunities, "Expected one MLB opportunity from real producer"
+    payload = opportunities[0]
+    assert payload["sharp_confirmed"] is True
+    assert payload["pro_edge"] == 0.18
+    assert payload["market_signal_source"] == "public_market"
     validate_contract_payload(payload, opportunity_contract)
 
 

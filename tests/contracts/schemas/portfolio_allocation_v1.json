@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/portfolio_allocation_v1.json",
+  "title": "Portfolio Allocation v1",
+  "description": "Canonical portfolio allocation payload produced by PortfolioOptimizer.calculate_portfolio_allocation() for the PortfolioBettingManager consumer.",
+  "type": "object",
+  "required": [
+    "bet_size",
+    "kelly_fraction",
+    "allocation_pct",
+    "opportunity"
+  ],
+  "properties": {
+    "bet_size": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Dollar amount to bet on this opportunity"
+    },
+    "kelly_fraction": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Kelly Criterion fraction for this bet (0 = no bet, 1 = full Kelly)"
+    },
+    "allocation_pct": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Portfolio allocation percentage (0.0 to 1.0)"
+    },
+    "opportunity": {
+      "type": "object",
+      "description": "The underlying bet opportunity that generated this allocation",
+      "required": [
+        "sport",
+        "ticker",
+        "bet_on",
+        "team",
+        "opponent",
+        "home_team",
+        "away_team",
+        "elo_prob",
+        "market_prob",
+        "edge",
+        "confidence",
+        "yes_ask",
+        "no_ask",
+        "home_rating",
+        "away_rating"
+      ],
+      "properties": {
+        "sport": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticker": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bet_on": {
+          "type": "string",
+          "minLength": 1
+        },
+        "team": {
+          "type": "string",
+          "minLength": 1
+        },
+        "opponent": {
+          "type": "string",
+          "minLength": 1
+        },
+        "home_team": {
+          "type": "string"
+        },
+        "away_team": {
+          "type": "string"
+        },
+        "home_team_raw": {
+          "type": "string",
+          "default": ""
+        },
+        "away_team_raw": {
+          "type": "string",
+          "default": ""
+        },
+        "elo_prob": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "market_prob": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "edge": {
+          "type": "number"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "yes_ask": {
+          "type": "number",
+          "minimum": 0
+        },
+        "no_ask": {
+          "type": "number",
+          "minimum": 0
+        },
+        "home_rating": {
+          "type": "number"
+        },
+        "away_rating": {
+          "type": "number"
+        },
+        "game_time": {
+          "type": ["string", "null"]
+        },
+        "game_id": {
+          "type": ["string", "null"]
+        },
+        "betmgm_prob": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

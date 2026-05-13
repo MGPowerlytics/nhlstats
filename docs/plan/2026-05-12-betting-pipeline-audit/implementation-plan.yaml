@@ -1,0 +1,776 @@
+plan_id: 2026-05-12-betting-pipeline-audit
+objective: >
+  Execute the deferred betting-pipeline backlog as governed runtime work by hardening
+  probability, pricing, CLV, portfolio-risk, validation, drawdown, and operator-facing
+  evidence paths without approving any bankroll sizing or threshold change unless CLV,
+  calibration, and walk-forward evidence are simultaneously reviewable and approval-grade.
+created_at: 2026-05-12T00:00:00Z
+created_by: gem-planner
+status: complete
+research_confidence: high
+
+plan_metrics:
+  wave_1_task_count: 2
+  total_dependencies: 27
+  risk_score: high
+
+tldr: |
+  This implementation plan converts the completed audit/spec package into executable runtime
+  work. Wave 1 establishes a new versioned governed read-model boundary alongside preserved
+  dashboard_*_v1 contracts and defines the sport-validation contract assets that later runtime
+  changes must consume. Wave 2 adds governed evidence linkage/exposure semantics and publishes
+  sport validation states. Wave 3 hardens governed probability and pricing roles in parallel.
+  Wave 4 wires executable-price and CLV lineage persistence. Wave 5 applies evidence-qualified
+  portfolio risk controls, followed by a dedicated portfolio drawdown gate. The final waves
+  update durable runtime docs, validate operator-facing surfaces, and perform a final
+  governance review. No bankroll, Kelly, confidence, edge, max-risk, threshold, or allocation
+  change may be approved unless CLV, calibration, and walk-forward evidence all pass together.
+
+open_questions:
+  - Whether the current placed-bet persistence path can carry all required selected-close provenance without introducing a new evidence table.
+
+pre_mortem:
+  overall_risk_level: high
+  critical_failure_modes:
+    - scenario: Runtime hardening promotes sports or sizing behavior using descriptive or contaminated evidence rather than approval-grade evidence.
+      likelihood: medium
+      impact: critical
+      mitigation: Make every eligibility and sizing gate fail closed on missing CLV, calibration, or walk-forward evidence, and surface contamination reasons directly in runtime/read-model outputs.
+    - scenario: Pricing and probability semantics diverge across runtime, persistence, and dashboard surfaces, recreating the audit drift in a new form.
+      likelihood: high
+      impact: high
+      mitigation: Land shared evidence/read-model contracts first, require contract tests at task boundaries, and block final review until operator surfaces consume the same governed fields as runtime.
+    - scenario: Exposure truth remains understated because executed-but-unsettled risk, same-match conflicts, or drawdown state are not incorporated before sizing.
+      likelihood: medium
+      impact: critical
+      mitigation: Sequence exposure-truth hardening before drawdown gating and require portfolio-risk verification against both runtime and reporting semantics.
+    - scenario: Legacy binary-result CLV or synthetic/backfilled identifiers leak into approval-facing metrics.
+      likelihood: high
+      impact: high
+      mitigation: Explicitly persist CLV source type, close-selection lineage, and contamination flags; treat contaminated cohorts as non-qualifying in every downstream gate.
+  assumptions:
+    - PostgreSQL remains the system of record for governed runtime evidence and operator-facing review surfaces.
+    - The completed audit/spec package is the canonical source of truth for contracts, evidence states, and sequencing decisions in this cycle.
+    - The goal of this cycle is runtime hardening and governed observability, not parameter increases or threshold relaxation.
+
+implementation_specification:
+  code_structure: >
+    Implement the backlog around governed boundaries instead of one-off fixes. The runtime DAG,
+    persistence layer, and dashboard/read-model layer should all consume the same sport-aware
+    evidence state, quote lineage, probability provenance, CLV provenance, portfolio-risk state,
+    and rejection semantics. Introduce new versioned governed read models for approval-facing
+    evidence instead of mutating existing dashboard_*_v1 semantics in place, and preserve
+    current dashboard view contracts unless a later explicit migration step supersedes them.
+    Prefer versioned PostgreSQL-backed read models and contract-tested plugin boundaries over
+    dashboard-only logic or file-only artifacts.
+  affected_areas:
+    - dags/multi_sport_betting_workflow.py
+    - plugins/probability_calibration.py
+    - plugins/odds_comparator.py
+    - plugins/clv_tracker.py
+    - plugins/update_clv_data.py
+    - plugins/bet_loader.py
+    - plugins/portfolio_betting.py
+    - plugins/portfolio_optimizer.py
+    - plugins/kalshi_betting.py
+    - dashboard/data_layer.py
+    - dashboard/pages/calibration.py
+    - dashboard/pages/portfolio.py
+    - dashboard/pages/bet_detail.py
+    - migrations/stats_schema/
+    - tests/contracts/schemas/
+    - tests/contracts/
+  component_details:
+    - component: Governed evidence/read-model layer
+      responsibility: Provide canonical sport-aware lineage, provenance, freshness, exposure, and contamination fields on new versioned governed read models shared by runtime and operator-facing consumers while preserving existing dashboard_*_v1 contracts.
+      interfaces:
+        - GovernedEvidenceRecord v1
+        - RecommendationExecutionLink v1
+        - OperatorEvidenceSurface v1
+    - component: Sport validation framework
+      responsibility: Publish per-sport blocked, shadow_only, candidate, and approval-grade readiness states with parity and contamination reasons.
+      interfaces:
+        - SportValidationState v1
+        - ValidationEligibilityMatrix v1
+    - component: Governed probability pipeline
+      responsibility: Enforce sport-specific probability source, calibration provenance, abstention behavior, and fail-closed eligibility consumption in runtime paths.
+      interfaces:
+        - GovernedProbabilityDecision v1
+        - CalibrationArtifactLineage v1
+    - component: Pricing and CLV governance layer
+      responsibility: Separate reference, executable, best, and close price roles and persist entry/close lineage needed for approval-grade CLV review.
+      interfaces:
+        - PriceRoleDecision v1
+        - CLVEvidenceEnvelope v1
+    - component: Portfolio risk controls
+      responsibility: Reconcile exposure truth, same-match conflicts, concentration state, and evidence-qualified rejection logic before bet approval.
+      interfaces:
+        - PortfolioRiskState v1
+        - RiskRejectionAudit v1
+    - component: Drawdown gate
+      responsibility: Add portfolio-level drawdown and risk-of-ruin gating that cannot be bypassed by strong single-sport evidence.
+      interfaces:
+        - DrawdownGateState v1
+        - PortfolioGuardrailDecision v1
+    - component: Runtime documentation and release gate
+      responsibility: Keep durable docs, operator pages, browser validation, and final review aligned to implemented runtime behavior only.
+      interfaces:
+        - RuntimeGovernanceRunbook v1
+        - FinalApprovalChecklist v1
+  dependencies:
+    - component: Governed evidence/read-model layer
+      relationship: Upstream dependency for sport validation, governed probability, pricing lineage persistence, and portfolio-risk observability.
+    - component: Sport validation framework
+      relationship: Produces the evidence-state contract consumed by probability, pricing labels, and risk gates.
+    - component: Governed probability pipeline
+      relationship: Supplies approval-aware probability source and calibration lineage to the portfolio-risk gate.
+    - component: Pricing and CLV governance layer
+      relationship: Supplies executable entry price, close selection, freshness, and contamination outcomes to risk and drawdown controls.
+    - component: Portfolio risk controls
+      relationship: Supplies reconciled exposure truth and rejection semantics required by the drawdown gate and final operator review.
+    - component: Runtime documentation and release gate
+      relationship: Can finalize only after runtime, reporting, and validation surfaces prove parity with governed contracts.
+  integration_points:
+    - Airflow orchestration and recommendation/sizing flow in dags/multi_sport_betting_workflow.py
+    - PostgreSQL migration and read-model boundaries under migrations/stats_schema/
+    - Pricing, execution, and CLV plugins under plugins/
+    - Portfolio risk and placement controls under plugins/portfolio_optimizer.py, plugins/portfolio_betting.py, and plugins/kalshi_betting.py
+    - Dashboard data-layer and operator pages for calibration, portfolio, and bet detail
+    - Contract, integration, and UI validation tests under tests/contracts/ and dashboard test coverage
+
+contracts:
+  - from_task: governed-readmodel-versioning-foundation
+    to_task: evidence-linkage-exposure-contracts
+    interface: New versioned governed read-model names, base approval/provenance fields, and preserved dashboard_*_v1 compatibility boundaries.
+    format: PostgreSQL migration contract + contract tests
+  - from_task: sport-validation-schema-foundation
+    to_task: sport-validation-state-publication
+    interface: SportValidationState v1 and ValidationEligibilityMatrix v1 schemas with deterministic fixtures and reason-code coverage.
+    format: JSON Schema + deterministic fixtures
+  - from_task: evidence-linkage-exposure-contracts
+    to_task: probability-pipeline-hardening
+    interface: GovernedEvidenceRecord v1 fields for sport, cohort, provenance, contamination, recommendation/execution linkage, and approval-state visibility.
+    format: PostgreSQL row contract + contract tests
+  - from_task: sport-validation-state-publication
+    to_task: probability-pipeline-hardening
+    interface: SportValidationState v1 with blocked, shadow_only, candidate, approval-grade, and fail-closed abstention reasons by sport.
+    format: JSON Schema + deterministic fixtures
+  - from_task: evidence-linkage-exposure-contracts
+    to_task: pricing-contract-hardening
+    interface: Quote lineage fields for source timestamp, source identity, price role, freshness outcome, and close-selection provenance.
+    format: PostgreSQL row contract
+  - from_task: pricing-contract-hardening
+    to_task: pricing-execution-lineage-hardening
+    interface: PriceRoleDecision v1 separating reference, executable, best, and close price semantics for recommendation and execution consumers.
+    format: Python service interface + contract tests
+  - from_task: probability-pipeline-hardening
+    to_task: risk-control-hardening
+    interface: GovernedProbabilityDecision v1 with calibrated probability, artifact lineage, abstention state, and approval-grade eligibility flag.
+    format: Runtime payload contract
+  - from_task: pricing-execution-lineage-hardening
+    to_task: risk-control-hardening
+    interface: CLVEvidenceEnvelope v1 with executable entry evidence, close evidence, freshness, contamination flags, and selected-close lineage.
+    format: Persisted evidence contract
+  - from_task: risk-control-hardening
+    to_task: portfolio-drawdown-gate
+    interface: PortfolioRiskState v1 with open exposure truth, concentration buckets, same-match conflict state, and rejection codes.
+    format: Read-model contract
+  - from_task: risk-control-hardening
+    to_task: runtime-docs-and-runbooks
+    interface: OperatorEvidenceSurface v1 showing governed fields, evidence states, and rejection semantics exposed to operators.
+    format: Dashboard/read-model contract
+  - from_task: runtime-docs-and-runbooks
+    to_task: final-governance-review-gate
+    interface: FinalApprovalChecklist v1 mapping implemented runtime behavior to PRD gates, specs, and operator docs.
+    format: Runbook + review checklist
+
+tasks:
+  - id: governed-readmodel-versioning-foundation
+    title: Introduce versioned governed read models without mutating dashboard v1 contracts
+    description: |
+      Introduce new versioned governed read models for approval-facing evidence, runtime
+      gating, and operator review without mutating existing dashboard_*_v1 semantics in
+      place. This task establishes the single canonical migration path, read-model names,
+      and base sport/cohort/provenance/approval-state columns that later governed evidence
+      work will extend. Current dashboard view contracts must remain preserved unless a later,
+      explicit migration task supersedes them.
+    wave: 1
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/evidence-readmodel-spec.md: Canonical field-level contract for lineage, provenance, CLV, validation, and exposure state.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/pipeline-evidence-map.md: Current broken joins and source-of-truth gaps that the new contract must close.
+      /mnt/data2/nhlstats/migrations/stats_schema/V008__create_dashboard_read_model_views.sql: Existing dashboard view boundary that must remain stable while new governed read models are introduced alongside it.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 240
+    focus_area: read-model versioning
+    verification:
+      - New versioned governed read models exist alongside current dashboard_*_v1 views, with existing dashboard contracts unchanged.
+      - Migration and contract ownership remain on one canonical path under migrations/stats_schema/ with no competing dashboard-only projections.
+      - Downstream consumers can bind to governed surface names and base approval/provenance fields without page-local inference.
+    acceptance_criteria:
+      - A canonical versioned governed read-model surface exists for later recommendation, execution, CLV, validation, and portfolio-risk consumers.
+      - The architectural decision to add new governed read models instead of mutating dashboard_*_v1 semantics is explicit in the implementation boundary.
+      - Existing dashboard_*_v1 contracts remain preserved during this cycle.
+    failure_modes:
+      - scenario: Existing dashboard_*_v1 views are mutated in place and silently break current consumers.
+        likelihood: medium
+        impact: high
+        mitigation: Add compatibility checks that existing dashboard_*_v1 contracts remain unchanged while new governed models are introduced separately.
+      - scenario: New governed views are introduced without single-owner migration governance, creating competing read-model contracts.
+        likelihood: medium
+        impact: high
+        mitigation: Keep one canonical versioned read-model path and avoid parallel ad hoc dashboard-only projections.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Airflow
+      - Streamlit read models
+    test_coverage: Contract tests plus targeted SQL/read-model integration tests for versioned governed-surface creation and dashboard_*_v1 compatibility preservation.
+
+  - id: sport-validation-schema-foundation
+    title: Define sport validation schemas and deterministic fixtures
+    description: |
+      Define the SportValidationState and ValidationEligibilityMatrix contract assets,
+      structured reason codes, and deterministic fixtures for all supported sports so the
+      validation baseline is contract-tested before runtime publication logic lands. This task
+      must encode the current blocked, shadow_only, candidate, contaminated, and approval-grade
+      semantics without allowing any sport to become sizing-eligible without CLV, calibration,
+      and walk-forward evidence.
+    wave: 1
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/governed-probability-spec.md: Defines current blocked and shadow-only sport states and fail-closed eligibility rules.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/validation-evidence-audit.md: Documents approval-grade blockers, contamination sources, and baseline sport states.
+      /mnt/data2/nhlstats/tests/contracts/schemas/: Canonical location for governed contract schema assets and consumer/provider compatibility tests.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: validation schemas
+    verification:
+      - Deterministic fixtures and contract tests cover blocked, shadow_only, candidate, contaminated, and approval-grade cases across supported sports.
+      - Schema assets encode cohort provenance, runtime parity, contamination reasons, and missing-evidence dimensions rather than simple labels.
+      - The contract assets explicitly block any promotion path that lacks CLV, calibration, or walk-forward evidence.
+    acceptance_criteria:
+      - Canonical schema assets and deterministic fixtures exist for the sport validation baseline.
+      - Contract coverage enforces the current baseline state matrix from the completed audit package.
+      - Reason codes distinguish parity failure, contamination, and missing evidence dimensions so no sport can silently move into a sizing-eligible path.
+    failure_modes:
+      - scenario: Validation schemas collapse multiple disqualifying conditions into one opaque status, making downstream fail-closed logic unreviewable.
+        likelihood: medium
+        impact: high
+        mitigation: Require structured reason codes for parity failure, contamination, and missing evidence dimensions.
+      - scenario: Test fixtures do not cover shadow-only sports with stronger descriptive evidence, leading to accidental eligibility expansion.
+        likelihood: medium
+        impact: high
+        mitigation: Add explicit fixtures for MLB, TENNIS, EPL, and LIGUE1 shadow-only states.
+    tech_stack:
+      - Python
+      - JSON Schema
+      - Pytest
+    test_coverage: Contract-schema and fixture coverage for sport evidence-state outputs, reason codes, and fail-closed transitions.
+
+  - id: evidence-linkage-exposure-contracts
+    title: Implement governed evidence linkage and exposure contracts
+    description: |
+      Build on the new governed read-model boundary to add recommendation-to-execution linkage,
+      contamination visibility, quote-lineage placeholders, and separate resting-order versus
+      executed-but-unsettled exposure semantics. This task makes approval-facing evidence
+      reviewable from shared governed data and removes bet_id-only linkage assumptions before
+      downstream runtime hardening consumes the contract.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - governed-readmodel-versioning-foundation
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/evidence-readmodel-spec.md: Canonical field-level contract for linkage, provenance, contamination, CLV, validation, and exposure state.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/pipeline-evidence-map.md: Current broken joins and source-of-truth gaps that the governed evidence contract must close.
+      /mnt/data2/nhlstats/dashboard/data_layer.py: Existing operator-facing read paths that must consume governed linkage and exposure semantics instead of inferring them locally.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: evidence contracts
+    verification:
+      - Contract tests prove sport, cohort, provenance, contamination, and recommendation/execution linkage fields exist on the governed surfaces consumed downstream.
+      - Read-model queries distinguish descriptive-only evidence from approval-facing evidence without relying on page-local inference.
+      - Exposure-related fields can represent resting orders and executed-but-unsettled exposure separately.
+    acceptance_criteria:
+      - Recommendation-to-execution linkage no longer depends on bet_id parity alone.
+      - Operator-facing consumers can read blocked, shadow_only, contamination, provenance, and exposure-state fields from shared governed data.
+      - The governed evidence contract exposes the minimum lineage needed for probability, pricing, and risk gates without mutating existing dashboard_*_v1 contracts.
+    failure_modes:
+      - scenario: The governed evidence layer only renames fields without fixing linkage or contamination visibility.
+        likelihood: medium
+        impact: high
+        mitigation: Require contract tests for linkage, provenance, contamination, and exposure semantics, not just column existence.
+      - scenario: Exposure fields merge resting orders with executed-but-unsettled risk, understating live portfolio risk.
+        likelihood: medium
+        impact: high
+        mitigation: Keep separate governed fields and integration tests for each exposure state consumed downstream.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Airflow
+      - Streamlit read models
+    test_coverage: Contract tests plus targeted SQL/read-model integration tests for recommendation, execution, CLV, validation, and exposure semantics.
+
+  - id: sport-validation-state-publication
+    title: Publish governed sport validation states across supported sports
+    description: |
+      Operationalize the sport validation framework so every supported sport emits explicit
+      evidence-tier, runtime-parity, contamination, and fail-closed eligibility outputs using
+      the governed schema assets. The implementation must keep MLB, TENNIS, EPL, and LIGUE1
+      shadow-only unless and until approval-grade evidence exists, and must keep NBA, NHL, NFL,
+      NCAAB, and WNCAAB blocked under the current baseline.
+    wave: 2
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - sport-validation-schema-foundation
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/governed-probability-spec.md: Defines current blocked and shadow-only sport states and fail-closed eligibility rules.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/validation-evidence-audit.md: Documents approval-grade blockers, contamination sources, and baseline sport states.
+      /mnt/data2/nhlstats/tests/contracts/schemas/: Canonical location for governed contract schema assets and consumer/provider compatibility tests.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: sport validation
+    verification:
+      - Deterministic fixtures and contract tests cover blocked, shadow_only, candidate, and contaminated cases across supported sports.
+      - Validation outputs include cohort provenance, runtime parity, and contamination reasons rather than simple labels.
+      - The framework explicitly blocks any promotion path that lacks CLV, calibration, or walk-forward evidence.
+    acceptance_criteria:
+      - Supported sports emit comparable evidence-state outputs consumable by runtime and reporting layers.
+      - Contract coverage enforces the current baseline state matrix from the completed audit package.
+      - No sport can silently move from blocked or shadow_only into a sizing-eligible path.
+    failure_modes:
+      - scenario: Validation outputs collapse multiple disqualifying conditions into one opaque status, making downstream fail-closed logic unreviewable.
+        likelihood: medium
+        impact: high
+        mitigation: Require structured reason codes for parity failure, contamination, and missing evidence dimensions.
+      - scenario: Test fixtures do not cover shadow-only sports with stronger descriptive evidence, leading to accidental eligibility expansion.
+        likelihood: medium
+        impact: high
+        mitigation: Add explicit fixtures for MLB, TENNIS, EPL, and LIGUE1 shadow-only states.
+    tech_stack:
+      - Python
+      - JSON Schema
+      - Pytest
+    test_coverage: Contract-schema, fixture, and provider/consumer coverage for sport evidence-state outputs and fail-closed transitions.
+
+  - id: probability-pipeline-hardening
+    title: Harden runtime probability consumption behind governed eligibility
+    description: |
+      Apply the governed probability specification to live selection and persistence paths.
+      The runtime must consume sport-specific calibrated or governed probability artifacts when
+      approved, emit explicit abstentions when artifacts or validation prerequisites are absent,
+      and prevent blocked or shadow-only sports from appearing as sizing-eligible. This task
+      hardens probability source selection, calibration lineage visibility, and fail-closed
+      behavior without approving any threshold or bankroll change.
+    wave: 3
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - evidence-linkage-exposure-contracts
+      - sport-validation-state-publication
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/governed-probability-spec.md: Source-of-truth contract for approved probability source, fallback, and abstention rules by sport.
+      /mnt/data2/nhlstats/dags/multi_sport_betting_workflow.py: Current live orchestration and sport-specific probability selection path.
+      /mnt/data2/nhlstats/plugins/probability_calibration.py: Existing calibration loader and selected-cohort logic that must be governed or blocked.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 440
+    focus_area: governed probability
+    verification:
+      - Runtime consumers expose the same probability source, calibration artifact lineage, and abstention state that reporting surfaces show.
+      - Blocked sports fail closed, shadow-only sports remain non-eligible for sizing, and approval-grade promotion is impossible without validation-state support.
+      - Tests cover MLB/TENNIS governed or shadow logic, EPL/LIGUE1 parity constraints, and blocked baseline sports.
+    acceptance_criteria:
+      - Governed probability selection follows the source, fallback, and abstention rules defined per sport in the spec.
+      - Calibration lineage and validation-state inputs are persisted or exposed on shared governed surfaces.
+      - No recommendation path can mark a sport as sizing-eligible without CLV, calibration, and walk-forward approval support.
+    failure_modes:
+      - scenario: A runtime fallback silently downgrades a governed or blocked sport into plain Elo while still emitting apparently governed recommendations.
+        likelihood: medium
+        impact: critical
+        mitigation: Make every unsupported path emit explicit abstain or blocked states with reason codes.
+      - scenario: Probability hardening exposes artifact labels in reporting but leaves runtime selection on older, divergent logic.
+        likelihood: medium
+        impact: high
+        mitigation: Add runtime/reporting parity checks and integration tests at the consuming boundary.
+    tech_stack:
+      - Python
+      - Airflow
+      - PostgreSQL
+      - Pytest
+    test_coverage: Runtime integration tests plus contract tests for probability source selection, abstentions, and validation-state parity.
+
+  - id: pricing-contract-hardening
+    title: Harden pricing roles and canonical CLV semantics
+    description: |
+      Implement the pricing and CLV governance contract so reference price, executable price,
+      best price, and close price are distinct governed roles with persisted provenance and
+      freshness outcomes. This task should retire ambiguous pricing semantics, prevent binary
+      settlement placeholders from qualifying as CLV evidence, and make close-selection rules
+      explicit across consumers.
+    wave: 3
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - evidence-linkage-exposure-contracts
+      - sport-validation-state-publication
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/pricing-clv-governance-spec.md: Canonical pricing terminology, close-selection rules, and CLV quality tiers.
+      /mnt/data2/nhlstats/plugins/odds_comparator.py: Current edge, market-probability, and best-price logic that must be split into governed price roles.
+      /mnt/data2/nhlstats/plugins/clv_tracker.py: Current real-price CLV backfill path and stale-close handling that needs governed persistence.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 460
+    focus_area: pricing governance
+    verification:
+      - Shared tests prove reference, executable, best, and close price roles cannot be conflated by consumers.
+      - CLV evidence exposes source type, freshness result, and selected-close provenance.
+      - Binary-result or outcome-derived placeholders are marked descriptive-only or contaminated.
+    acceptance_criteria:
+      - Governed price-role semantics exist and are reusable by recommendation, execution, and reporting paths.
+      - Close-line selection follows explicit precedence and persists enough lineage for review.
+      - Approval-facing CLV consumers can distinguish descriptive, partial, and approval-grade evidence states.
+    failure_modes:
+      - scenario: Pricing role names change but consumers still read a single overloaded field for reference and execution decisions.
+        likelihood: medium
+        impact: high
+        mitigation: Add contract tests at the consumer boundary and reject unsupported role combinations.
+      - scenario: Real-price CLV is implemented but stale-close, selected book, or proxy-close outcomes remain invisible on persisted evidence.
+        likelihood: high
+        impact: high
+        mitigation: Require provenance and freshness persistence on the consuming evidence row, not only in memory.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Pytest
+    test_coverage: Contract and integration coverage for price-role separation, close-selection precedence, freshness, and CLV contamination rules.
+
+  - id: pricing-execution-lineage-hardening
+    title: Persist executable-price and close-line lineage through recommendation and execution flows
+    description: |
+      Extend recommendation, placement, and placed-bet persistence so executable entry price,
+      fallback status, selected source, and close-line lineage remain attributable on the
+      downstream evidence record. This task converts pricing governance into operational
+      execution evidence and removes ambiguity between recommendation-time pricing and realized
+      execution-time pricing.
+    wave: 4
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - evidence-linkage-exposure-contracts
+      - pricing-contract-hardening
+    parallelizable: false
+    conflicts_with:
+      - risk-control-hardening
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/pricing-clv-governance-spec.md: Defines the provenance and freshness fields required on consuming rows.
+      /mnt/data2/nhlstats/plugins/bet_loader.py: Current recommendation persistence path where market probability and ticker lineage are still incomplete.
+      /mnt/data2/nhlstats/plugins/portfolio_betting.py: Execution-time price selection and fallback path that must persist governed lineage.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 420
+    focus_area: execution lineage
+    verification:
+      - Persisted recommendation and placed-bet evidence distinguish recommendation-time and execution-time price roles and timestamps.
+      - Execution fallbacks, stale outcomes, and selected close provenance are reviewable without reconstructing them from logs.
+      - Recommendation-to-execution linkage stays canonical even when execution identity differs from recommendation identity.
+    acceptance_criteria:
+      - Entry-price and close-price lineage required by the pricing spec are available on governed evidence rows.
+      - CLV backfills no longer rely on opaque inference for selected source, selected timestamp, or fallback path.
+      - Execution evidence can be joined back to governed recommendation context without bet_id-only assumptions.
+    failure_modes:
+      - scenario: Execution lineage is added only to recommendation rows, leaving placed_bets and downstream CLV consumers under-specified.
+        likelihood: medium
+        impact: high
+        mitigation: Persist lineage on the consuming execution evidence rows used by review workflows.
+      - scenario: New lineage fields are written for fresh quotes but omitted during fallback cases, hiding the highest-risk paths.
+        likelihood: medium
+        impact: high
+        mitigation: Require explicit fallback and freshness status on every persisted entry/close record.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Airflow
+    test_coverage: Persistence and integration coverage for recommendation-to-execution lineage, fallback status, and CLV attribution.
+
+  - id: risk-control-hardening
+    title: Implement evidence-qualified portfolio risk controls and exposure truth
+    description: |
+      Harden portfolio sizing and approval logic so it uses reconciled open exposure, same-match
+      conflict state, concentration state, and approval-grade evidence inputs before approving
+      bets. This task must keep current heuristics descriptive unless approval-grade CLV,
+      calibration, and walk-forward evidence exists, and must make operator-visible rejection
+      reasons available for blocked or downgraded bets.
+    wave: 5
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - evidence-linkage-exposure-contracts
+      - sport-validation-state-publication
+      - probability-pipeline-hardening
+      - pricing-execution-lineage-hardening
+    parallelizable: false
+    conflicts_with:
+      - pricing-execution-lineage-hardening
+      - portfolio-drawdown-gate
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/portfolio-risk-spec.md: Canonical contract for exposure truth, evidence-qualified sizing, and rejection conditions.
+      /mnt/data2/nhlstats/plugins/portfolio_optimizer.py: Current sizing and allocation path with heuristic caps and no governed exposure-truth or concentration model.
+      /mnt/data2/nhlstats/dashboard/data_layer.py: Current operator-facing portfolio semantics that must align with runtime exposure truth and rejection reasons.
+    estimated_effort: large
+    estimated_files: 3
+    estimated_lines: 490
+    focus_area: portfolio risk
+    verification:
+      - Live sizing subtracts governed open exposure and evaluates same-match conflict state before approval.
+      - Rejection outputs distinguish missing evidence, contaminated evidence, concentration breaches, remaining-budget breaches, and existing-position conflicts.
+      - Operator-facing exposure semantics align with runtime treatment of resting orders and executed-but-unsettled positions.
+    acceptance_criteria:
+      - Portfolio risk approval consumes governed probability and governed CLV evidence rather than descriptive metrics.
+      - Exposure truth and rejection semantics are visible to both runtime and operator-facing consumers.
+      - No bankroll, Kelly, threshold, or allocation relaxation can advance without CLV, calibration, and walk-forward approval support.
+    failure_modes:
+      - scenario: Risk controls still size against live bankroll without subtracting governed open exposure, leaving portfolio risk understated.
+        likelihood: medium
+        impact: critical
+        mitigation: Require reconciliation tests that compare runtime budget math against governed exposure states.
+      - scenario: Evidence-qualified rejection logic is implemented in runtime but not surfaced to operators, recreating governance ambiguity.
+        likelihood: medium
+        impact: high
+        mitigation: Make operator-facing rejection fields part of the shared contract and verify them in read-model tests.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Airflow
+      - Streamlit read models
+    test_coverage: Integration tests for exposure truth, same-match conflicts, concentration buckets, and evidence-qualified rejection logic.
+
+  - id: portfolio-drawdown-gate
+    title: Implement the portfolio-level drawdown and risk-of-ruin gate
+    description: |
+      Add the portfolio-level drawdown gate on top of the reconciled risk state so drawdown,
+      concentration, and risk-of-ruin conditions can block approvals even when individual bets
+      look strong. The gate must be portfolio-aware, operator-visible, and unable to be bypassed
+      by shadow-only sports or strong single-sport descriptive metrics.
+    wave: 6
+    agent: gem-implementer
+    priority: high
+    status: done
+    dependencies:
+      - risk-control-hardening
+    parallelizable: false
+    conflicts_with:
+      - risk-control-hardening
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/portfolio-risk-spec.md: Defines required drawdown-state and portfolio-level safety semantics.
+      /mnt/data2/nhlstats/plugins/portfolio_optimizer.py: Current sizing/allocation path where drawdown-aware gating is absent.
+      /mnt/data2/nhlstats/dashboard/pages/portfolio.py: Operator surface that must show drawdown state and guardrail outcomes consistently with runtime.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 340
+    focus_area: drawdown controls
+    verification:
+      - Drawdown and concentration state are evaluated before approval and exposed to the governed operator surface.
+      - A strong single-sport recommendation cannot bypass the portfolio-level drawdown gate.
+      - Tests cover drawdown-triggered rejection, shadow-only evidence, and portfolio-level remaining-budget behavior.
+    acceptance_criteria:
+      - Portfolio-level drawdown and risk-of-ruin semantics are implemented as governed gate outputs.
+      - Runtime and reporting layers agree on drawdown state and related rejection reasons.
+      - The gate blocks unsafe approvals without introducing undocumented threshold semantics.
+    failure_modes:
+      - scenario: Drawdown state is computed for reporting but not enforced at approval time.
+        likelihood: medium
+        impact: high
+        mitigation: Verify drawdown outcomes in the same approval path that emits final risk decisions.
+      - scenario: Drawdown guardrails depend on descriptive-only evidence and accidentally relax portfolio safety for shadow-only sports.
+        likelihood: low
+        impact: critical
+        mitigation: Reuse evidence-qualified gate inputs from risk-control-hardening and fail closed on missing approval evidence.
+    tech_stack:
+      - Python
+      - PostgreSQL
+      - Pytest
+    test_coverage: Portfolio-level integration coverage for drawdown, concentration, and evidence-qualified blocking behavior.
+
+  - id: runtime-docs-and-runbooks
+    title: Align durable runtime docs and runbooks to implemented governed behavior
+    description: |
+      Update the durable runtime documentation only after implementation tasks are complete so
+      operator guidance matches the actual governed probability, pricing, CLV, exposure, and
+      drawdown behavior. The documentation must explicitly state that sizing and threshold
+      changes remain blocked without approval-grade CLV, calibration, and walk-forward evidence.
+    wave: 7
+    agent: gem-documentation-writer
+    priority: medium
+    status: done
+    dependencies:
+      - probability-pipeline-hardening
+      - pricing-execution-lineage-hardening
+      - risk-control-hardening
+      - portfolio-drawdown-gate
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/runtime-config-drift-audit.md: Records the runtime-vs-doc drift that the final docs must close.
+      /mnt/data2/nhlstats/docs/PORTFOLIO_BETTING.md: Durable operator guidance that currently drifts from runtime behavior.
+      /mnt/data2/nhlstats/docs/BETTING_STRATEGY.md: Strategy-level doc that must not claim ungated threshold or sizing behavior.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 260
+    focus_area: runtime documentation
+    verification:
+      - Docs describe implemented runtime controls and evidence gates, not planned or legacy behavior.
+      - Docs explicitly distinguish descriptive metrics from approval-grade evidence and blocked recommendations.
+      - Runbooks reference the same operator fields and rejection semantics exposed by governed surfaces.
+    acceptance_criteria:
+      - Durable docs match the implemented runtime behavior for probability, pricing, risk, exposure, and drawdown handling.
+      - Evidence-gated sizing policy is explicit and unambiguous in operator-facing guidance.
+      - Legacy drift around Kelly, risk caps, confidence, and open-risk semantics is removed.
+    failure_modes:
+      - scenario: Documentation is updated before the implemented surfaces settle, reintroducing drift.
+        likelihood: medium
+        impact: medium
+        mitigation: Make docs depend on completed implementation and validation tasks only.
+    task_type: update
+    audience: developers
+    coverage_matrix:
+      - Governed probability and abstention semantics
+      - Pricing roles, CLV evidence tiers, and contamination exclusions
+      - Portfolio exposure truth, rejection reasons, and drawdown gate behavior
+
+  - id: operator-surface-validation
+    title: Validate governed operator surfaces end to end
+    description: |
+      Exercise the portfolio, calibration, and bet-detail operator surfaces after runtime
+      hardening so the visible semantics match the governed contracts. Validation must confirm
+      that sport evidence states, rejection reasons, exposure truth, and descriptive-versus-
+      approval labels are all reviewable from the operator path and do not regress to the
+      audited misleading semantics.
+    wave: 7
+    agent: gem-browser-tester
+    priority: medium
+    status: done
+    dependencies:
+      - pricing-execution-lineage-hardening
+      - risk-control-hardening
+      - portfolio-drawdown-gate
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/dashboard/pages/portfolio.py: Surface for open-risk, exposure, and drawdown semantics.
+      /mnt/data2/nhlstats/dashboard/pages/calibration.py: Surface that must stop presenting cosmetic sport-specific evidence.
+      /mnt/data2/nhlstats/dashboard/pages/bet_detail.py: Surface that must show governed linkage and descriptive-versus-approval evidence boundaries.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: operator validation
+    verification:
+      - Portfolio page shows governed exposure truth, drawdown state, and rejection semantics instead of legacy open-risk semantics.
+      - Calibration page exposes real sport-aware evidence state and contamination/provenance cues.
+      - Bet-detail surface differentiates recommendation context, execution lineage, and CLV evidence quality.
+    acceptance_criteria:
+      - Operator surfaces visibly reflect governed semantics for evidence state, exposure, and CLV lineage.
+      - No reviewed surface implies approval-grade status for descriptive-only or contaminated evidence.
+      - Validation artifacts are sufficient for final governance review.
+    failure_modes:
+      - scenario: Backend contracts are correct but pages still label fields using legacy meanings.
+        likelihood: medium
+        impact: high
+        mitigation: Validate final page semantics against the governed read-model fields, not just API/query success.
+    validation_matrix:
+      - scenario: Portfolio exposure truth
+        steps:
+          - Open the governed portfolio page after seeded exposure and drawdown states exist.
+          - Compare resting-order, executed-unsettled, remaining-budget, and drawdown outputs against the governed contract.
+        expected_result: The page exposes all governed risk states and does not understate executed-but-unsettled exposure.
+      - scenario: Sport validation visibility
+        steps:
+          - Open the calibration or evidence page for blocked and shadow-only sports.
+          - Inspect displayed evidence-state, contamination, and parity information.
+        expected_result: Blocked and shadow-only semantics are explicit, sport-aware, and non-promotional.
+      - scenario: Recommendation to execution evidence trace
+        steps:
+          - Open a bet-detail record with recommendation, execution, and CLV lineage.
+          - Verify recommendation context, execution evidence, and CLV tier are separately labeled.
+        expected_result: The page distinguishes recommendation-time metrics from execution-time and close-line evidence.
+
+  - id: final-governance-review-gate
+    title: Execute the final implementation review and release gate
+    description: |
+      Perform the final governance review across runtime behavior, read models, operator
+      surfaces, and durable docs. The release gate must confirm that every requested hardening
+      area landed, that no sizing or threshold change was implicitly approved, and that CLV,
+      calibration, and walk-forward evidence remain mandatory before any bankroll or threshold
+      recommendation can advance.
+    wave: 8
+    agent: gem-reviewer
+    priority: high
+    status: done
+    dependencies:
+      - sport-validation-state-publication
+      - probability-pipeline-hardening
+      - pricing-execution-lineage-hardening
+      - risk-control-hardening
+      - portfolio-drawdown-gate
+      - runtime-docs-and-runbooks
+      - operator-surface-validation
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      /mnt/data2/nhlstats/docs/prd.yaml: Source-of-truth acceptance criteria and governed sizing constraint.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/follow-on-execution-roadmap.md: Approved sequencing expectations that this implementation cycle must satisfy.
+      /mnt/data2/nhlstats/docs/plan/2026-05-12-betting-pipeline-audit/implementation-plan.yaml: Canonical implementation plan to verify against completed work.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 140
+    focus_area: final governance gate
+    verification:
+      - Review confirms implementation parity across runtime, persistence, operator surfaces, and docs.
+      - Review confirms that no bankroll, Kelly, threshold, or eligibility relaxation is approved without CLV, calibration, and walk-forward evidence.
+      - Review confirms all requested implementation areas are complete and no audit-only work remains in the execution plan.
+    acceptance_criteria:
+      - Final review produces a clear pass/fail decision for execution readiness against PRD and spec constraints.
+      - Any residual descriptive-only, contaminated, or parity-broken path is explicitly blocked from approval use.
+      - The repo is ready for governed execution work without reopening audit scope.
+    failure_modes:
+      - scenario: Review checks file presence but misses semantic drift between runtime and dashboard behavior.
+        likelihood: medium
+        impact: high
+        mitigation: Require review evidence from runtime tests, operator validation, and doc parity together.
+      - scenario: Implementation is treated as successful even though it relaxes or obscures the evidence gate for future sizing changes.
+        likelihood: low
+        impact: critical
+        mitigation: Make evidence-gated sizing policy a mandatory review checklist item and release blocker.
+    requires_review: true
+    review_depth: full
+    review_security_sensitive: false

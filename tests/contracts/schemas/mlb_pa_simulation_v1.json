@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_pa_simulation_v1.json",
+  "title": "MLB Plate Appearance Simulation v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "batter_id",
+    "pitcher_id",
+    "method",
+    "outcome_probs",
+    "source_features_hash",
+    "model_version"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "pa_simulation"},
+    "game_id": {"type": "string", "minLength": 1},
+    "batter_id": {"type": "string", "minLength": 1},
+    "pitcher_id": {"type": "string", "minLength": 1},
+    "method": {"type": "string", "enum": ["log5_empirical_bayes", "hierarchical_bayes"]},
+    "outcome_probs": {
+      "type": "object",
+      "required": ["strikeout", "walk_hbp", "single", "double_triple", "home_run", "ball_in_play_out"],
+      "properties": {
+        "strikeout": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "walk_hbp": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "single": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "double_triple": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "home_run": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+        "ball_in_play_out": {"type": "number", "minimum": 0.0, "maximum": 1.0}
+      },
+      "additionalProperties": false
+    },
+    "source_features_hash": {"type": "string", "minLength": 12},
+    "model_version": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

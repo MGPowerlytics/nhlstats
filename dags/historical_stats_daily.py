@@ -344,10 +344,13 @@ def _run_tennis_fetch_by_date(
     db = DBManager()
 
     # Step 1: Build player-slug lookup from unified_games tennis entries.
-    lu_df = db.fetch_df(
-        "SELECT game_id FROM unified_games WHERE sport = 'TENNIS' AND game_date = :gdate",
-        {"gdate": str(game_date)},
-    )
+    params: dict[str, str] = {"gdate": str(game_date)}
+    query = "SELECT game_id FROM unified_games WHERE sport = 'TENNIS' AND game_date = :gdate"
+    tour = str(getattr(fetcher, "tour", "")).upper()
+    if tour in {"ATP", "WTA"}:
+        query += " AND game_id LIKE :tour_prefix"
+        params["tour_prefix"] = f"TENNIS_{tour}_%"
+    lu_df = db.fetch_df(query, params)
 
     if lu_df.empty:
         logger.info("📅 Tennis — no games in unified_games for %s", game_date)
@@ -587,6 +590,8 @@ def _fetch_stats_tennis(**context: Any) -> None:
     Uses :func:`_run_tennis_fetch_by_date` to match Sackmann CSV rows against
     ``unified_games`` IDs (which use a slug-based format derived from Kalshi
     market data) rather than passing raw Sackmann IDs to ``fetch_game_stats``.
+    Runs both ATP and WTA fetchers so production training can use stats coverage
+    across both tours.
 
     Args:
         **context: Airflow task context dictionary.
@@ -594,8 +599,9 @@ def _fetch_stats_tennis(**context: Any) -> None:
     from plugins.stats.tennis_box_score import TennisBoxScoreFetcher
 
     yesterday = _yesterday_from_context(context)
-    fetcher = TennisBoxScoreFetcher()
-    _run_tennis_fetch_by_date(fetcher, yesterday)
+    for tour in ("atp", "wta"):
+        fetcher = TennisBoxScoreFetcher(tour=tour)
+        _run_tennis_fetch_by_date(fetcher, yesterday)
 
 
 def _validate_stats_ingestion(**context: Any) -> None:

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_model_prediction_v1.json",
+  "title": "MLB Moneyline Model Prediction v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "prediction_id",
+    "model_version",
+    "game_id",
+    "market_name",
+    "outcome_name",
+    "run_date",
+    "model_prob",
+    "feature_hash",
+    "abstain"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "model_prediction"},
+    "prediction_id": {"type": "string", "minLength": 1},
+    "model_version": {"type": "string", "minLength": 1},
+    "game_id": {"type": "string", "minLength": 1},
+    "market_name": {"type": "string", "enum": ["moneyline"]},
+    "outcome_name": {"type": "string", "enum": ["home", "away"]},
+    "run_date": {"type": "string", "format": "date"},
+    "model_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "market_prob": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "edge": {"type": ["number", "null"], "minimum": -1.0, "maximum": 1.0},
+    "expected_value": {"type": ["number", "null"]},
+    "calibration_method": {"type": ["string", "null"]},
+    "ece_at_train": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "feature_hash": {"type": "string", "minLength": 12},
+    "simulation_summary": {"type": ["object", "null"]},
+    "abstain": {"type": "boolean"},
+    "abstention_reason": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

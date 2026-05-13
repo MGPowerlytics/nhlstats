@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/kalshi_market_details_v1.json",
+  "title": "Kalshi Market Details Contract v1",
+  "description": "Canonical Kalshi market details payload schema for market metadata from get_market_details().",
+  "type": "object",
+  "required": [
+    "status",
+    "result",
+    "close_time",
+    "title"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": ["active", "closed", "settled", "finalized"],
+      "description": "Market status"
+    },
+    "result": {
+      "type": "string",
+      "enum": ["", "yes", "no"],
+      "description": "Market result (empty string if not settled)"
+    },
+    "close_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of market close"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Market title"
+    }
+  },
+  "additionalProperties": false
+}

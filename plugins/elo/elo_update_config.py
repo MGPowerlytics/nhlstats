@@ -36,6 +36,10 @@ MLB_HOME_ADVANTAGE = 20.0
 # ``OddsComparator`` is unaffected. Set False to fall back to plain Elo.
 MLB_USE_ENSEMBLE = True
 
+# Governs the live MLB betting path. When True, the DAG requires persisted
+# ``mlb_model_predictions`` rows and refuses to fall back to ensemble/plain Elo.
+MLB_USE_GOVERNED_MODEL = True
+
 # Master switch for the Ligue 1 ensemble (team Elo + ML + Bookmaker).
 LIGUE1_USE_ENSEMBLE = True
 
@@ -122,16 +126,8 @@ def _create_sport_config_registry() -> Dict[str, SportEloConfig]:
         "nhl": _create_nhl_config(),
         "epl": _create_epl_config(),
         "tennis": _create_tennis_config(),
+        "mlb": _create_mlb_config(),
     }
-
-    # MLB uses mlb_games table with game_type filter to exclude
-    # spring training, exhibition, WBC, and All-Star games
-    registry["mlb"] = SportEloConfig(
-        sport_id="mlb",
-        k_factor=MLB_K_FACTOR,
-        home_advantage=MLB_HOME_ADVANTAGE,
-        query=_get_mlb_query(),
-    )
 
     # NFL uses standard unified_games query
     registry["nfl"] = SportEloConfig(
@@ -171,6 +167,17 @@ def _create_sport_config_registry() -> Dict[str, SportEloConfig]:
         )
 
     return registry
+
+
+def _create_mlb_config() -> SportEloConfig:
+    """Create MLB Elo configuration."""
+    return SportEloConfig(
+        sport_id="mlb",
+        k_factor=MLB_K_FACTOR,
+        home_advantage=MLB_HOME_ADVANTAGE,
+        query=_get_mlb_query(),
+        team_mapper=_create_mlb_team_mapper(),
+    )
 
 
 def _create_nba_config() -> SportEloConfig:
@@ -249,8 +256,10 @@ def _create_tennis_config() -> SportEloConfig:
     )
 
 
-# NBA team name to abbreviation mappings
+# NBA team name to abbreviation mappings.
+# Covers full names, city-only, team-only, and no-space variants.
 NBA_TEAM_NAME_MAPPING = {
+    # Full names
     "Atlanta Hawks": "ATL",
     "Boston Celtics": "BOS",
     "Brooklyn Nets": "BKN",
@@ -281,27 +290,147 @@ NBA_TEAM_NAME_MAPPING = {
     "Toronto Raptors": "TOR",
     "Utah Jazz": "UTA",
     "Washington Wizards": "WAS",
+    # LA shorthand
     "LA Clippers": "LAC",
     "LA Lakers": "LAL",
+    # City-only
+    "Atlanta": "ATL",
+    "Boston": "BOS",
+    "Brooklyn": "BKN",
+    "Charlotte": "CHA",
+    "Chicago": "CHI",
+    "Cleveland": "CLE",
+    "Dallas": "DAL",
+    "Denver": "DEN",
+    "Detroit": "DET",
+    "Golden State": "GSW",
+    "Houston": "HOU",
+    "Indiana": "IND",
+    "Memphis": "MEM",
+    "Miami": "MIA",
+    "Milwaukee": "MIL",
+    "Minnesota": "MIN",
+    "New Orleans": "NOP",
+    "New York": "NYK",
+    "Oklahoma City": "OKC",
+    "Orlando": "ORL",
+    "Philadelphia": "PHI",
+    "Phoenix": "PHX",
+    "Portland": "POR",
+    "Sacramento": "SAC",
+    "San Antonio": "SAS",
+    "Toronto": "TOR",
+    "Utah": "UTA",
+    "Washington": "WAS",
+    # Team-only
+    "Hawks": "ATL",
+    "Celtics": "BOS",
+    "Nets": "BKN",
+    "Hornets": "CHA",
+    "Bulls": "CHI",
+    "Cavaliers": "CLE",
+    "Mavericks": "DAL",
+    "Nuggets": "DEN",
+    "Pistons": "DET",
+    "Warriors": "GSW",
+    "Rockets": "HOU",
+    "Pacers": "IND",
+    "Clippers": "LAC",
+    "Lakers": "LAL",
+    "Grizzlies": "MEM",
+    "Heat": "MIA",
+    "Bucks": "MIL",
+    "Timberwolves": "MIN",
+    "Pelicans": "NOP",
+    "Knicks": "NYK",
+    "Thunder": "OKC",
+    "Magic": "ORL",
+    "76ers": "PHI",
+    "Suns": "PHX",
+    "Trail Blazers": "POR",
+    "Kings": "SAC",
+    "Spurs": "SAS",
+    "Raptors": "TOR",
+    "Jazz": "UTA",
+    "Wizards": "WAS",
+    # No-space variants
+    "GoldenState": "GSW",
+    "LAClippers": "LAC",
+    "LALakers": "LAL",
+    "NewOrleans": "NOP",
+    "NewYork": "NYK",
+    "OklahomaCity": "OKC",
+    "SanAntonio": "SAS",
+}
+
+# Valid NBA team abbreviations (must be exactly these 30)
+VALID_NBA_TEAM_ABBRS = {
+    "ATL", "BKN", "BOS", "CHA", "CHI", "CLE", "DAL", "DEN", "DET",
+    "GSW", "HOU", "IND", "LAC", "LAL", "MEM", "MIA", "MIL", "MIN",
+    "NOP", "NYK", "OKC", "ORL", "PHI", "PHX", "POR", "SAC", "SAS",
+    "TOR", "UTA", "WAS",
+}
+
+# Names that leak into NBA data but are not NBA teams
+NBA_CONTAMINANTS = {
+    # NFL teams
+    "Bears", "Bengals", "Bills", "Broncos", "Browns", "Buccaneers",
+    "Cardinals", "Chargers", "Chiefs", "Colts", "Commanders", "Cowboys",
+    "Dolphins", "Eagles", "Falcons", "49ers", "Giants", "Jaguars", "Jets",
+    "Lions", "Packers", "Panthers", "Patriots", "Raiders", "Rams", "Ravens",
+    "Saints", "Seahawks", "Steelers", "Texans", "Titans", "Vikings",
+    # International / non-NBA basketball
+    "Adelaide 36ers", "Cairns Taipans", "Flamengo Flamengo",
+    "Guangzhou Loong-Lions", "Hapoel Jerusalem B.C.",
+    "Madrid Baloncesto", "Melbourne United", "New Zealand Breakers",
+    "Ra'anana Maccabi Ra'anana", "Ratiopharm Ulm",
+    "South East Melbourne Phoenix",
+    # All-Star teams
+    "East NBA All Stars East", "West NBA All Stars West",
 }
 
 
-def _create_nba_team_mapper() -> Callable[[str], str]:
-    """Create NBA team name to abbreviation mapper."""
+def _create_nba_team_mapper() -> Callable[[str], Optional[str]]:
+    """Create NBA team name to abbreviation mapper.
 
-    def map_nba_team(team_name: str) -> str:
+    Returns the canonical abbreviation for valid NBA team names,
+    or None for known contaminants (NFL teams, international clubs, etc.).
+    """
+
+    def map_nba_team(team_name: str) -> Optional[str]:
         """Map NBA team name to abbreviation."""
-        if team_name and len(team_name) <= 4:
-            return team_name  # Already an abbreviation
-        return NBA_TEAM_NAME_MAPPING.get(team_name, team_name)
+        if not team_name:
+            return None
+
+        # Known contaminants -> skip
+        if team_name in NBA_CONTAMINANTS:
+            return None
+
+        # Already a valid abbreviation
+        if team_name in VALID_NBA_TEAM_ABBRS:
+            return team_name
+
+        # Look up in mapping (handles full names, city-only, team-only, no-space)
+        mapped = NBA_TEAM_NAME_MAPPING.get(team_name)
+        if mapped is not None:
+            return mapped
+
+        # If it's a short string that isn't a valid abbrev or in the mapping,
+        # it's likely a contaminant abbreviation (e.g. NFL "Jets")
+        if len(team_name) <= 4:
+            return None
+
+        # Unknown team — pass through (will create a new Elo entity)
+        return team_name
 
     return map_nba_team
 
 
 # NHL team name to abbreviation mappings
 NHL_TEAM_NAME_MAPPING = {
+    # Full names
     "Anaheim Ducks": "ANA",
-    "Arizona Coyotes": "ARI",
+    "Arizona Coyotes": "UTA",  # relocated to Utah (2024)
     "Boston Bruins": "BOS",
     "Buffalo Sabres": "BUF",
     "Calgary Flames": "CGY",
@@ -336,11 +465,45 @@ NHL_TEAM_NAME_MAPPING = {
     "Washington Capitals": "WSH",
     "Winnipeg Jets": "WPG",
     "Utah": "UTA",
+    "ARI": "UTA",  # historical abbreviation → current Utah
+    # Team-only names
+    "Ducks": "ANA",
+    "Coyotes": "UTA",  # relocated to Utah
+    "Bruins": "BOS",
+    "Sabres": "BUF",
+    "Flames": "CGY",
+    "Hurricanes": "CAR",
+    "Blackhawks": "CHI",
+    "Avalanche": "COL",
+    "Blue Jackets": "CBJ",
+    "Stars": "DAL",
+    "Red Wings": "DET",
+    "Oilers": "EDM",
+    "Panthers": "FLA",
+    "Kings": "LAK",
+    "Wild": "MIN",
+    "Canadiens": "MTL",
+    "Predators": "NSH",
+    "Devils": "NJD",
+    "Islanders": "NYI",
+    "Rangers": "NYR",
+    "Senators": "OTT",
+    "Flyers": "PHI",
+    "Penguins": "PIT",
+    "Sharks": "SJS",
+    "Kraken": "SEA",
+    "Blues": "STL",
+    "Lightning": "TBL",
+    "Maple Leafs": "TOR",
+    "Mammoth": "UTA",
+    "Canucks": "VAN",
+    "Golden Knights": "VGK",
+    "Capitals": "WSH",
+    "Jets": "WPG",
 }
 
 VALID_NHL_TEAM_ABBRS = {
     "ANA",
-    "ARI",
     "BOS",
     "BUF",
     "CGY",
@@ -408,9 +571,38 @@ NHL_CONTAMINANTS = {
 }
 
 
+# MLB team name canonicalization - maps historical/variant names to current canonical names
+MLB_TEAM_NAME_MAPPING = {
+    "Cleveland Indians": "Cleveland Guardians",
+    "Oakland Athletics": "Athletics",
+    "Tampa Bay Devil Rays": "Tampa Bay Rays",
+    "Florida Marlins": "Miami Marlins",
+    "Montreal Expos": "Washington Nationals",
+    "Anaheim Angels": "Los Angeles Angels",
+    "Los Angeles Angels of Anaheim": "Los Angeles Angels",
+    "California Angels": "Los Angeles Angels",
+}
+
+
+def _create_mlb_team_mapper() -> Callable[[str], str]:
+    """Create MLB team name canonicalization mapper.
+
+    Maps historical/variant team names to current canonical names
+    (e.g. 'Cleveland Indians' -> 'Cleveland Guardians').
+    """
+
+    def map_mlb_team(team_name: str) -> str:
+        """Map MLB team name to canonical form."""
+        if not team_name:
+            return team_name
+        return MLB_TEAM_NAME_MAPPING.get(team_name, team_name)
+
+    return map_mlb_team
+
+
 def _create_nhl_team_mapper() -> Callable[[str], Optional[str]]:
     """Create NHL team name to abbreviation mapper."""
-    from naming_resolver import NamingResolver, NamingContext
+    from plugins.naming_resolver import NamingResolver, NamingContext
 
     def map_nhl_team(team_name: str) -> Optional[str]:
         """Map NHL team name to abbreviation."""

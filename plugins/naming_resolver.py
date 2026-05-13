@@ -371,8 +371,8 @@ class NamingResolver:
         # NHL ELO / Canonical Mappings
         ("nhl", "elo", "anaheim ducks"): "ANA",
         ("nhl", "elo", "anaheim"): "ANA",
-        ("nhl", "elo", "arizona coyotes"): "ARI",
-        ("nhl", "elo", "arizona"): "ARI",
+        ("nhl", "elo", "arizona coyotes"): "UTA",  # relocated to Utah (2024)
+        ("nhl", "elo", "arizona"): "UTA",
         ("nhl", "elo", "boston bruins"): "BOS",
         ("nhl", "elo", "boston"): "BOS",
         ("nhl", "elo", "buffalo sabres"): "BUF",

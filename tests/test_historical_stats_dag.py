@@ -481,3 +481,28 @@ def test_tennis_remap_unmatched_names_warns_but_does_not_raise(monkeypatch) -> N
     # Must NOT raise — graceful degradation
     mod._run_tennis_fetch_by_date(fetcher, date(2026, 4, 23))
     assert fetcher.upserted == []
+
+
+def test_fetch_stats_tennis_runs_both_tours(monkeypatch) -> None:
+    """The scheduled tennis task must ingest both ATP and WTA stats."""
+    import importlib
+    from datetime import date
+
+    mod = importlib.import_module("dags.historical_stats_daily")
+    calls: list[tuple[str, date]] = []
+
+    class _FakeTennisFetcher:
+        def __init__(self, tour: str = "atp") -> None:
+            self.tour = tour
+
+    def _fake_run(fetcher, game_date):
+        calls.append((fetcher.tour, game_date))
+
+    monkeypatch.setattr(
+        "plugins.stats.tennis_box_score.TennisBoxScoreFetcher", _FakeTennisFetcher
+    )
+    monkeypatch.setattr(mod, "_run_tennis_fetch_by_date", _fake_run)
+
+    mod._fetch_stats_tennis(ds="2026-04-23")
+
+    assert calls == [("atp", date(2026, 4, 23)), ("wta", date(2026, 4, 23))]

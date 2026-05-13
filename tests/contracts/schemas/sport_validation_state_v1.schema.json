@@ -1,0 +1,219 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/sport_validation_state_v1.schema.json",
+  "title": "Sport Validation State v1",
+  "description": "Canonical row contract for governed sport validation readiness state.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "sport",
+    "market_type",
+    "cohort_type",
+    "evidence_dimension",
+    "canonical_game_id",
+    "market_ticker",
+    "selection_key",
+    "source_relation",
+    "source_record_id",
+    "evidence_state_scope",
+    "evidence_state",
+    "evidence_state_reason",
+    "evidence_state_as_of",
+    "evidence_state_source_artifact",
+    "governance_status",
+    "descriptive_only_flag",
+    "contamination_flag",
+    "contamination_reason",
+    "excluded_from_approval_flag",
+    "observed_at",
+    "loaded_at",
+    "last_updated_at",
+    "review_timestamp",
+    "runtime_consumer",
+    "artifact_id",
+    "artifact_version",
+    "artifact_family",
+    "artifact_available_flag",
+    "placed_bet_only_flag",
+    "synthetic_identity_flag",
+    "backfill_flag"
+  ],
+  "properties": {
+    "sport": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cohort_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_dimension": {
+      "type": "string",
+      "enum": [
+        "validation"
+      ]
+    },
+    "canonical_game_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "market_ticker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selection_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_relation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_scope": {
+      "type": "string",
+      "enum": [
+        "sport"
+      ]
+    },
+    "evidence_state": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "shadow_only",
+        "candidate"
+      ]
+    },
+    "evidence_state_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_as_of": {
+      "type": "string"
+    },
+    "evidence_state_source_artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "governance_status": {
+      "type": "string",
+      "enum": [
+        "descriptive_only",
+        "candidate_ready"
+      ]
+    },
+    "descriptive_only_flag": {
+      "type": "boolean"
+    },
+    "contamination_flag": {
+      "type": "boolean"
+    },
+    "contamination_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "excluded_from_approval_flag": {
+      "type": "boolean"
+    },
+    "observed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "loaded_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "review_timestamp": {
+      "type": "string"
+    },
+    "runtime_consumer": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "artifact_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "artifact_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_family": {
+      "type": "string",
+      "minLength": 1
+    },
+    "artifact_available_flag": {
+      "type": "boolean"
+    },
+    "placed_bet_only_flag": {
+      "type": "boolean"
+    },
+    "synthetic_identity_flag": {
+      "type": "boolean"
+    },
+    "backfill_flag": {
+      "type": "boolean"
+    }
+  },
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "sport": {
+            "enum": [
+              "TENNIS",
+              "EPL",
+              "LIGUE1"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "market_type": {
+            "const": "match_winner"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "market_type": {
+            "const": "moneyline"
+          }
+        }
+      }
+    }
+  ]
+}

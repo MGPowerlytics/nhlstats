@@ -151,6 +151,9 @@ __all__ = [
     "load_data_to_db",
     "update_elo_ratings",
     "fetch_prediction_markets",
+    "fetch_mlb_current_odds",
+    "score_mlb_model_predictions",
+    "train_tennis_probability_model",
     "update_glicko2_ratings",
     "load_bets_to_db",
     "identify_good_bets",
@@ -903,6 +906,49 @@ def fetch_prediction_markets(sport: str, **context: Any) -> None:
     print(f"✓ Found {len(markets)} {sport.upper()} markets")
 
 
+def score_mlb_model_predictions(**context: Any) -> Dict[str, int]:
+    """Airflow callable for governed MLB model-health prediction rows."""
+    print("🧮 Scoring MLB moneyline model predictions...")
+    from plugins.mlb_modeling.airflow_tasks import score_mlb_moneyline_model
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = score_mlb_moneyline_model(run_date=date_str)
+    print(
+        "✓ MLB model scoring complete: "
+        f"{result['predictions_written']} predictions, "
+        f"{result['abstentions_written']} abstentions"
+    )
+    return result
+
+
+def fetch_mlb_current_odds(**context: Any) -> int:
+    """Fetch free/current MLB bookmaker odds for future ROI and CLV evidence."""
+    print("📈 Fetching MLB current bookmaker odds...")
+    from plugins.the_odds_api import TheOddsAPI
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    api = TheOddsAPI()
+    saved = api.fetch_and_save_markets("mlb", date_str)
+    print(f"✓ MLB current bookmaker odds saved: {saved}")
+    return saved
+
+
+def train_tennis_probability_model(**context: Any) -> Dict[str, Any]:
+    """Refresh the production tennis probability-model artifact from PostgreSQL."""
+    print("🎾 Training tennis probability model artifact...")
+    from plugins.elo.tennis_probability_model import train_production_model
+
+    result = train_production_model()
+    payload = result.to_payload()
+    print(
+        "✓ Tennis model training complete: "
+        f"{payload['feature_frame_rows']} feature rows, "
+        f"enabled={payload['enabled']}, "
+        f"metrics_published={payload['metrics_published']}"
+    )
+    return payload
+
+
 def _initialize_glicko2_system(sport: str) -> Optional[Any]:
     """Initialize Glicko-2 rating system for a specific sport.
 
@@ -1090,11 +1136,25 @@ def _load_elo_system(sport: str, elo_ratings: dict) -> object:
         elo_system.ratings = elo_ratings
 
     if sport == "mlb":
-        elo_system = _maybe_wrap_mlb_with_ensemble(elo_system)
+        if _mlb_uses_governed_model():
+            setattr(elo_system, "requires_governed_predictions", True)
+            print("  🧮 MLB governed prediction mode enabled (no Elo fallback)")
+        else:
+            elo_system = _maybe_wrap_mlb_with_ensemble(elo_system)
     elif sport == "ligue1":
         elo_system = _maybe_wrap_ligue1_with_ensemble(elo_system)
 
     return elo_system
+
+
+def _mlb_uses_governed_model() -> bool:
+    """Return whether MLB betting must use governed prediction rows."""
+    try:
+        from elo_update_config import MLB_USE_GOVERNED_MODEL
+    except ImportError:
+        from plugins.elo.elo_update_config import MLB_USE_GOVERNED_MODEL
+
+    return bool(MLB_USE_GOVERNED_MODEL)
 
 
 def _maybe_wrap_ligue1_with_ensemble(elo_system):
@@ -1119,6 +1179,7 @@ def _maybe_wrap_ligue1_with_ensemble(elo_system):
         adapter.ratings = dict(getattr(elo_system, "ratings", {}) or {})
         # Pre-compute season context (Form, Goal averages)
         adapter.populate_from_db(default_db)
+        setattr(adapter, "governed_probability_source", "ligue1_live_ensemble")
 
         print(
             f"  🏟️  Ligue 1 Ensemble enabled ({len(adapter.team_stats)} teams w/ stats cached)"
@@ -1126,7 +1187,9 @@ def _maybe_wrap_ligue1_with_ensemble(elo_system):
 
         return adapter
     except Exception as exc:  # noqa: BLE001
-        print(f"⚠️ Ligue 1 ensemble adapter failed to initialize: {exc} — using plain Elo")
+        print(
+            f"⚠️ Ligue 1 ensemble adapter failed to initialize: {exc} — using plain Elo"
+        )
         return elo_system
 
 
@@ -1267,6 +1330,7 @@ def _find_betting_opportunities(
         elo_system=elo_system,
         thresholds=thresholds,
         date_str=date_str,
+        enforce_governance=True,
     )
 
     return comparator.find_opportunities(opportunity_config)
@@ -1837,7 +1901,30 @@ for sport in ALL_SPORTS:
         dag=dag,
     )
 
-    markets_task >> bets_task
+    model_scoring_task = None
+    mlb_external_odds_task = None
+    tennis_training_task = None
+    if sport == "mlb":
+        mlb_external_odds_task = PythonOperator(
+            task_id="mlb_fetch_external_odds",
+            python_callable=fetch_mlb_current_odds,
+            dag=dag,
+        )
+        model_scoring_task = PythonOperator(
+            task_id="mlb_score_model_predictions",
+            python_callable=score_mlb_model_predictions,
+            dag=dag,
+        )
+        markets_task >> mlb_external_odds_task >> model_scoring_task >> bets_task
+    elif sport == "tennis":
+        tennis_training_task = PythonOperator(
+            task_id="tennis_train_probability_model",
+            python_callable=train_tennis_probability_model,
+            dag=dag,
+        )
+        markets_task >> tennis_training_task >> bets_task
+    else:
+        markets_task >> bets_task
 
     load_bets_task = PythonOperator(
         task_id=f"{sport}_load_bets_db",

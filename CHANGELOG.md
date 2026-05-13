@@ -1,5 +1,226 @@
 ## [Unreleased] — MLB pipeline cleanup (post-audit follow-up)
 
+### Drawdown guardrail governance closure (2026-05-12)
+- Added migration `V018__add_explicit_drawdown_guardrail.sql` so the latest
+  governed `portfolio_value_snapshots` row can carry an explicit
+  `drawdown_gate_active` flag plus governed reason code/detail, and wired
+  `governed_portfolio_risk_state_v1` to publish `blocked_drawdown` /
+  `drawdown_gate_blocked` when that regime is enabled without turning every
+  below-peak portfolio state into an undocumented block.
+- Extended `plugins/portfolio_snapshots.py`, `plugins/bet_tracker.py`, and the
+  governed dashboard seed fixtures so snapshot creation, compatibility helpers,
+  and contract/provider test seeds all preserve the explicit drawdown-guardrail
+  fields.
+- Updated the portfolio dashboard page to surface portfolio guardrail detail
+  alongside the guardrail code, then added targeted regression coverage for the
+  blocked-drawdown operator message and the new snapshot-driven guardrail
+  migration behavior.
+
+### Dashboard operator-surface governance fixes (2026-05-12)
+- Updated the portfolio dashboard page to use governed open-exposure totals in
+  its headline risk display and operator messaging, so resting-order exposure
+  and executed-unsettled exposure are both visible instead of silently
+  understating live risk.
+- Hardened the calibration dashboard page to show explicit governed
+  blocked/shadow-only sport validation states, including contamination and
+  provenance cues, instead of rendering generic bucket output for sport
+  selections that are not approval-eligible.
+- Extended the bet-detail dashboard data layer and page to surface governed
+  recommendation-to-execution linkage plus close-line lineage fields from the
+  existing governed read models, and added targeted dashboard regression
+  coverage for those operator-facing semantics.
+
+### Tennis production artifact refresh (2026-05-11)
+- Updated `dags/historical_stats_daily.py` so scheduled tennis stats ingestion
+  now runs both ATP and WTA fetchers, instead of only the default ATP path.
+- Added a reusable production tennis training helper in
+  `plugins/elo/tennis_probability_model.py` that loads PostgreSQL history,
+  persists the runtime artifact + metrics JSON, and leaves BetMGM-backed model
+  health publishing optional.
+- Wired a new `tennis_train_probability_model` task into
+  `dags/multi_sport_betting_workflow.py` so the persisted tennis artifact is
+  refreshed before tennis bet identification uses it.
+- Added regression coverage for ATP/WTA tennis stats scheduling, the production
+  tennis training wrapper, and the new DAG task ordering.
+
+### Tennis model-health rollout + BetMGM evidence (2026-05-11)
+- Upgraded `plugins/elo/tennis_probability_model.py` from a single logistic
+  feature model to a stacked tennis ensemble using tree-based base learners +
+  a Kernel Ridge meta learner, while keeping the calibrated Elo fallback and
+  adding explicit BetMGM-baseline evaluation metrics to the governed metrics
+  payload.
+- Enriched governed PostgreSQL tennis history loading so the tennis model can
+  consume persisted serve/return signal from `tennis_player_match_stats` and
+  normalized historical BetMGM market probabilities when those odds are
+  available.
+- Improved the live tennis probability path in `plugins/odds_comparator.py` so
+  it no longer hard-codes `Hard`; it now infers the likely surface from recent
+  shared player history before calling the tennis feature model.
+- Added governed tennis model-health storage and dashboard read model via
+  `tennis_model_evaluations` plus `dashboard_tennis_model_health_v1`, then
+  surfaced it in the dashboard data layer and a new Streamlit "Tennis Model
+  Health" page.
+- Added canonical dashboard contract coverage, provider/consumer tests, and
+  migration regression coverage for the new tennis model-health boundary.
+- Benchmark fixture evidence (`python scripts/train_tennis_probability_model.py
+  --data-source benchmark --evaluate-only`) now shows the tennis ensemble
+  beating the BetMGM baseline on shared holdout rows: log loss improved from
+  0.4215 to 0.1950 (-0.2265) and Brier score improved from 0.1233 to 0.0436
+  (-0.0797), with accuracy holding at 95.455%.
+
+### Fix: governed schema bootstrap drift for MLB predictive migrations (2026-05-11)
+- Added a narrow `plugins.schema_migrations` compatibility bridge for the one
+  observed historical V008 dashboard-read-model checksum so bootstrap can keep
+  moving forward to later governed migrations without weakening checksum
+  enforcement for unrelated versions.
+- Added regression coverage proving the runner accepts only that known legacy
+  V008 checksum, still fails closed on unknown checksum drift, and no longer
+  hardcodes the live schema ledger to the original three migration versions.
+
+### MLB governed moneyline rollout (2026-05-10)
+- Promoted the governed MLB moneyline model into the live MLB betting path.
+  `plugins/mlb_modeling/airflow_tasks.py::score_mlb_moneyline_model()` now loads a
+  persisted artifact, validates required runtime features strictly, and writes
+  non-abstaining `mlb_model_predictions` rows only when the artifact + feature
+  inputs are healthy.
+- Updated `plugins/odds_comparator.py` and
+  `dags/multi_sport_betting_workflow.py` so MLB betting selection reads latest
+  non-abstaining governed `mlb_model_predictions` for the run date/game and
+  fails closed to zero MLB picks when governed predictions are unavailable,
+  instead of silently falling back to the MLB ensemble/plain Elo path.
+- Tightened governed MLB lookup and scoring fail-closed behavior so same-day
+  abstaining reruns suppress older live prediction rows, and live scoring now
+  requires a same-day `mlb_matchup_features.as_of_ts` row before writing
+  non-abstaining picks.
+- Preserved downstream schema compatibility by keeping the existing
+  recommendation-row `elo_prob` field populated with model-driven MLB
+  probabilities while leaving other sports unchanged.
+
+### MLB predictive modeling foundation (2026-05-10)
+- Added governed PostgreSQL migrations for the MLB predictive-modeling layer:
+  player batting/pitching stats, pitch-level features, rolling features,
+  environment, travel/fatigue, matchup features, market signals, moneyline
+  predictions, prop predictions, and an MLB model-health dashboard view.
+- Added MLB-owned JSON Schema contracts and fixtures for advanced features,
+  environment, travel/fatigue, market signals, PA simulation, game simulation,
+  moneyline predictions, prop predictions, and dashboard MLB model health.
+- Added public/free-source-first modeling helpers for environment transforms,
+  travel/circadian penalties, unavailable proprietary signal provenance,
+  market-signal pro edge/reverse-line movement, advanced feature vectors,
+  calibrated moneyline model gating, PA/prop predictions, Monte Carlo
+  simulations, and validation gates.
+- Wired an MLB-only Airflow scoring task that writes explicit abstaining
+  moneyline model predictions for dashboard/model-health observability until a
+  calibrated artifact passes validation gates.
+- Added a concrete MLB model-improvement evidence runner comparing legacy MLB
+  Elo against production-tuned Elo with chronological out-of-sample accuracy,
+  log loss, Brier score, ECE, and top-decile lift metrics.
+- Wired MLB market signals into `OddsComparator` so MLB opportunities can carry
+  `pro_edge`, `reverse_line_movement`, and sharp-confirmation metadata without
+  changing other sports.
+- Added a free-only MLB odds history path: `mlb_odds_snapshots`, Princeton-style
+  historical import support via `plugins/mlb_modeling/free_odds_sources.py`,
+  and `scripts/import_free_mlb_historical_odds.py` for opening/closing
+  backfills without paid APIs.
+- Extended the free historical importer to also accept the GitHub
+  SportsBookReview-derived JSON dataset format (`github_sportsbookreview_mlb_odds`)
+  with opening/current moneylines and bookmaker-specific snapshots.
+- Wired `mlb_fetch_external_odds` into the main DAG so current/free bookmaker
+  MLB odds snapshots are persisted during scheduled runs, enabling future
+  ROI/CLV evidence collection in PostgreSQL.
+- Added `scripts/evaluate_mlb_betting_evidence.py` plus reusable evidence helpers
+  to turn free historical odds + chronological Elo backtests into flat ROI,
+  CLV hit rate, and Tier A ROI comparisons.
+- Free historical betting evidence on the downloadable GitHub MLB odds dataset
+  (`mlb_odds_dataset.json`, DraftKings filter): legacy baseline produced 5,570
+  bets at -1.631% flat ROI and 58.079% CLV hit rate; production tuned MLB Elo
+  produced 3,367 bets at -1.206% flat ROI and 52.569% CLV hit rate, with Tier A
+  ROI improving from -0.030% to +16.656%.
+- Added per-bet MLB betting-evidence rows, edge-bucket summaries, and CLV
+  fidelity audit output in `plugins/mlb_modeling/evidence.py`, then surfaced
+  them through `scripts/evaluate_mlb_betting_evidence.py`.
+- DraftKings CLV audit on the free GitHub dataset showed the CLV gap is **not**
+  caused by a missing-close proxy: both baseline and production used 100%
+  explicit open and 100% explicit close snapshots on matched bets. The tuned
+  model still improved flat ROI (+0.425 pts) and Tier A ROI (+16.686 pts), but
+  its CLV hit rate fell by 5.510 pts.
+- Edge-bucket breakdown on DraftKings showed the tuned model's strongest gains
+  are at the top end: 15%+ edges improved from -0.030% to +16.656% ROI, while
+  5-8% edges improved from -5.073% to -0.198%. The 3-5% edge bucket degraded
+  from -1.450% to -3.200%, and 8-15% moved from +0.217% to -0.930%.
+- All-book free-data audit showed tuned-model ROI improved versus baseline at
+  BetMGM (+1.112 pts), FanDuel (+0.534), DraftKings (+0.425), BetRivers
+  (+0.247), and bet365 (+0.221), but regressed at Caesars (-0.282). CLV hit
+  rate declined versus baseline at every evaluated bookmaker.
+
+### Fix: Tennis dashboard current-run rows + ATP/WTA rating guard (2026-05-10)
+- Fixed the Tennis Predictions dashboard query to filter by the current
+  `bet_recommendations.recommendation_date` run date instead of tomorrow's
+  calendar date. Today's tennis DAG wrote 21 recommendations dated
+  `2026-05-10`, so the previous tomorrow filter hid valid current-run rows.
+- Fixed tennis real-rating guard tour inference in `plugins/odds_comparator.py`
+  to use Kalshi tickers before falling back to `game_id`, matching the
+  probability path and preventing generic IDs from checking ATP players in WTA
+  ratings (or vice versa).
+- Reran today's scheduled `tennis_identify_bets` and `tennis_load_bets_db`
+  tasks by clearing those task instances only; both succeeded and the dashboard
+  data layer now returns 21 tennis prediction rows for the current run.
+
+### Tennis probability model + tomorrow bets dashboard (2026-05-10)
+- Added `plugins/elo/tennis_probability_model.py`, a lightweight calibrated
+  tennis probability service that stacks engineered tennis features with the
+  existing calibrated Elo probability and only enables the artifact when
+  chronological holdout log-loss and Brier score both improve.
+- Added `scripts/train_tennis_probability_model.py` to train/evaluate the
+  model from PostgreSQL, local tennis CSVs, or a deterministic benchmark
+  fixture when runtime data is unavailable.
+- Updated `plugins/odds_comparator.py` so TENNIS opportunities prefer the
+  enabled probability-model artifact and fall back to calibrated Elo when the
+  artifact is missing, disabled, or cannot build a feature vector.
+- Added governed dashboard read model `dashboard_tennis_predictions_v1`, its
+  JSON Schema contract, and a new Streamlit "Tennis Predictions" page showing
+  tomorrow's actionable bet ID, ticker, model probability, market probability,
+  edge, expected value, Kelly fraction, and confidence.
+- Deterministic benchmark fixture metrics (`python
+  scripts/train_tennis_probability_model.py --data-source benchmark
+  --evaluate-only`): log-loss improved from 0.3027 to 0.2582 (-0.0445), Brier
+  score improved from 0.0761 to 0.0584 (-0.0177), accuracy held at 95.455%,
+  and actionable EV count held at 30 on 88 holdout rows.
+- Local tennis CSV metrics (`python scripts/train_tennis_probability_model.py
+  --data-source csv --evaluate-only`, newest 1,200 matches): log-loss improved
+  from 0.6300 to 0.6208 (-0.0092), Brier score improved from 0.2195 to 0.2157
+  (-0.0038), accuracy moved from 68.750% to 67.292%, and actionable EV count
+  increased from 192 to 219 on 480 holdout rows.
+- Validation: `pytest -q tests/test_tennis_probability_model.py` -> 4 passed;
+  `pytest -q tests/test_dashboard_data_layer.py
+  tests/test_dashboard_tennis_predictions_page.py tests/test_dashboard_healthcheck.py
+  tests/contracts/test_dashboard_read_model_contracts.py
+  tests/test_team_game_stats_schema.py` -> 110 passed, 6 skipped;
+  `pytest -q tests/test_tennis_predictive_features.py
+  tests/test_tennis_calibrated_betting.py tests/contracts/test_tennis_*.py` ->
+  104 passed.
+
+### Tennis predictive feature architecture + calibrated betting probabilities (2026-05-10)
+- Added `plugins/elo/tennis_features.py`, a reusable pre-match feature builder for
+  tennis modeling. It creates honest ATP/WTA feature vectors with exponential
+  time decay, surface-transfer weights, common-opponent adjustments,
+  intransitivity complexity, fatigue, retirement/injury proxy, serve/return
+  interaction features (`serveadv`, `complete`), age-30 transforms, rank, and
+  data-certainty scoring.
+- Governed the new feature-vector boundary with
+  `tests/contracts/schemas/tennis_features_v1.json`, deterministic fixtures, and
+  tennis consumer/provider contract tests.
+- Updated the betting boundary so `OddsComparator` uses
+  `TennisEloRating.predict_with_payload(... )["calibrated_prob_a"]` whenever the
+  calibrated payload API is available, instead of betting on raw Elo probability.
+- Restored the missing `TennisEloRating.get_match_count()` API expected by the
+  tennis Elo tests without mutating unknown players.
+- Validation: `pytest -q tests/test_tennis_predictive_features.py
+  tests/test_tennis_calibrated_betting.py tests/test_tennis_elo_calibration.py
+  tests/test_tennis_elo_tdd.py tests/test_kalshi_tennis_save.py
+  tests/test_kalshi_tennis_mapping.py tests/contracts/test_tennis_*.py` ->
+  131 passed, 10 subtests passed.
+
 ### Fix: MLBEnsembleAdapter missing has_real_rating — 0 MLB bets (2026-04-24)
 - **Root cause**: `MLBEnsembleAdapter` (a `@dataclass`, not inheriting from
   `BaseEloRating`) was missing the `has_real_rating()` method required by

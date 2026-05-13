@@ -1,0 +1,194 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/box_score_fetcher_contract_v1.json",
+  "title": "BoxScoreFetcher Contract v1",
+  "description": "Contract schema for the BoxScoreFetcher ABC boundary — defines the shape of fetch_game_stats, fetch_date_range, and upsert_rows outputs.",
+  "$defs": {
+    "box_score_row": {
+      "title": "Box Score Row",
+      "description": "A single canonical team-game-stats row produced by any sport-specific BoxScoreFetcher.",
+      "type": "object",
+      "required": [
+        "team",
+        "opponent",
+        "home",
+        "points"
+      ],
+      "properties": {
+        "team": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Home or away team name."
+        },
+        "opponent": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Opposing team name."
+        },
+        "home": {
+          "type": "boolean",
+          "description": "True if this row represents the home team."
+        },
+        "points": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Points (or runs / goals) scored by this team."
+        }
+      },
+      "additionalProperties": true
+    },
+    "fetch_game_stats_result": {
+      "title": "fetch_game_stats Result",
+      "description": "Result of BoxScoreFetcher.fetch_game_stats().",
+      "type": "object",
+      "required": [
+        "game_id",
+        "sport",
+        "rows",
+        "row_count",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "game_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Platform-native game identifier."
+        },
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short sport identifier (e.g. 'NBA', 'NHL', 'MLB')."
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/box_score_row"
+          },
+          "description": "List of normalised team-game-stats dicts (typically 2: home and away)."
+        },
+        "row_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of rows in the list."
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Frozen contract version identifier."
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "fetch_game_stats_result",
+          "description": "Literal discriminator for the payload type."
+        }
+      },
+      "additionalProperties": false
+    },
+    "fetch_date_range_result": {
+      "title": "fetch_date_range Result",
+      "description": "Result of BoxScoreFetcher.fetch_date_range().",
+      "type": "object",
+      "required": [
+        "start_date",
+        "end_date",
+        "total_games",
+        "total_rows",
+        "games",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Start of the requested date range (inclusive)."
+        },
+        "end_date": {
+          "type": "string",
+          "format": "date",
+          "description": "End of the requested date range (inclusive)."
+        },
+        "total_games": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of distinct games in the range."
+        },
+        "total_rows": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of team-game rows across all games."
+        },
+        "games": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "game_id",
+              "rows"
+            ],
+            "properties": {
+              "game_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "rows": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/box_score_row"
+                }
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "List of per-game results with their team rows."
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Frozen contract version identifier."
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "fetch_date_range_result",
+          "description": "Literal discriminator for the payload type."
+        }
+      },
+      "additionalProperties": false
+    },
+    "upsert_rows_result": {
+      "title": "upsert_rows Result",
+      "description": "Result of BoxScoreFetcher.upsert_rows().",
+      "type": "object",
+      "required": [
+        "rows_inserted",
+        "sport",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "rows_inserted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of rows upserted across core and extension tables."
+        },
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short sport identifier (e.g. 'NBA', 'NHL')."
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Frozen contract version identifier."
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "upsert_rows_result",
+          "description": "Literal discriminator for the payload type."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

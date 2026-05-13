@@ -327,6 +327,8 @@ services:
     environment:
       - PYTHONPATH=/opt/airflow/plugins:/opt/airflow
       - PYTHONUNBUFFERED=1
+      - DASHBOARD_HEALTHCHECK_URL=http://localhost:8501/_stcore/health
+      - DASHBOARD_HEALTHCHECK_DB_MODE=required
       - POSTGRES_HOST=postgres
       - POSTGRES_PORT=5432
       - POSTGRES_DB=airflow
@@ -344,6 +346,20 @@ services:
         condition: service_healthy
       airflow-bootstrap-admin:
         condition: service_completed_successfully
+    healthcheck:
+      test:
+        - "CMD"
+        - "python"
+        - "-m"
+        - "dashboard.healthcheck"
+        - "--streamlit-url"
+        - "http://localhost:8501/_stcore/health"
+        - "--db-mode"
+        - "required"
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
     restart: always
 
 volumes:

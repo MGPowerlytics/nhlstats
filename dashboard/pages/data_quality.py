@@ -1,50 +1,114 @@
-"""Data Quality — system health scores, missing data alerts, odds freshness."""
-
-import streamlit as st
-import plotly.express as px
 import pandas as pd
+import streamlit as st
 
-from dashboard.data_layer import get_data_quality_report
+from dashboard.data_layer import DashboardDataError, get_data_quality_report
+
+
+DISPLAY_COLUMNS = {
+    "status": "Status",
+    "check_name": "Check",
+    "relation_name": "Relation",
+    "relation_type": "Type",
+    "row_count": "Rows",
+    "freshness_timestamp": "Freshness Timestamp",
+    "actual_lag_minutes": "Lag (min)",
+    "max_allowed_lag_minutes": "Max Lag (min)",
+    "message": "Message",
+    "checked_at_utc": "Checked At",
+}
+
+
+def _state_text(payload: dict[str, str | None]) -> str:
+    """Build a compact, sanitized state message from a data-layer payload."""
+
+    parts = [
+        payload.get("kind"),
+        payload.get("title"),
+        payload.get("message"),
+        payload.get("action"),
+    ]
+    return " — ".join(str(part) for part in parts if part)
+
+
+def _render_state(payload: dict[str, str | None]) -> None:
+    """Render an explicit governed error state."""
+
+    message = _state_text(payload)
+    if payload.get("severity") == "error":
+        st.error(message)
+    else:
+        st.info(message)
+
+
+def _fallback_zero_check_error() -> dict[str, str]:
+    """Return the hard error shown when the report has no checks."""
+
+    return {
+        "kind": "dashboard_contract_mismatch",
+        "title": "Dashboard contract mismatch",
+        "message": "The governed data-quality report returned zero checks.",
+        "action": "Apply dashboard read-model migrations and rerun checks.",
+        "severity": "error",
+    }
+
+
+def _format_cell(value: object) -> object:
+    """Return a display-safe value without fabricating missing data."""
+
+    if value is None or pd.isna(value):
+        return "—"
+    return str(value) if not isinstance(value, (int, float)) else value
+
+
+def _display_checks(checks: list[dict[str, object]]) -> pd.DataFrame:
+    """Return the governed checks in a page-friendly display shape."""
+
+    display = pd.DataFrame(checks)
+    display = display[
+        [column for column in DISPLAY_COLUMNS if column in display.columns]
+    ]
+    display = display.rename(columns=DISPLAY_COLUMNS)
+    for column in display.columns:
+        display[column] = display[column].map(_format_cell)
+    if "Status" in display.columns:
+        display["Status"] = display["Status"].map(lambda value: str(value).upper())
+    return display
+
+
+def _degraded_summary(checks: list[dict[str, object]]) -> str:
+    """Return a concise warning/failure summary."""
+
+    warn_count = sum(1 for check in checks if check.get("status") == "warn")
+    fail_count = sum(1 for check in checks if check.get("status") == "fail")
+    warning_label = "warning" if warn_count == 1 else "warnings"
+    failure_label = "failure" if fail_count == 1 else "failures"
+    return (
+        f"Degraded checks: {warn_count} {warning_label}, {fail_count} {failure_label}."
+    )
 
 
 def render():
     st.title("Data Quality")
 
-    report = get_data_quality_report()
-    overall = report.get("overall_health", 0)
-    sports = report.get("sports", [])
+    try:
+        report = get_data_quality_report()
+    except DashboardDataError as exc:
+        _render_state(exc.payload)
+        return
 
-    # Overall health gauge
+    overall = report.get("overall_health", 0)
+    checks = report.get("checks", [])
+
     st.metric("Overall Health Score", f"{overall}/100")
 
-    # Health bar chart
-    if sports:
-        sport_df = pd.DataFrame(sports)
-        fig = px.bar(
-            sport_df, x="sport", y="health_score",
-            title="Health Score by Sport",
-            labels={"sport": "Sport", "health_score": "Health Score"},
-            color="health_score",
-            color_continuous_scale=["red", "yellow", "green"],
-            range_color=[0, 100],
-        )
-        fig.add_hline(y=80, line_dash="dash", line_color="green", annotation_text="Healthy")
-        fig.add_hline(y=50, line_dash="dash", line_color="red", annotation_text="Warning")
-        st.plotly_chart(fig, use_container_width=True)
+    if not checks:
+        _render_state(_fallback_zero_check_error())
+        return
 
-    # Per-sport details
-    st.subheader("Per-Sport Details")
-    for s in sports:
-        health = s["health_score"]
-        with st.expander(f"{s['sport']} — Health: {health}/100"):
-            cols = st.columns(3)
-            cols[0].metric("Missing Games", s.get("missing_games", 0))
-            cols[1].metric("Stale Elo Ratings", s.get("stale_elo", 0))
-            cols[2].metric("Odds Freshness", f"{s.get('odds_freshness_minutes', 'N/A')} min")
-            st.caption(f"Last game: {s.get('last_game_date', 'N/A')}")
+    st.subheader("Governed Data Quality Checks")
+    if all(check.get("status") == "pass" for check in checks):
+        st.success("All governed data-quality checks are passing.")
+    else:
+        st.warning(_degraded_summary(checks))
 
-            issues = s.get("issues", [])
-            if issues:
-                st.warning("Issues: " + ", ".join(issues))
-            else:
-                st.success("No issues detected")
+    st.dataframe(_display_checks(checks), use_container_width=True, hide_index=True)

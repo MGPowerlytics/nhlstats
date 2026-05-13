@@ -1,90 +1,170 @@
-# Multi-Sport Betting Strategy Overview
+# Governed Betting Strategy
 
-**Date:** January 20, 2026
-**System Architecture:** PostgreSQL-backed, Airflow-automated, Kelly-optimized portfolio betting.
+## Strategy summary
 
----
+The live system is a governed value-betting pipeline. It compares internal win probabilities with market-implied probabilities, records executable quote lineage, and only allows approval-sized allocation when governed evidence passes fail-closed review.
 
-## 1. Core Methodology: Elo-Based Value Betting
+This document describes implemented runtime behavior only. It does not approve any bankroll, Kelly, threshold, or eligibility increase.
 
-The fundamental strategy across all sports is **Value Betting**. We identify discrepancies between our internal **Elo-based probabilities** and the **market probabilities** offered by Kalshi.
+## Supported governed sports
 
-*   **Elo Probability**: Calculated using historical game data (55,000+ games) and updated daily.
-*   **Market Probability**: Implied from Kalshi's `yes_ask` or `no_ask` prices.
-*   **Edge**: `Elo Probability - Market Probability`.
-*   **Threshold**: A minimum edge (typically 5%) and a minimum Elo confidence are required to place a bet.
+The governed implementation cycle covers:
 
----
+- `NBA`
+- `NHL`
+- `MLB`
+- `NFL`
+- `EPL`
+- `LIGUE1`
+- `NCAAB`
+- `WNCAAB`
+- `TENNIS`
 
-## 2. General Portfolio Strategy
+Current sport validation is published in `sport_validation_state_v1`. The shipped baseline is `shadow_only` for `MLB`, `TENNIS`, `EPL`, and `LIGUE1`, and `blocked` for `NBA`, `NHL`, `NFL`, `NCAAB`, and `WNCAAB`. No sport should be described as approval-grade in durable docs.
 
-Instead of treating each sport in isolation, the system uses a **Unified Portfolio Manager** to allocate capital efficiently across all active markets.
+Additional constants or dashboard selectors outside this list are not governed approval scope for this cycle.
 
-### Kelly Criterion Allocation
-- **Fractional Kelly (25%)**: We use a "Quarter Kelly" approach to maximize long-term growth while significantly reducing the variance and risk of ruin.
-- **Dynamic Sizing**: Bet sizes scale with our calculated edge and current bankroll.
-- **Constraints**:
-    - **Min Bet**: $2.00 (to avoid noise)
-    - **Max Bet**: $50.00 (to prevent overexposure)
-    - **Max Daily Risk**: 25% of total bankroll.
-    - **Max Position**: 5% of bankroll per single match.
+## Probability semantics
 
-### Match-Level Locking
-- **Live API Checking**: Before placing a bet, the system queries the Kalshi API for current open positions.
-- **Event Conflict Prevention**: We never bet on both sides of the same match (e.g., Alcaraz and his opponent). If we have an open position on *any* ticker associated with a match, further betting on that match is locked.
+Recommendation evidence is published through `governed_evidence_record_v1`.
 
----
+The implemented probability fields are:
 
-## 3. Sport-Specific Strategies
+- `probability_source`
+- `calibrated_probability`
+- `market_probability`
+- `edge`
+- `expected_value`
+- `kelly_fraction`
+- `confidence_label`
 
-### 🏀 NBA & College Basketball (NCAAB/WNCAAB)
-- **Strategy**: Focus on Extreme Confidence.
-- **Thresholds**:
-    - **NBA**: 73% Elo Prob
-    - **NCAAB/WNCAAB**: 72% Elo Prob
-- **Rationale**: Basketball shows the strongest "lift" in the top 20% of predictions (1.39x). We ignore middle-of-the-road games where the market is most efficient.
+Runtime notes:
 
-### 🎾 Tennis, 🏒 NHL & ⚽ Ligue 1
-- **Strategy**: **Sharp Odds Confirmation**.
-- **Execution**: We only bet on Kalshi if our Elo edge is confirmed by "Sharp" bookmakers (Pinnacle/BetMGM).
-- **Rationale**: These markets are highly efficient. Our analysis showed massive ROI potential (+26% for NHL, high potential for Ligue 1) when filtering for "Market Laggards"—cases where Kalshi hasn't moved their price yet despite a consensus shift in the professional betting world.
-- **Status**: **Automated Betting Active**.
+- `edge = calibrated_probability - market_probability`
+- `confidence_label` is descriptive and edge-derived
+- the live minimum edge gate is `3%`
+- numeric confidence settings are not the current approval gate
 
-### 🏀 Basketball, ⚾ MLB, 🏈 NFL
-- **Strategy**: **Standard Elo Value Betting**.
-- **Methodology**: These sports currently rely on our optimized Elo models and optimized thresholds derived from 55,000+ historical games.
-- **Status**: **Automated Betting Active** (Basketball), **Inactive** (MLB/NFL - Offseason/Awaiting setup).
+Recommendation metrics can describe opportunity quality, but they are not approval-grade evidence by themselves.
 
-### ⚽ Soccer (EPL/Ligue 1)
-- **Strategy**: 3-Way Market Normalization.
-- **Threshold**: 45% Elo Prob.
-- **Rationale**: Adjusted for the 3rd outcome (Draw). A 45% probability in a 3-way market represents a significant outlier compared to the ~33% baseline.
+## Pricing semantics
 
----
+Recommendation-time pricing and execution-time pricing are separated.
 
-## 4. Operational Execution
+### Recommendation-time quote role
 
-### Automated Workflow (Airflow)
-1.  **05:00 ET**: Daily DAG trigger.
-2.  **Data Ingest**: Download latest results and update PostgreSQL.
-3.  **Elo Refresh**: Recalculate ratings for 1,000+ athletes and teams.
-4.  **Market Fetch**: Scan Kalshi for hundreds of open contracts.
-5.  **Identification**: Compare internal models vs. Kalshi vs. Sharp Odds.
-6.  **Optimization**: Run Kelly Criterion across all identified edges.
-7.  **Betting**: Execute limit orders on Kalshi with live position verification.
-8.  **Reporting**: Log all bets to `placed_bets` and send summary via SMS.
+`governed_evidence_record_v1` carries:
 
-### Data Integrity & Tracking
-- **PostgreSQL**: All bets, odds, and game results are stored in a centralized database to prevent concurrency issues.
-- **CLV Tracking**: Every bet tracks **Closing Line Value** to ensure our model consistently beats the market before game time.
+- `quote_price_role`
+- `quote_source_system`
+- `quote_bookmaker`
+- `quote_observed_at`
+- `quote_loaded_at`
+- `quote_payload_ref`
+- `quote_lineage_status`
+- `quote_freshness_result`
+- `quote_fallback_status`
 
----
+These fields describe the executable quote context used for recommendation review.
 
-## 5. Risk Summary
+### Execution and linkage
 
-| Category | Risk Level | Mitigation |
-| :--- | :--- | :--- |
-| **Market Risk** | Medium | Fractional Kelly + Max Position Caps |
-| **Execution Risk**| Low | Match-level locking + Position deduplication |
-| **Model Risk** | Medium | Continuous lift/gain monitoring + Sharp confirmation |
-| **Connectivity** | Low | Fallback auth methods + PostgreSQL persistence |
+`governed_recommendation_execution_link_v1` is the recommendation-to-execution lineage surface. Operators should use it to review:
+
+- recommendation linkage status
+- execution status
+- entry quote source and freshness
+- canonical game, ticker, and selection linkage
+
+## CLV semantics
+
+`governed_clv_evidence_envelope_v1` is the canonical CLV review surface.
+
+Implemented distinctions:
+
+- `entry_price_role=executable`
+- `close_price_role=close` only when a governed market close is available
+- `selected_close_rule=latest_admissible_pregame_quote` for governed market-close selection
+- `clv_source_type` distinguishes `market_close` from `binary_result_placeholder`, `missing_close`, and `unlinked_close`
+
+Approval guidance:
+
+- `market_close` is required for governed close-line review
+- placeholder, missing, stale, or unlinked close evidence is not approval-grade
+- CLV rows remain descriptive unless they are clean and reviewed together with calibration and walk-forward evidence
+
+## Exposure and drawdown semantics
+
+Portfolio risk review is published through `governed_portfolio_risk_state_v1`.
+
+Implemented behavior:
+
+- open exposure includes resting orders and executed-but-unsettled filled positions
+- daily risk budget is governed off current portfolio value
+- `drawdown_state`, `drawdown_ratio`, and `drawdown_amount_dollars` come from governed portfolio snapshots
+- an explicit drawdown block is activated only when the latest governed portfolio
+  snapshot sets `drawdown_gate_active=true`, with the matching governed reason
+  code/detail persisted alongside the snapshot
+- `risk_of_ruin_state` and `portfolio_guardrail_state` can block new approvals even when a single recommendation looks attractive
+- same-match conflicts are governed from canonical execution linkage and open-position state
+
+The live portfolio path therefore uses portfolio-level exposure truth, not legacy “open orders only” semantics.
+
+## Current runtime sizing policy
+
+The implemented runtime parameters are:
+
+- `25%` daily risk cap
+- `20%` Kelly scaling
+- `$2` minimum bet size
+- `$10` maximum bet size
+- `3%` maximum single-bet exposure
+- `3%` minimum edge
+
+These are current runtime settings only. They are not a recommendation to increase size, edge thresholds, or risk appetite.
+
+## Approval-grade evidence policy
+
+Sizing or threshold changes remain blocked unless all three evidence streams are approval-grade and reviewable together:
+
+1. CLV evidence
+2. Calibration evidence
+3. Walk-forward evidence
+
+If any stream is missing, descriptive-only, contaminated, placeholder-based, stale, or excluded from approval, recommendations stay blocked for approval-grade sizing changes.
+
+Explicitly:
+
+- descriptive metrics are not enough
+- positive EV is not enough
+- positive CLV alone is not enough
+- a shadow-only or blocked sport state is not enough
+- dashboard labels alone are not enough
+- calibration bucket summaries are descriptive unless they are tied back to governed approval evidence
+
+## Operator-facing decision rules
+
+When reviewing live behavior:
+
+1. Start with `sport_validation_state_v1`.
+2. Review recommendation probability and quote lineage in `governed_evidence_record_v1`.
+3. Review execution linkage in `governed_recommendation_execution_link_v1`.
+4. Review close-line lineage and contamination in `governed_clv_evidence_envelope_v1`.
+5. Review portfolio rejection fields in `governed_portfolio_risk_state_v1`.
+
+Blocked recommendations must be described with governed fields such as:
+
+- `evidence_state`
+- `governance_status`
+- `descriptive_only_flag`
+- `contamination_flag`
+- `excluded_from_approval_flag`
+- `portfolio_guardrail_reason_code`
+- `rejection_reason_code`
+
+## What this strategy does not claim
+
+- It does not claim that any sport is currently approval-grade.
+- It does not claim that Kelly or bankroll should be increased.
+- It does not claim that threshold relaxation is approved.
+- It does not claim that descriptive dashboard summaries substitute for governed evidence review.

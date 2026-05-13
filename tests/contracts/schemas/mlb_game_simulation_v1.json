@@ -1,0 +1,44 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_game_simulation_v1.json",
+  "title": "MLB Game Simulation v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "simulation_count",
+    "seed",
+    "home_win_prob",
+    "away_win_prob",
+    "run_distribution",
+    "model_version"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "game_simulation"},
+    "game_id": {"type": "string", "minLength": 1},
+    "simulation_count": {"type": "integer", "minimum": 5000, "maximum": 10000},
+    "seed": {"type": "integer"},
+    "home_win_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "away_win_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "run_distribution": {
+      "type": "object",
+      "required": ["home_mean", "away_mean", "total_mean", "home_p10", "home_p90", "away_p10", "away_p90"],
+      "properties": {
+        "home_mean": {"type": "number", "minimum": 0.0},
+        "away_mean": {"type": "number", "minimum": 0.0},
+        "total_mean": {"type": "number", "minimum": 0.0},
+        "home_p10": {"type": "number", "minimum": 0.0},
+        "home_p90": {"type": "number", "minimum": 0.0},
+        "away_p10": {"type": "number", "minimum": 0.0},
+        "away_p90": {"type": "number", "minimum": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "model_version": {"type": "string", "minLength": 1}
+  },
+  "additionalProperties": false
+}

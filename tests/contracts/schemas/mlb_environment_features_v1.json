@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/mlb_environment_features_v1.json",
+  "title": "MLB Environment Features v1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "sport",
+    "payload_kind",
+    "game_id",
+    "game_date",
+    "venue",
+    "park_factors",
+    "weather",
+    "hit_distance_adjustment_ft",
+    "source",
+    "feature_version"
+  ],
+  "properties": {
+    "schema_version": {"const": "v1"},
+    "sport": {"const": "MLB"},
+    "payload_kind": {"const": "environment_features"},
+    "game_id": {"type": "string", "minLength": 1},
+    "game_date": {"type": "string", "format": "date"},
+    "venue": {"type": "string", "minLength": 1},
+    "park_factors": {
+      "type": "object",
+      "required": ["runs", "home_runs", "doubles_triples", "singles"],
+      "properties": {
+        "runs": {"type": "number", "minimum": 0.0},
+        "home_runs": {"type": "number", "minimum": 0.0},
+        "doubles_triples": {"type": "number", "minimum": 0.0},
+        "singles": {"type": "number", "minimum": 0.0}
+      },
+      "additionalProperties": false
+    },
+    "weather": {
+      "type": "object",
+      "required": ["temperature_f", "humidity_pct", "wind_speed_mph", "wind_direction_degrees", "altitude_ft"],
+      "properties": {
+        "temperature_f": {"type": ["number", "null"], "minimum": -50.0, "maximum": 140.0},
+        "humidity_pct": {"type": ["number", "null"], "minimum": 0.0, "maximum": 100.0},
+        "wind_speed_mph": {"type": ["number", "null"], "minimum": 0.0},
+        "wind_direction_degrees": {"type": ["number", "null"], "minimum": 0.0, "maximum": 360.0},
+        "altitude_ft": {"type": ["number", "null"]}
+      },
+      "additionalProperties": false
+    },
+    "hit_distance_adjustment_ft": {"type": ["number", "null"]},
+    "source": {"type": "string", "minLength": 1},
+    "observed_at": {"type": ["string", "null"], "format": "date-time"},
+    "feature_version": {"type": "string", "minLength": 1},
+    "availability": {
+      "type": "string",
+      "enum": ["available", "derived", "unavailable", "stale", "abstain_required"]
+    }
+  },
+  "additionalProperties": false
+}

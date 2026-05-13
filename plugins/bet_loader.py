@@ -42,6 +42,28 @@ class BetData:
     away_rating: Optional[float] = None
     yes_ask: Optional[int] = None
     no_ask: Optional[int] = None
+    probability_source: Optional[str] = None
+    evidence_state: Optional[str] = None
+    evidence_state_reason: Optional[str] = None
+    evidence_state_source_artifact: Optional[str] = None
+    governance_status: Optional[str] = None
+    clv_evidence_tier: Optional[str] = None
+    calibration_evidence_tier: Optional[str] = None
+    walk_forward_evidence_tier: Optional[str] = None
+    approval_grade_evidence: bool = False
+    canonical_game_id: Optional[str] = None
+    quote_price_cents: Optional[int] = None
+    quote_price_role: str = "executable"
+    quote_source_system: Optional[str] = None
+    quote_bookmaker: Optional[str] = None
+    quote_observed_at: Optional[str] = None
+    quote_loaded_at: Optional[str] = None
+    quote_payload_ref: Optional[str] = None
+    quote_freshness_result: str = "missing_source_timestamp"
+    quote_fallback_status: str = "missing_quote"
+    sizing_eligible: bool = False
+    abstain: bool = False
+    abstention_reason: Optional[str] = None
 
     def computed_expected_value(self) -> Optional[float]:
         """Calculate expected value if not provided."""
@@ -136,6 +158,28 @@ class BetData:
             yes_ask=self.yes_ask,
             no_ask=self.no_ask,
             ticker=ticker_value,
+            probability_source=self.probability_source,
+            evidence_state=self.evidence_state,
+            evidence_state_reason=self.evidence_state_reason,
+            evidence_state_source_artifact=self.evidence_state_source_artifact,
+            governance_status=self.governance_status,
+            clv_evidence_tier=self.clv_evidence_tier,
+            calibration_evidence_tier=self.calibration_evidence_tier,
+            walk_forward_evidence_tier=self.walk_forward_evidence_tier,
+            approval_grade_evidence=self.approval_grade_evidence,
+            canonical_game_id=self.canonical_game_id,
+            quote_price_cents=self._resolved_quote_price_cents(),
+            quote_price_role=self.quote_price_role,
+            quote_source_system=self._resolved_quote_source_system(),
+            quote_bookmaker=self._resolved_quote_bookmaker(),
+            quote_observed_at=self.quote_observed_at,
+            quote_loaded_at=self._resolved_quote_loaded_at(),
+            quote_payload_ref=self._resolved_quote_payload_ref(),
+            quote_freshness_result=self._resolved_quote_freshness_result(),
+            quote_fallback_status=self._resolved_quote_fallback_status(),
+            sizing_eligible=self.sizing_eligible,
+            abstain=self.abstain,
+            abstention_reason=self.abstention_reason,
         )
 
     @classmethod
@@ -163,6 +207,50 @@ class BetData:
         confidence = data.get("confidence", "unknown")
         yes_ask = data.get("yes_ask")
         no_ask = data.get("no_ask")
+        probability_source = data.get("probability_source")
+        evidence_state = data.get("evidence_state")
+        evidence_state_reason = data.get("evidence_state_reason")
+        evidence_state_source_artifact = data.get("evidence_state_source_artifact")
+        governance_status = data.get("governance_status")
+        clv_evidence_tier = data.get("clv_evidence_tier")
+        calibration_evidence_tier = data.get("calibration_evidence_tier")
+        walk_forward_evidence_tier = data.get("walk_forward_evidence_tier")
+        approval_grade_evidence = _extract_bool(data, "approval_grade_evidence")
+        canonical_game_id = data.get("canonical_game_id", data.get("game_id"))
+        quote_price_cents = _extract_optional_int(
+            data,
+            "quote_price_cents",
+            fallback_keys=_quote_price_candidate_keys(side),
+        )
+        quote_price_role = data.get("quote_price_role", "executable")
+        quote_source_system = data.get("quote_source_system")
+        quote_bookmaker = data.get("quote_bookmaker")
+        quote_observed_at = data.get("quote_observed_at")
+        quote_loaded_at = data.get("quote_loaded_at")
+        quote_payload_ref = data.get("quote_payload_ref")
+        quote_freshness_result = data.get(
+            "quote_freshness_result", "missing_source_timestamp"
+        )
+        quote_fallback_status = data.get(
+            "quote_fallback_status",
+            (
+                "direct_quote"
+                if data.get("quote_price_cents") is not None
+                else (
+                    "payload_only_quote"
+                    if _extract_optional_int(
+                        data,
+                        "quote_price_cents",
+                        fallback_keys=_quote_price_candidate_keys(side),
+                    )
+                    is not None
+                    else "missing_quote"
+                )
+            ),
+        )
+        sizing_eligible = bool(data.get("sizing_eligible", False))
+        abstain = bool(data.get("abstain", False))
+        abstention_reason = data.get("abstention_reason")
 
         # Construct the object
         return cls(
@@ -183,7 +271,74 @@ class BetData:
             away_rating=away_rating,
             yes_ask=yes_ask,
             no_ask=no_ask,
+            probability_source=probability_source,
+            evidence_state=evidence_state,
+            evidence_state_reason=evidence_state_reason,
+            evidence_state_source_artifact=evidence_state_source_artifact,
+            governance_status=governance_status,
+            clv_evidence_tier=clv_evidence_tier,
+            calibration_evidence_tier=calibration_evidence_tier,
+            walk_forward_evidence_tier=walk_forward_evidence_tier,
+            approval_grade_evidence=approval_grade_evidence,
+            canonical_game_id=canonical_game_id,
+            quote_price_cents=quote_price_cents,
+            quote_price_role=quote_price_role,
+            quote_source_system=quote_source_system,
+            quote_bookmaker=quote_bookmaker,
+            quote_observed_at=quote_observed_at,
+            quote_loaded_at=quote_loaded_at,
+            quote_payload_ref=quote_payload_ref,
+            quote_freshness_result=quote_freshness_result,
+            quote_fallback_status=quote_fallback_status,
+            sizing_eligible=sizing_eligible,
+            abstain=abstain,
+            abstention_reason=abstention_reason,
         )
+
+    def _resolved_quote_price_cents(self) -> Optional[int]:
+        if self.quote_price_cents is not None:
+            return self.quote_price_cents
+        if self.side.lower() in {"away", "no"}:
+            return self.no_ask
+        return self.yes_ask
+
+    def _resolved_quote_source_system(self) -> str:
+        if self.quote_source_system:
+            return self.quote_source_system
+        if self.ticker:
+            return "bet_recommendation_payload"
+        return "quote_lineage_placeholder"
+
+    def _resolved_quote_bookmaker(self) -> Optional[str]:
+        if self.quote_bookmaker:
+            return self.quote_bookmaker
+        if self.ticker or self._resolved_quote_price_cents() is not None:
+            return "Kalshi"
+        return None
+
+    def _resolved_quote_loaded_at(self) -> Optional[str]:
+        return self.quote_loaded_at or self.quote_observed_at
+
+    def _resolved_quote_payload_ref(self) -> Optional[str]:
+        return self.quote_payload_ref or self.ticker
+
+    def _resolved_quote_freshness_result(self) -> str:
+        if self.quote_freshness_result != "missing_source_timestamp":
+            return self.quote_freshness_result
+        return (
+            "fresh"
+            if self.quote_observed_at
+            else "missing_source_timestamp"
+        )
+
+    def _resolved_quote_fallback_status(self) -> str:
+        if self.quote_fallback_status != "missing_quote":
+            return self.quote_fallback_status
+        if self.quote_price_cents is not None:
+            return "direct_quote"
+        if self._resolved_quote_price_cents() is not None:
+            return "payload_only_quote"
+        return "missing_quote"
 
 
 def _extract_side(data: Dict[str, Any]) -> str:
@@ -216,6 +371,42 @@ def _extract_optional_float(data: Dict[str, Any], key: str) -> Optional[float]:
         return float(val)
     except (ValueError, TypeError):
         return None
+
+
+def _extract_optional_int(
+    data: Dict[str, Any],
+    key: str,
+    fallback_keys: Optional[List[str]] = None,
+) -> Optional[int]:
+    candidates = [key, *(fallback_keys or [])]
+    for candidate_key in candidates:
+        val = data.get(candidate_key)
+        if val is None:
+            continue
+        try:
+            return int(round(float(val)))
+        except (ValueError, TypeError):
+            continue
+    return None
+
+
+def _extract_bool(data: Dict[str, Any], key: str) -> bool:
+    val = data.get(key)
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, (int, float)) and not isinstance(val, bool):
+        return bool(val)
+    if isinstance(val, str):
+        normalized = val.strip().lower()
+        if normalized in {"true", "t", "1", "yes", "y"}:
+            return True
+        if normalized in {"false", "f", "0", "no", "n"}:
+            return False
+    return False
+
+
+def _quote_price_candidate_keys(side: str) -> List[str]:
+    return ["no_ask"] if side.lower() in {"away", "no"} else ["yes_ask"]
 
 
 def _is_epl_sport(sport: str) -> bool:
@@ -384,6 +575,28 @@ class BetRecommendation(SqlParamsMixin):
     yes_ask: Optional[int] = None
     no_ask: Optional[int] = None
     ticker: Optional[str] = None
+    probability_source: Optional[str] = None
+    evidence_state: Optional[str] = None
+    evidence_state_reason: Optional[str] = None
+    evidence_state_source_artifact: Optional[str] = None
+    governance_status: Optional[str] = None
+    clv_evidence_tier: Optional[str] = None
+    calibration_evidence_tier: Optional[str] = None
+    walk_forward_evidence_tier: Optional[str] = None
+    approval_grade_evidence: bool = False
+    canonical_game_id: Optional[str] = None
+    quote_price_cents: Optional[int] = None
+    quote_price_role: str = "executable"
+    quote_source_system: Optional[str] = None
+    quote_bookmaker: Optional[str] = None
+    quote_observed_at: Optional[str] = None
+    quote_loaded_at: Optional[str] = None
+    quote_payload_ref: Optional[str] = None
+    quote_freshness_result: str = "missing_source_timestamp"
+    quote_fallback_status: str = "missing_quote"
+    sizing_eligible: bool = False
+    abstain: bool = False
+    abstention_reason: Optional[str] = None
 
     def to_sql_params(self) -> Dict[str, Any]:
         """Convert dataclass to dictionary suitable for SQL parameters.
@@ -414,6 +627,31 @@ class BetRecommendation(SqlParamsMixin):
         if "date_str" in params:
             print(f"⚠️  ERROR: date_str still in params after removal: {params.keys()}")
             del params["date_str"]
+
+        if params.get("quote_source_system") is None:
+            params["quote_source_system"] = (
+                "bet_recommendation_payload"
+                if params.get("ticker") or params.get("quote_price_cents") is not None
+                else "quote_lineage_placeholder"
+            )
+        if params.get("quote_price_role") is None:
+            params["quote_price_role"] = "executable"
+        if params.get("quote_freshness_result") is None:
+            params["quote_freshness_result"] = (
+                "fresh"
+                if params.get("quote_observed_at")
+                else "missing_source_timestamp"
+            )
+        if params.get("quote_fallback_status") is None:
+            params["quote_fallback_status"] = (
+                "direct_quote"
+                if params.get("quote_observed_at") and params.get("quote_price_cents") is not None
+                else (
+                    "payload_only_quote"
+                    if params.get("quote_price_cents") is not None
+                    else "missing_quote"
+                )
+            )
 
         return params
 
@@ -452,6 +690,28 @@ class BetLoader:
                     "confidence",
                     "home_rating",
                     "away_rating",
+                    "probability_source",
+                    "evidence_state",
+                    "evidence_state_reason",
+                    "evidence_state_source_artifact",
+                    "governance_status",
+                    "clv_evidence_tier",
+                    "calibration_evidence_tier",
+                    "walk_forward_evidence_tier",
+                    "approval_grade_evidence",
+                    "canonical_game_id",
+                    "quote_price_cents",
+                    "quote_price_role",
+                    "quote_source_system",
+                    "quote_bookmaker",
+                    "quote_observed_at",
+                    "quote_loaded_at",
+                    "quote_payload_ref",
+                    "quote_freshness_result",
+                    "quote_fallback_status",
+                    "sizing_eligible",
+                    "abstain",
+                    "abstention_reason",
                 ],
             )
 
@@ -504,10 +764,58 @@ class BetLoader:
                 yes_ask INTEGER,
                 no_ask INTEGER,
                 ticker VARCHAR,
+                probability_source VARCHAR,
+                evidence_state VARCHAR,
+                evidence_state_reason VARCHAR,
+                evidence_state_source_artifact VARCHAR,
+                governance_status VARCHAR,
+                clv_evidence_tier VARCHAR,
+                calibration_evidence_tier VARCHAR,
+                walk_forward_evidence_tier VARCHAR,
+                approval_grade_evidence BOOLEAN DEFAULT FALSE,
+                canonical_game_id VARCHAR,
+                quote_price_cents INTEGER,
+                quote_price_role VARCHAR,
+                quote_source_system VARCHAR,
+                quote_bookmaker VARCHAR,
+                quote_observed_at TIMESTAMP,
+                quote_loaded_at TIMESTAMP,
+                quote_payload_ref VARCHAR,
+                quote_freshness_result VARCHAR,
+                quote_fallback_status VARCHAR,
+                sizing_eligible BOOLEAN DEFAULT FALSE,
+                abstain BOOLEAN DEFAULT FALSE,
+                abstention_reason VARCHAR,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """
         )
+
+        for statement in (
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS probability_source VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS evidence_state VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS evidence_state_reason VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS evidence_state_source_artifact VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS governance_status VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS clv_evidence_tier VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS calibration_evidence_tier VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS walk_forward_evidence_tier VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS approval_grade_evidence BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS canonical_game_id VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_price_cents INTEGER",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_price_role VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_source_system VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_bookmaker VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_observed_at TIMESTAMP",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_loaded_at TIMESTAMP",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_payload_ref VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_freshness_result VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS quote_fallback_status VARCHAR",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS sizing_eligible BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS abstain BOOLEAN DEFAULT FALSE",
+            "ALTER TABLE bet_recommendations ADD COLUMN IF NOT EXISTS abstention_reason VARCHAR",
+        ):
+            self.db.execute(statement)
 
     def _create_bet_recommendations_indexes(self) -> None:
         """Create indexes for performance optimization."""

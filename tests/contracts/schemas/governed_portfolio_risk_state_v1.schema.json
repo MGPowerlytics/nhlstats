@@ -1,0 +1,406 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/governed_portfolio_risk_state_v1.schema.json",
+  "title": "Governed Portfolio Risk State v1",
+  "description": "Canonical row contract for approval-facing portfolio risk evidence.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "sport",
+    "market_type",
+    "cohort_type",
+    "evidence_dimension",
+    "canonical_game_id",
+    "market_ticker",
+    "selection_key",
+    "source_relation",
+    "source_record_id",
+    "evidence_state_scope",
+    "evidence_state",
+    "evidence_state_reason",
+    "evidence_state_as_of",
+    "evidence_state_source_artifact",
+    "governance_status",
+    "descriptive_only_flag",
+    "contamination_flag",
+    "contamination_reason",
+    "excluded_from_approval_flag",
+    "observed_at",
+    "loaded_at",
+    "last_updated_at",
+    "snapshot_hour_utc",
+    "open_exposure_flag",
+    "open_exposure_amount",
+    "position_status",
+    "exposure_inclusion_state",
+    "sport_exposure_amount",
+    "same_event_exposure_amount",
+    "same_side_exposure_amount",
+    "existing_position_flag",
+    "resting_order_exposure_amount",
+    "resting_order_count",
+    "executed_unsettled_exposure_amount",
+    "executed_unsettled_count",
+    "exposure_state",
+    "daily_risk_cap_dollars",
+    "remaining_daily_risk_budget_dollars",
+    "peak_portfolio_value_dollars",
+    "current_portfolio_value_dollars",
+    "drawdown_amount_dollars",
+    "drawdown_ratio",
+    "drawdown_state",
+    "risk_of_ruin_state",
+    "portfolio_guardrail_state",
+    "portfolio_guardrail_reason_code",
+    "portfolio_guardrail_reason_detail",
+    "concentration_bucket",
+    "concentration_state",
+    "existing_position_state",
+    "same_match_conflict",
+    "rejection_reason_code",
+    "rejection_reason_detail",
+    "operator_semantics_version",
+    "bankroll_source",
+    "bankroll_amount",
+    "bankroll_observed_at",
+    "bankroll_snapshot_id"
+  ],
+  "properties": {
+    "sport": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cohort_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_dimension": {
+      "type": "string",
+      "enum": [
+        "portfolio_risk"
+      ]
+    },
+    "canonical_game_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "market_ticker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selection_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_relation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_scope": {
+      "type": "string",
+      "enum": [
+        "sport"
+      ]
+    },
+    "evidence_state": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "shadow_only",
+        "candidate"
+      ]
+    },
+    "evidence_state_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_as_of": {
+      "type": "string"
+    },
+    "evidence_state_source_artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "governance_status": {
+      "type": "string",
+      "enum": [
+        "descriptive_only",
+        "candidate_ready"
+      ]
+    },
+    "descriptive_only_flag": {
+      "type": "boolean"
+    },
+    "contamination_flag": {
+      "type": "boolean"
+    },
+    "contamination_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "excluded_from_approval_flag": {
+      "type": "boolean"
+    },
+    "observed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "loaded_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "snapshot_hour_utc": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "open_exposure_flag": {
+      "type": "boolean"
+    },
+    "open_exposure_amount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "position_status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed"
+      ]
+    },
+    "exposure_inclusion_state": {
+      "type": "string",
+      "enum": [
+        "included_open_risk",
+        "settled_only"
+      ]
+    },
+    "sport_exposure_amount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "same_event_exposure_amount": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "same_side_exposure_amount": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "existing_position_flag": {
+      "type": "boolean"
+    },
+    "resting_order_exposure_amount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "resting_order_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "executed_unsettled_exposure_amount": {
+      "type": "number",
+      "minimum": 0
+    },
+    "executed_unsettled_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "exposure_state": {
+      "type": "string",
+      "enum": [
+        "resting_order_only",
+        "executed_unsettled_only",
+        "mixed_open_exposure",
+        "settled_only"
+      ]
+    },
+    "daily_risk_cap_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "remaining_daily_risk_budget_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "peak_portfolio_value_dollars": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "current_portfolio_value_dollars": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "drawdown_amount_dollars": {
+      "type": "number",
+      "minimum": 0
+    },
+    "drawdown_ratio": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "drawdown_state": {
+      "type": "string",
+      "enum": [
+        "at_peak",
+        "drawdown_active",
+        "drawdown_state_unavailable"
+      ]
+    },
+    "risk_of_ruin_state": {
+      "type": "string",
+      "enum": [
+        "capital_available",
+        "open_exposure_exhausts_bankroll",
+        "bankroll_exhausted",
+        "risk_of_ruin_state_unavailable"
+      ]
+    },
+    "portfolio_guardrail_state": {
+      "type": "string",
+      "enum": [
+        "eligible",
+        "blocked_drawdown",
+        "blocked_risk_of_ruin"
+      ]
+    },
+    "portfolio_guardrail_reason_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "drawdown_gate_blocked",
+        "risk_of_ruin_gate_blocked",
+        null
+      ]
+    },
+    "portfolio_guardrail_reason_detail": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "concentration_bucket": {
+      "type": "string",
+      "enum": [
+        "sport",
+        "same_event",
+        "same_side"
+      ]
+    },
+    "concentration_state": {
+      "type": "string",
+      "enum": [
+        "descriptive_only_no_governed_limit",
+        "same_event_open_exposure_present",
+        "same_side_open_exposure_present",
+        "no_open_concentration"
+      ]
+    },
+    "existing_position_state": {
+      "type": "string",
+      "enum": [
+        "no_existing_position",
+        "resting_order_only",
+        "executed_unsettled_only",
+        "mixed_open_exposure"
+      ]
+    },
+    "same_match_conflict": {
+      "type": "boolean"
+    },
+    "rejection_reason_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "missing_evidence",
+        "contaminated_evidence",
+        "drawdown_gate_blocked",
+        "risk_of_ruin_gate_blocked",
+        "existing_position_conflict",
+        null
+      ]
+    },
+    "rejection_reason_detail": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "operator_semantics_version": {
+      "type": "string",
+      "const": "portfolio_risk_state_v1"
+    },
+    "bankroll_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bankroll_amount": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "bankroll_observed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "bankroll_snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

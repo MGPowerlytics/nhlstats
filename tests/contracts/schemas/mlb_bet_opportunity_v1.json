@@ -76,6 +76,22 @@
     "sharp_confirmed": {
       "type": "boolean"
     },
+    "pro_edge": {
+      "type": ["number", "null"],
+      "minimum": -1.0,
+      "maximum": 1.0
+    },
+    "reverse_line_movement": {
+      "type": ["boolean", "null"]
+    },
+    "market_signal_source": {
+      "type": ["string", "null"],
+      "minLength": 1
+    },
+    "market_signal_availability": {
+      "type": ["string", "null"],
+      "enum": ["available", "derived", "unavailable", "stale", "abstain_required", null]
+    },
     "confidence": {
       "type": "string",
       "enum": ["HIGH", "MEDIUM", "LOW"]

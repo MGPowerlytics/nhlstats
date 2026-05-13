@@ -1,0 +1,228 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/bet_loader_contract_v1.json",
+  "title": "BetLoader Contract v1",
+  "description": "Canonical contract for the BetLoader ingestion boundary: bet_recommendation persisted rows and load_bets summary payloads.",
+  "$defs": {
+    "bet_recommendation_result": {
+      "type": "object",
+      "required": [
+        "bet_id",
+        "sport",
+        "recommendation_date",
+        "home_team",
+        "away_team",
+        "bet_on",
+        "elo_prob",
+        "market_prob",
+        "edge",
+        "confidence",
+        "quote_price_cents",
+        "quote_price_role",
+        "quote_source_system",
+        "quote_freshness_result",
+        "quote_fallback_status"
+      ],
+      "properties": {
+        "bet_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable unique identifier for the bet recommendation."
+        },
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Sport code in uppercase (e.g. MLB, TENNIS, EPL)."
+        },
+        "recommendation_date": {
+          "type": "string",
+          "format": "date",
+          "description": "Date the recommendation was generated (YYYY-MM-DD)."
+        },
+        "home_team": {
+          "type": "string",
+          "minLength": 1
+        },
+        "away_team": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bet_on": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticker": {
+          "type": ["string", "null"],
+          "description": "Exchange ticker symbol; nullable for sports without ticker linkage."
+        },
+        "canonical_game_id": {
+          "type": ["string", "null"]
+        },
+        "probability_source": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Governed probability source label carried through the persisted recommendation."
+        },
+        "quote_price_cents": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "quote_price_role": {
+          "type": "string",
+          "enum": ["executable"]
+        },
+        "quote_source_system": {
+          "type": "string",
+          "enum": ["bet_recommendation_payload", "quote_lineage_placeholder"]
+        },
+        "quote_bookmaker": {
+          "type": ["string", "null"]
+        },
+        "quote_observed_at": {
+          "type": ["string", "null"]
+        },
+        "quote_loaded_at": {
+          "type": ["string", "null"]
+        },
+        "quote_payload_ref": {
+          "type": ["string", "null"]
+        },
+        "quote_freshness_result": {
+          "type": "string",
+          "enum": ["fresh", "stale", "missing_source_timestamp"]
+        },
+        "quote_fallback_status": {
+          "type": "string",
+          "enum": ["direct_quote", "payload_only_quote", "missing_quote"]
+        },
+        "evidence_state": {
+          "type": ["string", "null"],
+          "enum": ["blocked", "shadow_only", "candidate", null],
+          "description": "Sport-aware governed evidence state for the recommendation payload."
+        },
+        "evidence_state_reason": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Fail-closed reason explaining the current evidence state."
+        },
+        "evidence_state_source_artifact": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Source artifact that established the governed evidence state."
+        },
+        "governance_status": {
+          "type": ["string", "null"],
+          "enum": ["descriptive_only", "candidate_ready", null],
+          "description": "Governance posture for downstream approval and sizing consumers."
+        },
+        "clv_evidence_tier": {
+          "type": ["string", "null"],
+          "enum": ["missing", "descriptive_only", "partially_evidenced", "approval_grade", null],
+          "description": "Persisted governed CLV evidence tier consumed by live risk gates."
+        },
+        "calibration_evidence_tier": {
+          "type": ["string", "null"],
+          "enum": ["missing", "descriptive_only", "partially_evidenced", "approval_grade", null],
+          "description": "Persisted governed calibration evidence tier consumed by live risk gates."
+        },
+        "walk_forward_evidence_tier": {
+          "type": ["string", "null"],
+          "enum": ["missing", "descriptive_only", "partially_evidenced", "approval_grade", null],
+          "description": "Persisted governed walk-forward evidence tier consumed by live risk gates."
+        },
+        "approval_grade_evidence": {
+          "type": "boolean",
+          "description": "Persisted summary flag derived from the governed evidence tiers."
+        },
+        "sizing_eligible": {
+          "type": "boolean",
+          "description": "Fail-closed eligibility flag for sizing consumers."
+        },
+        "abstain": {
+          "type": "boolean",
+          "description": "Whether the governed probability path explicitly abstained."
+        },
+        "abstention_reason": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "description": "Reason code or explanation for explicit abstention."
+        },
+        "side": {
+          "type": "string",
+          "enum": ["home", "away", "yes", "no", "draw"],
+          "description": "Side indicator: home/away for head-to-head, yes/no for binary markets."
+        },
+        "market_prob": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Market-implied probability."
+        },
+        "elo_prob": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Elo-model derived probability."
+        },
+        "edge": {
+          "type": "number",
+          "description": "Edge = elo_prob - market_prob."
+        },
+        "kelly_fraction": {
+          "type": ["number", "null"],
+          "minimum": 0.0,
+          "description": "Optimal Kelly fraction for bankroll allocation."
+        },
+        "expected_value": {
+          "type": ["number", "null"],
+          "description": "Expected value of the bet."
+        },
+        "confidence": {
+          "type": "string",
+          "enum": ["HIGH", "MEDIUM", "LOW"]
+        },
+        "home_rating": {
+          "type": ["number", "null"]
+        },
+        "away_rating": {
+          "type": ["number", "null"]
+        },
+        "yes_ask": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100
+        },
+        "no_ask": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "maximum": 100
+        }
+      },
+      "additionalProperties": false
+    },
+    "load_bets_summary": {
+      "type": "object",
+      "required": [
+        "sport",
+        "date_str",
+        "bets_loaded"
+      ],
+      "properties": {
+        "sport": {
+          "type": "string",
+          "minLength": 1
+        },
+        "date_str": {
+          "type": "string",
+          "format": "date"
+        },
+        "bets_loaded": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

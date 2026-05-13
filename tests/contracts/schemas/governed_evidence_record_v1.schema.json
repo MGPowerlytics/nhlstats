@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/governed_evidence_record_v1.schema.json",
+  "title": "Governed Evidence Record v1",
+  "description": "Canonical row contract for approval-facing governed recommendation evidence.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "sport",
+    "market_type",
+    "cohort_type",
+    "evidence_dimension",
+    "canonical_game_id",
+    "market_ticker",
+    "selection_key",
+    "source_relation",
+    "source_record_id",
+    "evidence_state_scope",
+    "evidence_state",
+    "evidence_state_reason",
+    "evidence_state_as_of",
+    "evidence_state_source_artifact",
+    "governance_status",
+    "descriptive_only_flag",
+    "contamination_flag",
+    "contamination_reason",
+    "excluded_from_approval_flag",
+    "observed_at",
+    "loaded_at",
+    "last_updated_at",
+    "recommendation_id",
+    "recommendation_created_at",
+    "recommendation_source_surface",
+    "probability_source",
+    "calibrated_probability",
+    "market_probability",
+    "edge",
+    "expected_value",
+    "kelly_fraction",
+    "confidence_label",
+    "quote_source_system",
+    "quote_bookmaker",
+    "quote_observed_at",
+    "quote_loaded_at",
+    "quote_payload_ref",
+    "quote_lineage_status",
+    "quote_price_cents",
+    "quote_price_role",
+    "quote_freshness_result",
+    "quote_fallback_status"
+  ],
+  "properties": {
+    "sport": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cohort_type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_dimension": {
+      "type": "string",
+      "enum": [
+        "read_model"
+      ]
+    },
+    "canonical_game_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "market_ticker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "selection_key": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "source_relation": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_scope": {
+      "type": "string",
+      "enum": [
+        "sport"
+      ]
+    },
+    "evidence_state": {
+      "type": "string",
+      "enum": [
+        "blocked",
+        "shadow_only",
+        "candidate"
+      ]
+    },
+    "evidence_state_reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence_state_as_of": {
+      "type": "string"
+    },
+    "evidence_state_source_artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "governance_status": {
+      "type": "string",
+      "enum": [
+        "descriptive_only",
+        "candidate_ready"
+      ]
+    },
+    "descriptive_only_flag": {
+      "type": "boolean"
+    },
+    "contamination_flag": {
+      "type": "boolean"
+    },
+    "contamination_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "excluded_from_approval_flag": {
+      "type": "boolean"
+    },
+    "observed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "loaded_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "last_updated_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recommendation_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recommendation_created_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "recommendation_source_surface": {
+      "type": "string",
+      "minLength": 1
+    },
+    "probability_source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "calibrated_probability": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "market_probability": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "edge": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": -1,
+      "maximum": 1
+    },
+    "expected_value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "kelly_fraction": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "confidence_label": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW",
+        null
+      ]
+    },
+    "quote_source_system": {
+      "type": "string",
+      "enum": [
+        "bet_recommendation_payload",
+        "game_odds",
+        "quote_lineage_placeholder"
+      ]
+    },
+    "quote_bookmaker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "quote_observed_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "quote_loaded_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "quote_payload_ref": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "quote_lineage_status": {
+      "type": "string",
+      "enum": [
+        "linked_market_quote",
+        "missing_market_quote"
+      ]
+    },
+    "quote_price_cents": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "quote_price_role": {
+      "type": "string",
+      "enum": [
+        "executable"
+      ]
+    },
+    "quote_freshness_result": {
+      "type": "string",
+      "enum": [
+        "fresh",
+        "stale",
+        "missing_source_timestamp"
+      ]
+    },
+    "quote_fallback_status": {
+      "type": "string",
+      "enum": [
+        "direct_quote",
+        "payload_only_quote",
+        "market_context_backfill",
+        "missing_quote"
+      ]
+    }
+  },
+  "additionalProperties": false
+}

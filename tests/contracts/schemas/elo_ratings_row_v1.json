@@ -1,0 +1,54 @@
+{
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "title": "EloRatingsRow",
+    "description": "A single row from the elo_ratings table representing a team or player rating at a point in time.",
+    "type": "object",
+    "required": [
+        "sport",
+        "entity_id",
+        "entity_name",
+        "rating",
+        "valid_from"
+    ],
+    "properties": {
+        "rating_id": {
+            "type": "integer",
+            "description": "Primary key"
+        },
+        "sport": {
+            "type": "string",
+            "description": "Sport code (e.g. MLB, NBA, TENNIS)"
+        },
+        "entity_id": {
+            "type": "string",
+            "description": "Team or player identifier"
+        },
+        "entity_name": {
+            "type": "string",
+            "description": "Team or player name"
+        },
+        "rating": {
+            "type": "number",
+            "description": "Elo rating value"
+        },
+        "valid_from": {
+            "type": "string",
+            "format": "date",
+            "description": "Date rating became effective"
+        },
+        "valid_to": {
+            "type": ["string", "null"],
+            "format": "date",
+            "description": "Date rating was superseded (NULL for current)"
+        },
+        "games_played": {
+            "type": ["integer", "null"],
+            "description": "Number of games played"
+        },
+        "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Record creation timestamp"
+        }
+    }
+}

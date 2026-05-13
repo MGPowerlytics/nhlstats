@@ -396,11 +396,13 @@ class TestUpdateEloRatingsTask:
         self, mock_airflow_context, sample_game_data
     ):
         """update_elo_ratings queries nba_games table for NBA."""
+        import pandas as pd
+
         from multi_sport_betting_workflow import update_elo_ratings
 
         with patch("plugins.db_manager.default_db") as mock_db:
             with patch("elo.get_elo_class") as mock_get_elo:
-                mock_db.fetch_df.return_value = sample_game_data
+                mock_db.fetch_df.side_effect = [sample_game_data, pd.DataFrame()]
                 mock_elo_class = MagicMock()
                 mock_elo_instance = MagicMock()
                 mock_elo_instance.ratings = {"Lakers": 1550, "Celtics": 1520}
@@ -412,19 +414,21 @@ class TestUpdateEloRatingsTask:
                         update_elo_ratings("nba", **mock_airflow_context)
 
                 # Verify database was queried
-                mock_db.fetch_df.assert_called_once()
-                call_args = mock_db.fetch_df.call_args
+                assert mock_db.fetch_df.call_count >= 1
+                call_args = mock_db.fetch_df.call_args_list[0]
                 # Now uses unified_games table with sport filter
                 assert "unified_games" in call_args[0][0]
                 assert "sport = 'NBA'" in call_args[0][0]
 
     def test_update_elo_pushes_to_xcom(self, mock_airflow_context, sample_game_data):
         """update_elo_ratings pushes ratings to XCom."""
+        import pandas as pd
+
         from multi_sport_betting_workflow import update_elo_ratings
 
         with patch("plugins.db_manager.default_db") as mock_db:
             with patch("elo.get_elo_class") as mock_get_elo:
-                mock_db.fetch_df.return_value = sample_game_data
+                mock_db.fetch_df.side_effect = [sample_game_data, pd.DataFrame()]
                 mock_elo_class = MagicMock()
                 mock_elo_instance = MagicMock()
                 mock_elo_instance.ratings = {"Lakers": 1550, "Celtics": 1520}
@@ -552,6 +556,59 @@ class TestFetchPredictionMarketsTask:
             # XCom should not be pushed for empty markets
             xcom_store = mock_airflow_context["_xcom_store"]
             assert "nba_markets" not in xcom_store
+
+
+class TestFetchMLBCurrentOddsTask:
+    """Test MLB current-odds ingestion wrapper."""
+
+    def test_fetch_mlb_current_odds_calls_the_odds_api(
+        self, mock_airflow_context
+    ) -> None:
+        """The DAG wrapper should persist current MLB bookmaker odds."""
+        from multi_sport_betting_workflow import fetch_mlb_current_odds
+
+        with patch("plugins.the_odds_api.TheOddsAPI") as mock_api_class:
+            mock_api = mock_api_class.return_value
+            mock_api.fetch_and_save_markets.return_value = 7
+
+            saved = fetch_mlb_current_odds(**mock_airflow_context)
+
+        assert saved == 7
+        mock_api.fetch_and_save_markets.assert_called_once_with("mlb", "2026-01-27")
+
+
+class TestTrainTennisProbabilityModelTask:
+    """Test tennis probability-model training wrapper."""
+
+    def test_train_tennis_probability_model_calls_plugin(
+        self, mock_airflow_context
+    ) -> None:
+        """The DAG wrapper should refresh the production tennis artifact."""
+        from multi_sport_betting_workflow import train_tennis_probability_model
+
+        payload = {
+            "model_version": "tennis_probability_model_v2",
+            "data_source": "postgres_tennis_games",
+            "rows": 320,
+            "holdout_rows": 64,
+            "feature_frame_rows": 320,
+            "enabled": True,
+            "metrics_published": False,
+            "model_path": "data/models/tennis_probability_model_v1.joblib",
+            "metrics_path": "data/models/tennis_probability_model_v1_metrics.json",
+        }
+
+        with patch(
+            "plugins.elo.tennis_probability_model.train_production_model"
+        ) as mock_train:
+            mock_result = MagicMock()
+            mock_result.to_payload.return_value = payload
+            mock_train.return_value = mock_result
+
+            result = train_tennis_probability_model(**mock_airflow_context)
+
+        assert result == payload
+        mock_train.assert_called_once_with()
 
 
 # ============================================================================
@@ -769,6 +826,44 @@ class TestDAGTaskFlow:
 
         task_ids = [t.task_id for t in dag.tasks]
         assert "reconcile_placed_bets" in task_ids
+
+    def test_dag_has_mlb_model_scoring_task(self):
+        """MLB predictive scoring should be wired before MLB bet identification."""
+        from multi_sport_betting_workflow import dag
+
+        task_ids = [t.task_id for t in dag.tasks]
+        assert "mlb_score_model_predictions" in task_ids
+        assert "mlb_fetch_external_odds" in task_ids
+
+        scoring_task = dag.get_task("mlb_score_model_predictions")
+        upstream_ids = {t.task_id for t in scoring_task.upstream_list}
+        downstream_ids = {t.task_id for t in scoring_task.downstream_list}
+
+        assert "mlb_fetch_external_odds" in upstream_ids
+        assert "mlb_identify_bets" in downstream_ids
+
+        external_odds_task = dag.get_task("mlb_fetch_external_odds")
+        external_upstream_ids = {t.task_id for t in external_odds_task.upstream_list}
+        external_downstream_ids = {
+            t.task_id for t in external_odds_task.downstream_list
+        }
+
+        assert "mlb_fetch_markets" in external_upstream_ids
+        assert "mlb_score_model_predictions" in external_downstream_ids
+
+    def test_dag_has_tennis_model_training_task(self):
+        """Tennis retraining should complete before tennis bet identification."""
+        from multi_sport_betting_workflow import dag
+
+        task_ids = [t.task_id for t in dag.tasks]
+        assert "tennis_train_probability_model" in task_ids
+
+        training_task = dag.get_task("tennis_train_probability_model")
+        upstream_ids = {t.task_id for t in training_task.upstream_list}
+        downstream_ids = {t.task_id for t in training_task.downstream_list}
+
+        assert "tennis_fetch_markets" in upstream_ids
+        assert "tennis_identify_bets" in downstream_ids
 
     def test_reconcile_placed_bets_is_after_clv_before_summary(self):
         """reconcile_placed_bets must sit between update_clv_data and send_daily_summary."""

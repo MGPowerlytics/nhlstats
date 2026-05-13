@@ -731,6 +731,48 @@ class TestBackfillRealCLV:
         assert "stale_count" in result
         assert isinstance(result["updated"], int)
 
+    def test_clv_evidence_snapshot_surfaces_governed_close_fields(self):
+        """CLV evidence should expose source type, freshness, and provenance."""
+        engine = _engine()
+        create_test_tables(engine)
+
+        insert_test_bet(
+            engine,
+            "bet_snapshot",
+            closing_line_prob=0.58,
+            clv=0.07,
+            bet_line_prob=0.65,
+        )
+        insert_test_game(engine, "NBA_20260215_BOS_LAL")
+        insert_test_odds(
+            engine,
+            "odds_snapshot",
+            "NBA_20260215_BOS_LAL",
+            "home",
+            1.72,
+            "SBR",
+            "2026-02-15 22:55:00",
+        )
+
+        from clv_tracker import build_clv_evidence_snapshot
+
+        snapshot = build_clv_evidence_snapshot(
+            bet_id="bet_snapshot",
+            sport="NBA",
+            home_team="BOS",
+            away_team="LAL",
+            bet_on="home",
+            placed_date="2026-02-15",
+            market_close_time_utc=datetime(2026, 2, 15, 23, 0, 0),
+        )
+
+        assert snapshot is not None
+        assert snapshot["clv_source_type"] == "market_close"
+        assert snapshot["close_freshness_result"] == "fresh"
+        assert snapshot["selected_close_rule"] == "latest_admissible_pregame_quote"
+        assert snapshot["selected_close_provenance"] == "SBR|home|2026-02-15T22:55:00"
+        assert snapshot["clv_evidence_tier"] == "partially_evidenced"
+
 
 # ============================================================
 # Tests for update_real_closing_lines (hourly DAG function)

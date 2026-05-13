@@ -5,11 +5,14 @@ Free tier: 500 requests/month, covers NBA, NHL, MLB, NFL, EPL and more.
 
 import requests
 import json
-from datetime import datetime
-from typing import Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 from pathlib import Path
 import os
 from plugins.db_manager import DBManager, default_db
+from plugins.mlb_modeling.free_odds_sources import (
+    upsert_mlb_odds_snapshot,
+)
 from naming_resolver import NamingResolver, NamingContext
 from base_games import UnifiedGameInfo
 
@@ -196,6 +199,7 @@ class TheOddsAPI:
             return 0
 
         odds_count = 0
+        snapshot_count = 0
         print(f"💾 Saving {len(parsed_markets)} games and their odds to PostgreSQL...")
 
         try:
@@ -228,12 +232,109 @@ class TheOddsAPI:
                         game, bm_name, bm_data
                     )
 
+                # 3. Preserve MLB moneyline snapshot history for ROI/CLV evidence.
+                if game.sport.lower() == "mlb":
+                    snapshot_count += self.save_mlb_odds_snapshots(
+                        [game_data], canonical_game_id=game.game_id
+                    )
+
             print(f"  ✓ Saved {odds_count} odds records to PostgreSQL.")
+            if snapshot_count:
+                print(f"  ✓ Saved {snapshot_count} MLB odds snapshots to PostgreSQL.")
             return odds_count
 
         except Exception as e:
             print(f"❌ Error saving to database: {e}")
             return 0
+
+    def build_mlb_odds_snapshot_payloads(
+        self,
+        game_data: Dict[str, Any],
+        canonical_game_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """Build contract-shaped MLB odds snapshot payloads."""
+        if game_data.get("sport", "").lower() != "mlb":
+            return []
+
+        commence_time = game_data["commence_time"]
+        game = UnifiedGameInfo(
+            sport=game_data["sport"],
+            game_date=commence_time.split("T")[0],
+            home_team=game_data["home_team"],
+            away_team=game_data["away_team"],
+            canon_home=game_data["home_team"],
+            canon_away=game_data["away_team"],
+            commence_time=commence_time,
+        )
+        game_id = canonical_game_id or self._generate_game_id(game)
+        payloads: List[Dict[str, Any]] = []
+
+        for bookmaker_key, bookmaker_data in game_data["bookmakers"].items():
+            source_snapshot_at = (
+                game_data.get("source_snapshot_at")
+                or bookmaker_data.get("last_update")
+                or _utc_now_iso()
+            )
+            common = {
+                "schema_version": "v1",
+                "sport": "MLB",
+                "payload_kind": "odds_snapshot",
+                "source": "the_odds_api",
+                "source_event_id": str(game_data["game_id"]),
+                "game_id": game_id,
+                "home_team": game_data["home_team"],
+                "away_team": game_data["away_team"],
+                "commence_time": commence_time,
+                "requested_snapshot_at": game_data.get("requested_snapshot_at"),
+                "source_snapshot_at": source_snapshot_at,
+                "previous_snapshot_at": game_data.get("previous_snapshot_at"),
+                "next_snapshot_at": game_data.get("next_snapshot_at"),
+                "snapshot_type": game_data.get("snapshot_type", "intraday"),
+                "bookmaker_key": bookmaker_key,
+                "bookmaker_title": bookmaker_data.get("title") or bookmaker_key,
+                "market_key": "h2h",
+                "is_pregame": _is_pregame(source_snapshot_at, commence_time),
+            }
+            payloads.extend(
+                [
+                    {
+                        **common,
+                        "outcome_name": game_data["home_team"],
+                        "outcome_role": "home",
+                        "decimal_price": float(bookmaker_data["home_odds"]),
+                        "implied_probability": float(bookmaker_data["home_prob"]),
+                        "raw_payload": {"bookmaker": bookmaker_data},
+                    },
+                    {
+                        **common,
+                        "outcome_name": game_data["away_team"],
+                        "outcome_role": "away",
+                        "decimal_price": float(bookmaker_data["away_odds"]),
+                        "implied_probability": float(bookmaker_data["away_prob"]),
+                        "raw_payload": {"bookmaker": bookmaker_data},
+                    },
+                ]
+            )
+        return payloads
+
+    def save_mlb_odds_snapshots(
+        self,
+        parsed_markets: List[Dict[str, Any]],
+        canonical_game_id: Optional[str] = None,
+    ) -> int:
+        """Persist MLB odds snapshot payloads to PostgreSQL."""
+        snapshot_count = 0
+        for game_data in parsed_markets:
+            for payload in self.build_mlb_odds_snapshot_payloads(
+                game_data, canonical_game_id=canonical_game_id
+            ):
+                self._upsert_mlb_odds_snapshot(payload)
+                snapshot_count += 1
+        return snapshot_count
+
+    def _upsert_mlb_odds_snapshot(self, payload: Dict[str, Any]) -> None:
+        """Upsert one MLB odds snapshot row."""
+        upsert_mlb_odds_snapshot(self.db, payload)
 
     def fetch_markets(
         self, sport: str, markets: str = "h2h", regions: str = "us"
@@ -482,6 +583,18 @@ def fetch_all_sports(date_str: str, api_key: Optional[str] = None):
 
     print(f"\n✓ Total games fetched: {total}")
     return total
+
+
+def _utc_now_iso() -> str:
+    """Return current UTC timestamp as ISO-8601 with Z suffix."""
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _is_pregame(snapshot_at: str, commence_time: str) -> bool:
+    """Return True when the snapshot timestamp is before game start."""
+    snapshot_dt = datetime.fromisoformat(snapshot_at.replace("Z", "+00:00"))
+    commence_dt = datetime.fromisoformat(commence_time.replace("Z", "+00:00"))
+    return snapshot_dt < commence_dt
 
 
 if __name__ == "__main__":

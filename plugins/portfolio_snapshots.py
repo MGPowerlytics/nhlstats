@@ -22,6 +22,9 @@ class PortfolioSnapshot:
     portfolio_value_dollars: float
     created_at_utc: datetime
     cumulative_deposits_dollars: float = 0.0
+    drawdown_gate_active: bool = False
+    drawdown_gate_reason_code: Optional[str] = None
+    drawdown_gate_reason_detail: Optional[str] = None
 
 
 def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
@@ -33,6 +36,9 @@ def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
             balance_dollars DOUBLE PRECISION,
             portfolio_value_dollars DOUBLE PRECISION,
             cumulative_deposits_dollars DOUBLE PRECISION DEFAULT 0.0,
+            drawdown_gate_active BOOLEAN DEFAULT FALSE,
+            drawdown_gate_reason_code VARCHAR,
+            drawdown_gate_reason_detail VARCHAR,
             created_at_utc TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         """
@@ -49,8 +55,24 @@ def ensure_portfolio_snapshots_table(db: DBManager = default_db) -> None:
     except Exception:
         pass
 
-    # Ensure cumulative_deposits_dollars exists and is updated
-    # (Removed redundant ALTER TABLE for PRIMARY KEY that caused log pollution)
+    db.execute(
+        """
+        ALTER TABLE portfolio_value_snapshots
+        ADD COLUMN IF NOT EXISTS drawdown_gate_active BOOLEAN DEFAULT FALSE
+        """
+    )
+    db.execute(
+        """
+        ALTER TABLE portfolio_value_snapshots
+        ADD COLUMN IF NOT EXISTS drawdown_gate_reason_code VARCHAR
+        """
+    )
+    db.execute(
+        """
+        ALTER TABLE portfolio_value_snapshots
+        ADD COLUMN IF NOT EXISTS drawdown_gate_reason_detail VARCHAR
+        """
+    )
 
 
 def _floor_to_hour_utc(ts: datetime) -> datetime:
@@ -60,6 +82,28 @@ def _floor_to_hour_utc(ts: datetime) -> datetime:
     return ts.replace(minute=0, second=0, microsecond=0)
 
 
+def _optional_float(value: object, default: float = 0.0) -> float:
+    """Return a nullable numeric database value as a float."""
+    if value is None or pd.isna(value):
+        return default
+    return float(value)
+
+
+def _optional_bool(value: object, default: bool = False) -> bool:
+    """Return a nullable database value as a boolean."""
+    if value is None or pd.isna(value):
+        return default
+    return bool(value)
+
+
+def _optional_str(value: object) -> Optional[str]:
+    """Return a nullable database value as a string."""
+    if value is None or pd.isna(value):
+        return None
+    text = str(value)
+    return text or None
+
+
 def upsert_hourly_snapshot(
     *,
     db_path: Optional[str] = None,
@@ -67,6 +111,9 @@ def upsert_hourly_snapshot(
     observed_at_utc: Optional[datetime] = None,
     balance_dollars: float,
     portfolio_value_dollars: float,
+    drawdown_gate_active: bool = False,
+    drawdown_gate_reason_code: Optional[str] = None,
+    drawdown_gate_reason_detail: Optional[str] = None,
 ) -> PortfolioSnapshot:
     """Upsert a portfolio snapshot keyed by UTC hour."""
     # Ignore db_path
@@ -90,6 +137,9 @@ def upsert_hourly_snapshot(
         "balance": balance_dollars,
         "portfolio_value": portfolio_value_dollars,
         "cumulative_deposits": cumulative_deposits,
+        "drawdown_gate_active": drawdown_gate_active,
+        "drawdown_gate_reason_code": drawdown_gate_reason_code,
+        "drawdown_gate_reason_detail": drawdown_gate_reason_detail,
         "created_at": now_utc.replace(tzinfo=None),
     }
 
@@ -100,12 +150,27 @@ def upsert_hourly_snapshot(
             balance_dollars,
             portfolio_value_dollars,
             cumulative_deposits_dollars,
+            drawdown_gate_active,
+            drawdown_gate_reason_code,
+            drawdown_gate_reason_detail,
             created_at_utc
-        ) VALUES (:snapshot_hour, :balance, :portfolio_value, :cumulative_deposits, :created_at)
+        ) VALUES (
+            :snapshot_hour,
+            :balance,
+            :portfolio_value,
+            :cumulative_deposits,
+            :drawdown_gate_active,
+            :drawdown_gate_reason_code,
+            :drawdown_gate_reason_detail,
+            :created_at
+        )
         ON CONFLICT(snapshot_hour_utc) DO UPDATE SET
             balance_dollars = EXCLUDED.balance_dollars,
             portfolio_value_dollars = EXCLUDED.portfolio_value_dollars,
             cumulative_deposits_dollars = EXCLUDED.cumulative_deposits_dollars,
+            drawdown_gate_active = EXCLUDED.drawdown_gate_active,
+            drawdown_gate_reason_code = EXCLUDED.drawdown_gate_reason_code,
+            drawdown_gate_reason_detail = EXCLUDED.drawdown_gate_reason_detail,
             created_at_utc = EXCLUDED.created_at_utc
         """,
         params,
@@ -113,7 +178,15 @@ def upsert_hourly_snapshot(
 
     df = db.fetch_df(
         """
-        SELECT snapshot_hour_utc, balance_dollars, portfolio_value_dollars, created_at_utc
+        SELECT
+            snapshot_hour_utc,
+            balance_dollars,
+            portfolio_value_dollars,
+            cumulative_deposits_dollars,
+            drawdown_gate_active,
+            drawdown_gate_reason_code,
+            drawdown_gate_reason_detail,
+            created_at_utc
         FROM portfolio_value_snapshots
         WHERE snapshot_hour_utc = :snapshot_hour
         """,
@@ -128,8 +201,16 @@ def upsert_hourly_snapshot(
         snapshot_hour_utc=pd.to_datetime(row["snapshot_hour_utc"]).replace(
             tzinfo=timezone.utc
         ),
-        balance_dollars=float(row["balance_dollars"] or 0.0),
-        portfolio_value_dollars=float(row["portfolio_value_dollars"] or 0.0),
+        balance_dollars=_optional_float(row["balance_dollars"]),
+        portfolio_value_dollars=_optional_float(row["portfolio_value_dollars"]),
+        cumulative_deposits_dollars=_optional_float(
+            row.get("cumulative_deposits_dollars")
+        ),
+        drawdown_gate_active=_optional_bool(row.get("drawdown_gate_active")),
+        drawdown_gate_reason_code=_optional_str(row.get("drawdown_gate_reason_code")),
+        drawdown_gate_reason_detail=_optional_str(
+            row.get("drawdown_gate_reason_detail")
+        ),
         created_at_utc=pd.to_datetime(row["created_at_utc"]).replace(
             tzinfo=timezone.utc
         ),
@@ -146,7 +227,15 @@ def load_latest_snapshot(
 
     df = db.fetch_df(
         """
-        SELECT snapshot_hour_utc, balance_dollars, portfolio_value_dollars, created_at_utc
+        SELECT
+            snapshot_hour_utc,
+            balance_dollars,
+            portfolio_value_dollars,
+            cumulative_deposits_dollars,
+            drawdown_gate_active,
+            drawdown_gate_reason_code,
+            drawdown_gate_reason_detail,
+            created_at_utc
         FROM portfolio_value_snapshots
         ORDER BY snapshot_hour_utc DESC
         LIMIT 1
@@ -161,8 +250,16 @@ def load_latest_snapshot(
         snapshot_hour_utc=pd.to_datetime(row["snapshot_hour_utc"]).replace(
             tzinfo=timezone.utc
         ),
-        balance_dollars=float(row["balance_dollars"] or 0.0),
-        portfolio_value_dollars=float(row["portfolio_value_dollars"] or 0.0),
+        balance_dollars=_optional_float(row["balance_dollars"]),
+        portfolio_value_dollars=_optional_float(row["portfolio_value_dollars"]),
+        cumulative_deposits_dollars=_optional_float(
+            row.get("cumulative_deposits_dollars")
+        ),
+        drawdown_gate_active=_optional_bool(row.get("drawdown_gate_active")),
+        drawdown_gate_reason_code=_optional_str(row.get("drawdown_gate_reason_code")),
+        drawdown_gate_reason_detail=_optional_str(
+            row.get("drawdown_gate_reason_detail")
+        ),
         created_at_utc=pd.to_datetime(row["created_at_utc"]).replace(
             tzinfo=timezone.utc
         ),
@@ -188,7 +285,14 @@ def load_snapshots_since(
 
     df = db.fetch_df(
         """
-        SELECT snapshot_hour_utc, balance_dollars, portfolio_value_dollars
+        SELECT
+            snapshot_hour_utc,
+            balance_dollars,
+            portfolio_value_dollars,
+            cumulative_deposits_dollars,
+            drawdown_gate_active,
+            drawdown_gate_reason_code,
+            drawdown_gate_reason_detail
         FROM portfolio_value_snapshots
         WHERE snapshot_hour_utc >= :since_utc
         ORDER BY snapshot_hour_utc ASC

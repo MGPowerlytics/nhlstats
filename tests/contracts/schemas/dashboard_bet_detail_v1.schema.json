@@ -1,0 +1,154 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_bet_detail_v1.schema.json",
+  "title": "Dashboard Bet Detail Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_bet_detail_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "bet_id",
+    "recommendation_date",
+    "placed_time_utc",
+    "home_team",
+    "away_team",
+    "bet_on",
+    "ticker",
+    "elo_prob",
+    "market_prob",
+    "edge",
+    "expected_value",
+    "kelly_fraction",
+    "confidence",
+    "yes_ask",
+    "no_ask",
+    "status",
+    "cost_dollars",
+    "payout_dollars",
+    "profit_dollars",
+    "created_at"
+  ],
+  "properties": {
+    "bet_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "recommendation_date": {
+      "type": "string",
+      "minLength": 1
+    },
+    "placed_time_utc": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "home_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "away_team": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bet_on": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ticker": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "elo_prob": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "market_prob": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "edge": {
+      "type": "number",
+      "minimum": -1,
+      "maximum": 1
+    },
+    "expected_value": {
+      "type": "number"
+    },
+    "kelly_fraction": {
+      "type": "number",
+      "minimum": 0
+    },
+    "confidence": {
+      "type": "string",
+      "enum": [
+        "HIGH",
+        "MEDIUM",
+        "LOW"
+      ]
+    },
+    "yes_ask": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "no_ask": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 100
+    },
+    "status": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "enum": [
+        "pending",
+        "open",
+        "placed",
+        "won",
+        "lost",
+        "settled",
+        "cancelled",
+        "canceled",
+        "void",
+        null
+      ]
+    },
+    "cost_dollars": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "payout_dollars": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "profit_dollars": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

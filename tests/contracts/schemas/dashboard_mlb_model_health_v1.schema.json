@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_mlb_model_health_v1.schema.json",
+  "title": "Dashboard MLB Model Health v1",
+  "type": "object",
+  "required": [
+    "run_date",
+    "model_version",
+    "prediction_count",
+    "abstention_count",
+    "abstention_rate",
+    "avg_model_prob",
+    "avg_market_prob",
+    "avg_edge",
+    "avg_expected_value",
+    "ece_at_train",
+    "latest_prediction_at"
+  ],
+  "properties": {
+    "run_date": {"type": "string", "format": "date"},
+    "model_version": {"type": "string", "minLength": 1},
+    "prediction_count": {"type": "integer", "minimum": 0},
+    "abstention_count": {"type": "integer", "minimum": 0},
+    "abstention_rate": {"type": "number", "minimum": 0.0, "maximum": 1.0},
+    "avg_model_prob": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "avg_market_prob": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "avg_edge": {"type": ["number", "null"], "minimum": -1.0, "maximum": 1.0},
+    "avg_expected_value": {"type": ["number", "null"]},
+    "ece_at_train": {"type": ["number", "null"], "minimum": 0.0, "maximum": 1.0},
+    "latest_prediction_at": {"type": "string", "format": "date-time"}
+  },
+  "additionalProperties": false
+}

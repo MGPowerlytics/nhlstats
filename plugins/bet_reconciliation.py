@@ -402,6 +402,10 @@ def reconcile_all(
         local_df = None
 
     local_bets: dict[str, dict] = {}
+    # Secondary index by ticker+side for matching fills to orders
+    # (order sync uses order_id as bet_id; fill sync uses ticker_trade_id --
+    #  they never match by bet_id, so we fall back to ticker matching.)
+    local_bets_by_ticker: dict[str, list[dict]] = {}
     if local_df is not None and not local_df.empty:
         for _, row in local_df.iterrows():
             row_dict = row.to_dict()
@@ -410,6 +414,9 @@ def reconcile_all(
             bid = str(row_dict.get("bet_id", ""))
             if bid:
                 local_bets[bid] = row_dict
+                ticker = str(row_dict.get("ticker", ""))
+                if ticker:
+                    local_bets_by_ticker.setdefault(ticker, []).append(row_dict)
 
     # ---- 3. Walk remote fills ------------------------------------------------
     summary = {
@@ -426,18 +433,45 @@ def reconcile_all(
 
     for bet_id, remote in remote_state.items():
         summary["checked"] += 1
+        local: dict | None = None
+        match_bet_id = bet_id  # bet_id used for reconciliation
+
         if bet_id in local_bets:
             local = local_bets[bet_id]
+        else:
+            # Fallback: match by ticker.  Order-synced bets use Kalshi
+            # order_id (UUID) as bet_id, which never matches the
+            # trade_id/ticker key used by fill sync.  When we find
+            # a local bet on the same ticker that hasn't been matched
+            # yet, reconcile against that.
+            remote_ticker = str(remote.get("ticker", ""))
+            if remote_ticker and remote_ticker in local_bets_by_ticker:
+                candidates = local_bets_by_ticker[remote_ticker]
+                # Take the first unmatched candidate (same ticker)
+                local = candidates[0]
+                match_bet_id = str(local.get("bet_id", bet_id))
+                logger.info(
+                    "matched fill bet_id=%s to local bet_id=%s via ticker=%s",
+                    bet_id,
+                    match_bet_id,
+                    remote_ticker,
+                )
+
+        if local is not None:
             local["_run_id"] = run_id
             try:
-                n_changes = reconcile_bet(bet_id, local, remote, db)
+                n_changes = reconcile_bet(match_bet_id, local, remote, db)
                 if n_changes > 0:
                     summary["discrepancies"] += 1
                     summary["corrected"] += 1
                     summary["audit_rows_written"] += n_changes
-                    logger.info("reconciled bet_id=%s (%d field(s))", bet_id, n_changes)
+                    logger.info(
+                        "reconciled bet_id=%s (%d field(s))", match_bet_id, n_changes
+                    )
             except Exception:
-                logger.exception("Could not reconcile bet_id=%s – skipping", bet_id)
+                logger.exception(
+                    "Could not reconcile bet_id=%s – skipping", match_bet_id
+                )
         else:
             # Fill known to Kalshi but absent locally
             try:

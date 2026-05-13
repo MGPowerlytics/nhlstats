@@ -133,6 +133,7 @@ class TennisEloRating(BaseEloRating):
         normalized = self._normalize_name(player, tour)
         return normalized in ratings
 
+    def get_match_count(self, player: str, tour: str = "ATP") -> int:
         """Get number of matches played by a player.
 
         Args:

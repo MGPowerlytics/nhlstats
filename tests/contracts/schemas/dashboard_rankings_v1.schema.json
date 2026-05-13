@@ -1,0 +1,79 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_rankings_v1.schema.json",
+  "title": "Dashboard Rankings Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_rankings_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "sport",
+    "entity_type",
+    "entity_id",
+    "entity_name",
+    "rating",
+    "rank",
+    "games_played",
+    "valid_from",
+    "valid_to",
+    "created_at"
+  ],
+  "properties": {
+    "sport": {
+      "type": "string",
+      "enum": [
+        "NBA",
+        "NHL",
+        "MLB",
+        "NFL",
+        "EPL",
+        "LIGUE1",
+        "NCAAB",
+        "WNCAAB",
+        "TENNIS"
+      ]
+    },
+    "entity_type": {
+      "type": "string",
+      "enum": [
+        "team",
+        "player"
+      ]
+    },
+    "entity_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "entity_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "rating": {
+      "type": "number",
+      "minimum": 0
+    },
+    "rank": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "games_played": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "valid_from": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "valid_to": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

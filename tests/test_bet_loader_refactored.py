@@ -107,6 +107,10 @@ def test_bet_data_to_recommendation():
     assert recommendation.recommendation_date == "2024-01-01"
     assert recommendation.home_team == "Lakers"
     assert recommendation.bet_id == "nba_2024-01-01_Lakers_Celtics_yes_0"
+    assert recommendation.quote_price_role == "executable"
+    assert recommendation.quote_price_cents is None
+    assert recommendation.quote_freshness_result == "missing_source_timestamp"
+    assert recommendation.quote_fallback_status == "missing_quote"
 
 
 def test_bet_recommendation_from_dict():
@@ -127,3 +131,53 @@ def test_bet_recommendation_from_dict():
     assert recommendation.sport == "nba"
     assert recommendation.recommendation_date == "2024-01-01"
     assert recommendation.bet_id == "nba_2024-01-01_Lakers_Celtics_yes_5"
+
+
+def test_bet_loader_persists_quote_lineage_from_payload_fields():
+    data = {
+        "home_team": "Yankees",
+        "away_team": "Red Sox",
+        "side": "yes",
+        "elo_prob": 0.58,
+        "market_prob": 0.47,
+        "edge": 0.11,
+        "ticker": "KXMLBGAME-26APR07NYYBOS-NYY",
+        "yes_ask": 47,
+    }
+
+    recommendation = BetRecommendation.from_dict(
+        data, BetContext("MLB", "2026-04-07", 0)
+    )
+
+    assert recommendation.quote_price_cents == 47
+    assert recommendation.quote_price_role == "executable"
+    assert recommendation.quote_source_system == "bet_recommendation_payload"
+    assert recommendation.quote_bookmaker == "Kalshi"
+    assert recommendation.quote_freshness_result == "missing_source_timestamp"
+    assert recommendation.quote_fallback_status == "payload_only_quote"
+
+
+def test_bet_loader_preserves_governed_approval_evidence_fields():
+    data = {
+        "home_team": "Yankees",
+        "away_team": "Red Sox",
+        "side": "yes",
+        "elo_prob": 0.58,
+        "market_prob": 0.47,
+        "edge": 0.11,
+        "ticker": "KXMLBGAME-26APR07NYYBOS-NYY",
+        "clv_evidence_tier": "approval_grade",
+        "calibration_evidence_tier": "approval_grade",
+        "walk_forward_evidence_tier": "approval_grade",
+        "approval_grade_evidence": True,
+    }
+
+    recommendation = BetRecommendation.from_dict(
+        data, BetContext("MLB", "2026-04-07", 0)
+    )
+    params = recommendation.to_sql_params()
+
+    assert params["clv_evidence_tier"] == "approval_grade"
+    assert params["calibration_evidence_tier"] == "approval_grade"
+    assert params["walk_forward_evidence_tier"] == "approval_grade"
+    assert params["approval_grade_evidence"] is True

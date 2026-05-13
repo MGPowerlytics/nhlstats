@@ -1,0 +1,81 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_data_quality_v1.schema.json",
+  "title": "Dashboard Data Quality Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_data_quality_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "check_name",
+    "relation_name",
+    "relation_type",
+    "status",
+    "row_count",
+    "freshness_timestamp",
+    "max_allowed_lag_minutes",
+    "actual_lag_minutes",
+    "message",
+    "checked_at_utc"
+  ],
+  "properties": {
+    "check_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relation_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "relation_type": {
+      "type": "string",
+      "enum": [
+        "table",
+        "view"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "warn",
+        "fail"
+      ]
+    },
+    "row_count": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "freshness_timestamp": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "max_allowed_lag_minutes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 1
+    },
+    "actual_lag_minutes": {
+      "type": [
+        "integer",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "message": {
+      "type": "string"
+    },
+    "checked_at_utc": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

@@ -41,26 +41,53 @@ def _elo_ns(**kwargs) -> SimpleNamespace:
 
 
 def test_get_best_odds_returns_expected_dict():
-    def frame_for_side(params):
-        side = params.get("side")
-        if side == "home":
-            return pd.DataFrame(
-                [{"bookmaker": "Kalshi", "price": 2.0, "last_update": "now"}]
-            )
-        if side == "away":
-            return pd.DataFrame(
-                [{"bookmaker": "Kalshi", "price": 1.8, "last_update": "now"}]
-            )
-        return pd.DataFrame()
+    odds_df = pd.DataFrame(
+        [
+            {"bookmaker": "Kalshi", "outcome_name": "home", "price": 2.0, "last_update": "now"},
+            {"bookmaker": "Kalshi", "outcome_name": "away", "price": 1.8, "last_update": "now"},
+        ]
+    )
 
-    db = DummyDB({"FROM game_odds": frame_for_side})
+    db = DummyDB({"FROM game_odds": odds_df})
     comparator = OddsComparator(db_manager=db)
 
     best = comparator.get_best_odds("game-1")
 
     assert best["home"]["decimal_odds"] == 2.0
     assert best["away"]["decimal_odds"] == 1.8
+    assert best["home"]["price_role"] == "executable"
+    assert best["away"]["price_role"] == "executable"
     assert "draw" not in best
+
+
+def test_get_best_odds_uses_best_role_only_with_multiple_eligible_quotes():
+    odds_df = pd.DataFrame(
+        [
+            {
+                "bookmaker": "Kalshi",
+                "outcome_name": "home",
+                "price": 1.92,
+                "last_update": "2026-05-03T22:50:00",
+                "external_id": "kalshi-home",
+            },
+            {
+                "bookmaker": "SBR",
+                "outcome_name": "home",
+                "price": 2.04,
+                "last_update": "2026-05-03T22:58:00",
+                "external_id": "sbr-home",
+            },
+        ]
+    )
+    db = DummyDB({"FROM game_odds": odds_df})
+    comparator = OddsComparator(db_manager=db)
+
+    best = comparator.get_best_odds("game-1")
+
+    assert best["home"]["decimal_odds"] == 2.04
+    assert best["home"]["bookmaker"] == "SBR"
+    assert best["home"]["price_role"] == "best"
+    assert best["home"]["freshness_result"] == "fresh"
 
 
 def test_get_all_odds_returns_records():

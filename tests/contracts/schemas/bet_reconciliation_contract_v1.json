@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/bet_reconciliation_contract_v1.json",
+  "title": "BetReconciliation Contract v1",
+  "description": "Canonical contract for the BetReconciliation boundary: reconciliation_result (per-bet diff outcome), reconciliation_report (aggregate summary), and kalshi_state_entry (remote fill snapshot).",
+  "$defs": {
+    "reconciliation_result": {
+      "type": "object",
+      "required": [
+        "bet_id",
+        "status",
+        "matched",
+        "unmatched",
+        "discrepancies"
+      ],
+      "properties": {
+        "bet_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Stable unique identifier for the bet."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["matched", "corrected", "missing_locally", "missing_remotely", "error"],
+          "description": "Outcome of reconciliation for this bet."
+        },
+        "matched": {
+          "type": "boolean",
+          "description": "True when local and remote values are identical."
+        },
+        "unmatched": {
+          "type": "boolean",
+          "description": "True when local and remote values differ (had discrepancies)."
+        },
+        "discrepancies": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/discrepancy_entry"
+          },
+          "description": "List of field-level discrepancies found."
+        }
+      },
+      "additionalProperties": false
+    },
+    "discrepancy_entry": {
+      "type": "object",
+      "required": ["field", "old", "new"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": ["contracts", "price_cents", "cost_dollars", "fees_dollars", "status", "settled_date", "payout_dollars", "profit_dollars"],
+          "description": "The field that differed between local and remote records."
+        },
+        "old": {
+          "description": "Value from the local placed_bets row (may be null)."
+        },
+        "new": {
+          "description": "Value from the Kalshi-sourced state (may be null)."
+        }
+      },
+      "additionalProperties": false
+    },
+    "reconciliation_report": {
+      "type": "object",
+      "required": [
+        "total_reviewed",
+        "matched",
+        "unmatched",
+        "discrepancies",
+        "sport"
+      ],
+      "properties": {
+        "total_reviewed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total bets examined during reconciliation."
+        },
+        "matched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bets with no discrepancies (local == remote)."
+        },
+        "unmatched": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bets with at least one discrepancy (local != remote)."
+        },
+        "discrepancies": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bets successfully corrected in the database."
+        },
+        "corrected": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bets corrected via UPDATE."
+        },
+        "missing_locally_inserted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Kalshi fills inserted into placed_bets (absent locally)."
+        },
+        "missing_on_kalshi": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Local bets not found in Kalshi response."
+        },
+        "audit_rows_written": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total bet_audit_log rows written."
+        },
+        "excluded_by_cutoff": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bets excluded due to cutoff window."
+        },
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Sport these bets belong to."
+        }
+      },
+      "additionalProperties": false
+    },
+    "kalshi_state_entry": {
+      "type": "object",
+      "required": [
+        "bet_id",
+        "ticker",
+        "contracts",
+        "price_cents",
+        "cost_dollars",
+        "fees_dollars",
+        "status"
+      ],
+      "properties": {
+        "bet_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ticker": {
+          "type": "string",
+          "description": "Kalshi market ticker."
+        },
+        "contracts": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of contracts held."
+        },
+        "price_cents": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Average entry price in cents."
+        },
+        "cost_dollars": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Total cost in dollars."
+        },
+        "fees_dollars": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Fees in dollars."
+        },
+        "status": {
+          "type": "string",
+          "description": "Bet/payment status (open, settled, etc.)."
+        },
+        "settled_date": {
+          "type": ["string", "null"],
+          "format": "date",
+          "description": "Date the bet was settled (YYYY-MM-DD)."
+        },
+        "payout_dollars": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "Payout received on settlement."
+        },
+        "profit_dollars": {
+          "type": ["number", "null"],
+          "description": "Profit after settlement (may be negative)."
+        },
+        "market_title": {
+          "type": ["string", "null"],
+          "description": "Human-readable market title from Kalshi."
+        },
+        "_raw": {
+          "description": "Raw Kalshi fill dict (internal, not for consumer use)."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

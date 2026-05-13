@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/kalshi_fill_payload_v1.json",
+  "title": "Kalshi Fill Payload Contract v1",
+  "description": "Canonical Kalshi fill payload schema for fills from /portfolio/fills.",
+  "type": "object",
+  "required": [
+    "ticker",
+    "trade_id",
+    "side",
+    "count",
+    "count_fp",
+    "yes_price",
+    "yes_price_dollars",
+    "no_price",
+    "no_price_dollars",
+    "fee_cost",
+    "created_time"
+  ],
+  "properties": {
+    "ticker": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Kalshi market ticker"
+    },
+    "trade_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique trade identifier"
+    },
+    "side": {
+      "type": "string",
+      "enum": ["yes", "no"],
+      "description": "Side of the trade"
+    },
+    "count": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Contract count (integer form)"
+    },
+    "count_fp": {
+      "type": "number",
+      "exclusiveMinimum": 0.0,
+      "description": "Contract count (floating-point form)"
+    },
+    "yes_price": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "YES price in cents"
+    },
+    "yes_price_dollars": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d{2}$",
+      "description": "YES price in dollar string form"
+    },
+    "no_price": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "NO price in cents"
+    },
+    "no_price_dollars": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d{2}$",
+      "description": "NO price in dollar string form"
+    },
+    "fee_cost": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Fee cost in cents"
+    },
+    "created_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp of fill creation"
+    }
+  },
+  "additionalProperties": false
+}

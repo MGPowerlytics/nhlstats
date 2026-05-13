@@ -1,0 +1,99 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/portfolio_snapshots_contract_v1.json",
+  "title": "Portfolio Snapshots Contract v1",
+  "description": "Canonical portfolio snapshot payloads produced by PortfolioSnapshots for PnL tracking and dashboard time-series display.",
+  "type": "object",
+  "required": [
+    "portfolio_snapshot_result",
+    "snapshot_summary"
+  ],
+  "properties": {
+    "portfolio_snapshot_result": {
+      "type": "object",
+      "description": "A single portfolio value snapshot at a point in time.",
+      "required": [
+        "date_str",
+        "total_value",
+        "cash_balance",
+        "positions_value",
+        "unrealized_pnl",
+        "realized_pnl",
+        "position_count"
+      ],
+      "properties": {
+        "date_str": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}(T\\d{2}:\\d{2}:\\d{2}Z?)?$",
+          "description": "ISO-8601 date or datetime string for the snapshot"
+        },
+        "total_value": {
+          "type": "number",
+          "description": "Total portfolio value (cash + positions) in dollars"
+        },
+        "cash_balance": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Cash balance in dollars"
+        },
+        "positions_value": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Current market value of all open positions in dollars"
+        },
+        "unrealized_pnl": {
+          "type": "number",
+          "description": "Unrealized profit/loss in dollars (can be negative)"
+        },
+        "realized_pnl": {
+          "type": "number",
+          "description": "Realized profit/loss in dollars (can be negative)"
+        },
+        "position_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of open positions at snapshot time"
+        }
+      },
+      "additionalProperties": false
+    },
+    "snapshot_summary": {
+      "type": "object",
+      "description": "Summary statistics over a range of snapshots.",
+      "required": [
+        "start_date",
+        "end_date",
+        "snapshot_count",
+        "total_return",
+        "avg_daily_return"
+      ],
+      "properties": {
+        "start_date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}",
+          "description": "ISO-8601 date for the earliest snapshot in the range"
+        },
+        "end_date": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}",
+          "description": "ISO-8601 date for the latest snapshot in the range"
+        },
+        "snapshot_count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Total number of snapshots in the range"
+        },
+        "total_return": {
+          "type": "number",
+          "description": "Total return over the range in dollars (can be negative)"
+        },
+        "avg_daily_return": {
+          "type": "number",
+          "description": "Average daily return in dollars (can be negative)"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

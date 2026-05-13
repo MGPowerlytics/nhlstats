@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/the_odds_api_contract_v1.json",
+  "title": "TheOddsAPI Contract v1",
+  "description": "Contract schemas for the TheOddsAPI boundary — defines the shape of odds responses and market results produced by fetch_markets().",
+  "$defs": {
+    "odds_response_result": {
+      "title": "Odds Response Result",
+      "description": "A single parsed game with odds from multiple bookmakers, produced by TheOddsAPI.fetch_markets().",
+      "type": "object",
+      "required": [
+        "sport",
+        "game_id",
+        "home_team",
+        "away_team",
+        "commence_time",
+        "bookmakers",
+        "total_bookmakers",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "sport": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Short sport identifier (e.g. 'nba', 'nhl', 'mlb')."
+        },
+        "game_id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Platform-native game identifier from the Odds API."
+        },
+        "home_team": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical home team name."
+        },
+        "away_team": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Canonical away team name."
+        },
+        "commence_time": {
+          "type": "string",
+          "description": "ISO 8601 commence time (e.g. '2025-01-20T19:00:00Z')."
+        },
+        "bookmakers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/bookmaker_entry"
+          },
+          "description": "List of bookmaker entries offering odds for this game."
+        },
+        "total_bookmakers": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of bookmakers offering odds for this game."
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Frozen contract version identifier."
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "odds_response_result",
+          "description": "Literal discriminator for the payload type."
+        }
+      },
+      "additionalProperties": false
+    },
+    "market_result": {
+      "title": "Market Result",
+      "description": "A single market (e.g. h2h) with its outcomes for a bookmaker.",
+      "type": "object",
+      "required": [
+        "market_key",
+        "outcomes",
+        "is_best",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "market_key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Market type key (e.g. 'h2h', 'spreads', 'totals')."
+        },
+        "outcomes": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/outcome"
+          },
+          "minItems": 1,
+          "description": "List of outcomes (prices) in this market."
+        },
+        "is_best": {
+          "type": "boolean",
+          "description": "True if this market entry represents the best available odds across bookmakers."
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Frozen contract version identifier."
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "market_result",
+          "description": "Literal discriminator for the payload type."
+        }
+      },
+      "additionalProperties": false
+    },
+    "bookmaker_entry": {
+      "title": "Bookmaker Entry",
+      "description": "A single bookmaker offering odds for a game.",
+      "type": "object",
+      "required": [
+        "key",
+        "title",
+        "markets"
+      ],
+      "properties": {
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Bookmaker slug (e.g. 'draftkings', 'fanduel')."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display name of the bookmaker (e.g. 'DraftKings')."
+        },
+        "markets": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/market_result"
+          },
+          "minItems": 1,
+          "description": "Markets offered by this bookmaker for the game."
+        }
+      },
+      "additionalProperties": false
+    },
+    "outcome": {
+      "title": "Outcome",
+      "description": "A single outcome/price within a market.",
+      "type": "object",
+      "required": [
+        "name",
+        "price"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Outcome name (team name or 'home'/'away')."
+        },
+        "price": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Decimal odds price (must be > 0)."
+        },
+        "point": {
+          "type": ["number", "null"],
+          "description": "Point value for spread/total markets, or null for h2h."
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

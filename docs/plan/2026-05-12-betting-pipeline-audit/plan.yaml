@@ -1,0 +1,790 @@
+plan_id: 2026-05-12-betting-pipeline-audit
+objective: >
+  Deliver a PRD-compliant audit-and-planning package for the multi-sport betting pipeline
+  that inventories the end-to-end workflow, evaluates evidence quality across all supported
+  sports, defines governed audit/spec contracts for later implementation, and defers all
+  production changes to a non-executable follow-on backlog.
+created_at: 2026-05-12T00:00:00Z
+created_by: gem-planner
+status: completed
+research_confidence: medium
+
+plan_metrics:
+  wave_1_task_count: 6
+  total_dependencies: 22
+  risk_score: medium
+
+tldr: |
+  This revision keeps the current round strictly inside the PRD boundary: audit, specification,
+  and phased implementation planning only. Wave 1 inventories the live multi-sport pipeline,
+  PostgreSQL evidence, probability/calibration quality, pricing/CLV behavior, bankroll/risk
+  controls, validation quality, and runtime/documentation drift across NBA, NHL, MLB, NFL,
+  EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS. Wave 2 converts those findings into governed
+  probability, pricing/CLV, portfolio-risk, and evidence-read-model specifications that are
+  implementation-ready but non-executable in this round. Wave 3 packages the prioritized
+  follow-on execution roadmap and approval-readiness review, while keeping all runtime-hardening
+  work in a deferred future backlog outside current approval scope.
+
+open_questions:
+  - Whether current PostgreSQL timestamps and audit fields are sufficient to attribute realized CLV and execution timing by sport without additional future instrumentation.
+  - Whether any weaker-coverage sports should remain permanently shadow-only until unbiased walk-forward windows and clean closing-line history are available.
+
+pre_mortem:
+  overall_risk_level: medium
+  critical_failure_modes:
+    - scenario: The audit package drifts back into implementation commitments, violating the PRD and making the plan unapprovable again.
+      likelihood: medium
+      impact: critical
+      mitigation: Keep executable tasks limited to research, specification, roadmap synthesis, and plan review; move all runtime work into deferred follow-on backlog items.
+    - scenario: Cross-sport differences are flattened into one generic summary, leaving follow-on execution without sport-specific evidence gates.
+      likelihood: medium
+      impact: high
+      mitigation: Require every audit and spec task to produce sport-by-sport outputs covering all supported sports and each PRD audit dimension.
+    - scenario: The follow-on roadmap omits dependencies between probability, pricing, CLV, risk, and evidence-read-model work, causing unsafe sequencing later.
+      likelihood: medium
+      impact: high
+      mitigation: Make contracts and dependency declarations explicit between audit outputs, specification tasks, and deferred implementation backlog items.
+  assumptions:
+    - PostgreSQL remains the system of record for audit evidence and current-state pipeline truth.
+    - This round must not include production code changes, migrations, retuning, or live parameter updates.
+    - The strongest value of this round is a prioritized, dependency-aware follow-on plan with verification gates tied to CLV, calibration, and walk-forward evidence.
+
+implementation_specification:
+  code_structure: >
+    This round produces an audit-and-spec package rather than code changes. Deliverables should
+    be organized as traceable audit matrices, governed specification documents, and a phased
+    follow-on execution roadmap that future implementation waves can consume without revisiting
+    scope, dependencies, or verification gates.
+  affected_areas:
+    - dags/multi_sport_betting_workflow.py
+    - plugins/odds_comparator.py
+    - plugins/probability_calibration.py
+    - plugins/the_odds_api.py
+    - plugins/clv_tracker.py
+    - plugins/update_clv_data.py
+    - plugins/portfolio_optimizer.py
+    - plugins/portfolio_betting.py
+    - plugins/bet_loader.py
+    - dashboard/data_layer.py
+    - dashboard/pages/calibration.py
+    - docs/plan/2026-05-12-betting-pipeline-audit/plan.yaml
+  component_details:
+    - component: Pipeline evidence inventory
+      responsibility: Trace ingestion, modeling, pricing, recommendation, sizing, execution, settlement, and reporting evidence paths for every supported sport.
+      interfaces:
+        - Sport-by-stage pipeline evidence matrix
+        - PostgreSQL source-of-truth inventory
+    - component: Probability and validation governance specification
+      responsibility: Define how probability sources, calibration evidence, eligibility tiers, and walk-forward requirements must be described before follow-on implementation begins.
+      interfaces:
+        - Governed probability specification
+        - Sport evidence tier matrix
+    - component: Pricing and CLV governance specification
+      responsibility: Define canonical fair-odds, price freshness, best-price, closing-line, and CLV audit rules for future implementation.
+      interfaces:
+        - Pricing and CLV governance specification
+        - Canonical pricing evidence contract
+    - component: Portfolio risk governance specification
+      responsibility: Define concentration, correlation, drawdown, exposure-truth, and sizing-evidence gates for later execution waves.
+      interfaces:
+        - Portfolio risk governance specification
+        - Evidence-qualified sizing gate definition
+    - component: Follow-on execution roadmap
+      responsibility: Convert audit and specification outputs into a phased, dependency-aware backlog that is clearly outside current approval scope.
+      interfaces:
+        - Prioritized follow-on execution roadmap
+        - Deferred implementation backlog
+  dependencies:
+    - component: Pipeline evidence inventory
+      relationship: Feeds every downstream specification by identifying actual producer/consumer boundaries and PostgreSQL evidence sources.
+    - component: Probability and validation governance specification
+      relationship: Consumes pipeline, calibration, and validation audits before later implementation can define eligibility behavior.
+    - component: Pricing and CLV governance specification
+      relationship: Consumes pipeline, pricing, and validation audits before later implementation can unify pricing and CLV behavior.
+    - component: Portfolio risk governance specification
+      relationship: Consumes pipeline, bankroll/risk, validation, and drift audits before later implementation can govern sizing and exposure logic.
+    - component: Follow-on execution roadmap
+      relationship: Consumes all audit and specification outputs and converts them into future execution phases with explicit dependencies and gates.
+  integration_points:
+    - Airflow orchestration in dags/multi_sport_betting_workflow.py
+    - PostgreSQL-backed evidence across games, odds, recommendations, bets, fills, settlements, and dashboard read models
+    - Dashboard data consumers that present calibration, exposure, and performance evidence
+    - Follow-on execution planning for probability, pricing, CLV, and risk-control implementation waves
+
+contracts:
+  - from_task: pipeline-evidence-map
+    to_task: governed-probability-spec
+    interface: Stage-by-stage lineage map from ingestion through recommendation, placement, settlement, and PostgreSQL evidence.
+    format: Sport-by-sport audit matrix
+  - from_task: probability-calibration-audit
+    to_task: governed-probability-spec
+    interface: Per-sport probability-source inventory, calibration status, and evidence-gap register.
+    format: Supported-sport evidence tier table
+  - from_task: validation-evidence-audit
+    to_task: governed-probability-spec
+    interface: Walk-forward, leakage, and evidence-quality requirements for eligibility gating.
+    format: Validation standards checklist
+  - from_task: pipeline-evidence-map
+    to_task: pricing-clv-governance-spec
+    interface: Current producer/consumer map for market data, selection logic, CLV persistence, and reporting evidence.
+    format: Evidence lineage matrix
+  - from_task: pricing-clv-audit
+    to_task: pricing-clv-governance-spec
+    interface: Audit findings on fair-odds logic, price freshness, best-price behavior, and split CLV definitions.
+    format: Issue register with downstream consumers
+  - from_task: validation-evidence-audit
+    to_task: pricing-clv-governance-spec
+    interface: Evidence rules that separate descriptive CLV reporting from approval-grade CLV evidence.
+    format: Evidence qualification rubric
+  - from_task: pipeline-evidence-map
+    to_task: portfolio-risk-spec
+    interface: Current runtime path for recommendation sizing, placement, bankroll updates, and settlement evidence.
+    format: Risk-control trace map
+  - from_task: bankroll-risk-audit
+    to_task: portfolio-risk-spec
+    interface: Inventory of Kelly settings, caps, concentration handling, correlation blind spots, and exposure mismatches.
+    format: Portfolio-risk audit matrix
+  - from_task: validation-evidence-audit
+    to_task: portfolio-risk-spec
+    interface: Evidence rules requiring CLV, calibration, and walk-forward support before any sizing recommendation.
+    format: Sizing-gate evidence policy
+  - from_task: runtime-config-drift-audit
+    to_task: portfolio-risk-spec
+    interface: Current parameter drift and dashboard/runtime mismatch inventory affecting operator risk interpretation.
+    format: Drift register
+  - from_task: pipeline-evidence-map
+    to_task: evidence-readmodel-spec
+    interface: Current and missing evidence fields needed to trace games, odds, recommendations, bets, and outcomes in PostgreSQL.
+    format: Read-model field inventory
+  - from_task: probability-calibration-audit
+    to_task: evidence-readmodel-spec
+    interface: Required calibration evidence fields and sport-specific comparability constraints.
+    format: Calibration evidence schema notes
+  - from_task: pricing-clv-audit
+    to_task: evidence-readmodel-spec
+    interface: Required pricing, closing-line, and CLV evidence fields and provenance rules.
+    format: Pricing evidence schema notes
+  - from_task: bankroll-risk-audit
+    to_task: evidence-readmodel-spec
+    interface: Required exposure, concentration, and drawdown evidence fields for portfolio-level auditability.
+    format: Portfolio evidence schema notes
+  - from_task: validation-evidence-audit
+    to_task: evidence-readmodel-spec
+    interface: Required evidence-tier and validation-status fields that future dashboards and reports must surface.
+    format: Validation evidence schema notes
+  - from_task: governed-probability-spec
+    to_task: follow-on-execution-roadmap
+    interface: Implementation-ready probability and calibration governance decisions for future execution sequencing.
+    format: Spec summary and dependency inputs
+  - from_task: pricing-clv-governance-spec
+    to_task: follow-on-execution-roadmap
+    interface: Implementation-ready pricing and CLV governance decisions for future execution sequencing.
+    format: Spec summary and dependency inputs
+  - from_task: portfolio-risk-spec
+    to_task: follow-on-execution-roadmap
+    interface: Implementation-ready portfolio-risk and sizing-governance decisions for future execution sequencing.
+    format: Spec summary and dependency inputs
+  - from_task: evidence-readmodel-spec
+    to_task: follow-on-execution-roadmap
+    interface: Evidence/read-model requirements that later implementation must satisfy before parameter recommendations are reviewable.
+    format: Spec summary and dependency inputs
+  - from_task: validation-evidence-audit
+    to_task: follow-on-execution-roadmap
+    interface: Current evidence-quality baseline identifying blocked, shadow-only, and candidate sports.
+    format: Eligibility baseline matrix
+  - from_task: runtime-config-drift-audit
+    to_task: follow-on-execution-roadmap
+    interface: Current control-drift items that must be resolved or instrumented in later rounds.
+    format: Prioritized drift list
+  - from_task: follow-on-execution-roadmap
+    to_task: approval-readiness-review
+    interface: Final audit-and-planning package for scope, dependency, and approval-boundary review.
+    format: Approval package
+
+tasks:
+  - id: pipeline-evidence-map
+    title: Map the live multi-sport pipeline and PostgreSQL evidence trail
+    description: |
+      Trace all supported sports from ingestion through Elo/model generation, market
+      normalization, recommendation persistence, sizing, execution, settlement, CLV refresh,
+      and dashboard surfacing. The output must identify the current PostgreSQL source of truth,
+      missing links, duplicate paths, and cross-sport divergence points without proposing or
+      performing runtime changes.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dags/multi_sport_betting_workflow.py: Current end-to-end orchestration path.
+      plugins/bet_loader.py: Recommendation persistence boundary.
+      dashboard/data_layer.py: Downstream evidence consumption path.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: pipeline audit
+    verification:
+      - Confirm every supported sport is traced from upstream inputs through realized outcomes.
+      - Confirm each pipeline stage is tied to named PostgreSQL tables, views, or persisted evidence objects.
+    acceptance_criteria:
+      - The audit matrix covers NBA, NHL, MLB, NFL, EPL, LIGUE1, NCAAB, WNCAAB, and TENNIS.
+      - The output identifies live-versus-reporting divergence and missing evidence joins.
+      - The deliverable is descriptive only and contains no implementation commitments.
+    failure_modes:
+      - scenario: The audit treats all sports as sharing one path and misses sport-specific branches.
+        likelihood: medium
+        impact: high
+        mitigation: Require a sport-by-sport matrix rather than a single merged narrative.
+      - scenario: Evidence sources are inferred loosely and not anchored to actual persisted artifacts.
+        likelihood: medium
+        impact: high
+        mitigation: Require named producer/consumer boundaries and PostgreSQL evidence references for every stage.
+
+  - id: probability-calibration-audit
+    title: Audit per-sport probability generation and calibration evidence
+    description: |
+      Inventory live probability sources by sport, verify which calibration artifacts are
+      actually wired into current behavior, and assess sample quality, leakage risk, selection
+      bias, and production-to-research parity. The output must distinguish descriptive model
+      behavior from evidence strong enough to inform future gating decisions.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      plugins/odds_comparator.py: Current probability consumer in selection logic.
+      plugins/probability_calibration.py: Calibration artifact generation and loading path.
+      dashboard/pages/calibration.py: Operator-facing calibration evidence presentation.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 190
+    focus_area: probability evidence
+    verification:
+      - Confirm each supported sport has an explicit probability-source and calibration-status entry.
+      - Confirm the audit distinguishes production-wired evidence from offline-only artifacts.
+    acceptance_criteria:
+      - The output grades calibration evidence quality, leakage risk, and selection bias by sport.
+      - The output identifies which sports are blocked, shadow-only, or candidates for later eligibility.
+      - The deliverable remains audit-only and does not prescribe live model changes for this round.
+    failure_modes:
+      - scenario: Offline calibration artifacts are mistaken for live-wired evidence.
+        likelihood: medium
+        impact: high
+        mitigation: Require explicit live consumer confirmation for every claimed artifact.
+      - scenario: Evidence quality is summarized without separating placed-bet, recommendation, and synthetic cohorts.
+        likelihood: high
+        impact: high
+        mitigation: Require cohort provenance and bias labels in the audit output.
+
+  - id: pricing-clv-audit
+    title: Audit market pricing, fair-odds assumptions, and CLV control surfaces
+    description: |
+      Review market-feed usage, price freshness assumptions, normalization behavior, best-price
+      selection, closing-line sourcing, and CLV calculation paths across the live pipeline and
+      reporting surfaces. The output must separate current descriptive metrics from evidence and
+      controls that could later support governed recommendations.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      plugins/the_odds_api.py: Supporting market-feed and best-price ingestion logic.
+      plugins/odds_comparator.py: Edge calculation and opportunity selection path.
+      plugins/clv_tracker.py: Current CLV evidence path.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 190
+    focus_area: pricing and clv audit
+    verification:
+      - Confirm the audit identifies every current fair-odds, best-price, and CLV computation path.
+      - Confirm the audit records freshness, provenance, and closing-line assumptions for each path.
+    acceptance_criteria:
+      - The deliverable documents split implementations and their downstream consumers.
+      - The output identifies where price quality is strong enough for audit evidence versus only descriptive reporting.
+      - The deliverable contains no runtime bug fixes or production hardening work.
+    failure_modes:
+      - scenario: One CLV path is omitted, hiding downstream inconsistency.
+        likelihood: medium
+        impact: high
+        mitigation: Require a producer/consumer map for every pricing and CLV calculation path.
+      - scenario: Kalshi and supporting-book roles are not separated, obscuring execution-quality conclusions.
+        likelihood: medium
+        impact: medium
+        mitigation: Require source-role labeling for reference pricing, executable pricing, and closing-line evidence.
+
+  - id: bankroll-risk-audit
+    title: Audit bankroll sizing, concentration, and exposure reconciliation
+    description: |
+      Inventory current Kelly settings, caps, confidence filters, segment exclusions, concentration
+      handling, cross-sport allocation assumptions, and live-versus-dashboard exposure behavior.
+      The output must show where current controls are evidence-backed, heuristic, or missing.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      plugins/portfolio_optimizer.py: Current sizing and allocation logic.
+      plugins/portfolio_betting.py: Placement and bankroll update behavior.
+      dags/multi_sport_betting_workflow.py: Runtime orchestration and gating entry points.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: bankroll and risk audit
+    verification:
+      - Confirm all current sizing controls and exposure views are cataloged with code owners and evidence inputs.
+      - Confirm the audit identifies cross-sport and same-slate concentration blind spots.
+    acceptance_criteria:
+      - The output documents bankroll, Kelly, cap, concentration, and drawdown control surfaces.
+      - The output explicitly covers portfolio-level behavior, not just single-bet logic.
+      - The deliverable does not recommend live parameter increases without evidence.
+    failure_modes:
+      - scenario: The audit focuses on single-bet Kelly logic and misses portfolio-level exposure behavior.
+        likelihood: medium
+        impact: high
+        mitigation: Require concentration, correlation, and drawdown sections in the audit output.
+      - scenario: Dashboard exposure is assumed to match runtime exposure without reconciliation.
+        likelihood: medium
+        impact: high
+        mitigation: Require explicit live-versus-dashboard exposure comparison and mismatch logging.
+
+  - id: validation-evidence-audit
+    title: Audit walk-forward, backtest, and evidence-quality governance
+    description: |
+      Assess current backtesting, walk-forward validation, leakage controls, historical replay
+      quality, and research-to-production parity across all supported sports. The output must
+      define which evidence is approval-grade, descriptive-only, contaminated, or missing.
+    wave: 1
+    agent: gem-researcher
+    priority: high
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      scripts/calibrate_elo_real_data.py: Current validation and calibration workflow.
+      plugins/bet_audit.py: Audit and evidence aggregation behavior.
+      ligue1_backtest_improved.py: Representative historical replay path.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 180
+    focus_area: validation governance
+    verification:
+      - Confirm every supported sport is assigned an evidence-quality status and leakage-risk note.
+      - Confirm the audit separates placed-bet evidence from recommendation-only and synthetic/backfill evidence.
+    acceptance_criteria:
+      - The output defines approval-grade evidence requirements for CLV, calibration, and walk-forward validation.
+      - Contaminated or weak evidence sources are explicitly tagged for exclusion or shadow-only treatment in future rounds.
+      - The deliverable remains audit-only and does not execute backtest redesign or retuning work.
+    failure_modes:
+      - scenario: Historical backfills and clean windows are mixed, overstating evidence quality.
+        likelihood: medium
+        impact: high
+        mitigation: Require explicit evidence tiers and contamination flags by cohort.
+      - scenario: Validation quality is inferred from isolated backtests rather than repeatable standards.
+        likelihood: medium
+        impact: high
+        mitigation: Require leakage, windowing, and parity checks in the audit rubric.
+
+  - id: runtime-config-drift-audit
+    title: Audit runtime parameter drift and operator-facing evidence gaps
+    description: |
+      Reconcile current runtime thresholds, confidence filters, exclusions, bankroll controls,
+      and operator-facing dashboard semantics so the follow-on roadmap can distinguish governed
+      controls from undocumented heuristics. The output must remain descriptive and planning-only.
+    wave: 1
+    agent: gem-researcher
+    priority: medium
+    status: done
+    dependencies: []
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dags/multi_sport_betting_workflow.py: Runtime control flow and hard-coded thresholds.
+      plugins/portfolio_optimizer.py: Sizing parameters and cap logic.
+      dashboard/data_layer.py: Operator-facing exposure and evidence semantics.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 150
+    focus_area: parameter drift
+    verification:
+      - Confirm every observed runtime control has a current source and operator-facing presentation note.
+      - Confirm mismatches between dashboard semantics and runtime behavior are explicitly listed.
+    acceptance_criteria:
+      - The drift report covers thresholds, caps, exclusions, and evidence presentation gaps.
+      - The output ranks drift items by downstream risk and planning significance.
+      - The deliverable does not modify docs or runtime behavior in this round.
+    failure_modes:
+      - scenario: Low-level drift items crowd out the controls that materially affect bankroll risk.
+        likelihood: medium
+        impact: medium
+        mitigation: Require prioritization by sizing impact and operator risk significance.
+
+  - id: governed-probability-spec
+    title: Specify the governed per-sport probability and calibration contract
+    description: |
+      Convert the pipeline, probability, and validation audits into an implementation-ready
+      specification for approved probability sources, normalization behavior, calibration
+      evidence requirements, sport eligibility states, and fail-closed criteria for any future
+      sizing recommendation. This is a specification artifact only.
+    wave: 2
+    agent: gem-documentation-writer
+    priority: high
+    status: done
+    dependencies:
+      - pipeline-evidence-map
+      - probability-calibration-audit
+      - validation-evidence-audit
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Scope and audit-only decision boundary.
+      plugins/probability_calibration.py: Current calibration artifact boundary.
+      plugins/odds_comparator.py: Current probability consumer boundary.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: probability specification
+    verification:
+      - Confirm the specification names all supported sports and their evidence-qualified states.
+      - Confirm the specification requires CLV, calibration, and walk-forward evidence before future sizing recommendations.
+    acceptance_criteria:
+      - The spec defines approved probability-source, calibration, and eligibility requirements by sport.
+      - The spec is implementation-ready but clearly non-executable in this round.
+      - The spec aligns with PRD scope and contains no runtime hardening commitments.
+    failure_modes:
+      - scenario: The spec becomes generic and omits sport-specific constraints such as weaker-evidence fallback states.
+        likelihood: medium
+        impact: high
+        mitigation: Require a per-sport section and explicit blocked/shadow/candidate status outputs.
+      - scenario: The spec implies immediate runtime adoption instead of follow-on execution.
+        likelihood: medium
+        impact: high
+        mitigation: Mark all implementation actions as deferred dependencies in the future backlog section.
+    task_type: documentation
+    audience: developers
+    coverage_matrix:
+      - Supported-sport probability sources
+      - Calibration evidence requirements
+      - Eligibility state definitions
+      - Fail-closed future gating rules
+
+  - id: pricing-clv-governance-spec
+    title: Specify the fair-odds, price-quality, and CLV governance contract
+    description: |
+      Convert the pipeline, pricing, and validation audits into an implementation-ready
+      specification for canonical fair-odds behavior, best-price rules, freshness policy,
+      closing-line precedence, and approval-grade CLV evidence. This task packages rules and
+      interfaces only; it does not fix runtime logic in this round.
+    wave: 2
+    agent: gem-documentation-writer
+    priority: high
+    status: done
+    dependencies:
+      - pipeline-evidence-map
+      - pricing-clv-audit
+      - validation-evidence-audit
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Scope and audit-only decision boundary.
+      plugins/the_odds_api.py: Market-feed boundary.
+      plugins/clv_tracker.py: Current CLV evidence boundary.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 220
+    focus_area: pricing specification
+    verification:
+      - Confirm the specification unifies fair-odds, freshness, best-price, and CLV evidence terms across all downstream consumers.
+      - Confirm the specification distinguishes descriptive metrics from approval-grade evidence.
+    acceptance_criteria:
+      - The spec defines canonical pricing and CLV terms, provenance requirements, and quality tiers.
+      - The spec is actionable for later implementation without embedding runtime fixes in this round.
+      - The deliverable stays inside PRD scope and contains no production code work.
+    failure_modes:
+      - scenario: The spec preserves split CLV semantics and leaves follow-on execution ambiguous.
+        likelihood: medium
+        impact: high
+        mitigation: Require one canonical terminology set and explicit consumer mapping in the spec.
+      - scenario: Pricing roles are underspecified, causing future execution to blur reference and execution prices.
+        likelihood: medium
+        impact: medium
+        mitigation: Require separate fields for reference pricing, executable pricing, and closing-line evidence.
+    task_type: documentation
+    audience: developers
+    coverage_matrix:
+      - Fair-odds definition
+      - Price freshness and provenance rules
+      - Best-price selection policy
+      - Canonical CLV evidence requirements
+
+  - id: portfolio-risk-spec
+    title: Specify the portfolio-risk and evidence-qualified sizing contract
+    description: |
+      Convert the pipeline, bankroll/risk, validation, and drift audits into an implementation-ready
+      specification for concentration, correlation, drawdown, bankroll allocation, exposure-truth,
+      and evidence-qualified sizing rules. The output must define future gating requirements without
+      changing any live control in this round.
+    wave: 2
+    agent: gem-documentation-writer
+    priority: high
+    status: done
+    dependencies:
+      - pipeline-evidence-map
+      - bankroll-risk-audit
+      - validation-evidence-audit
+      - runtime-config-drift-audit
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Scope and evidence-gating requirements.
+      plugins/portfolio_optimizer.py: Current sizing and allocation boundary.
+      plugins/portfolio_betting.py: Current placement and bankroll update boundary.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 230
+    focus_area: portfolio-risk specification
+    verification:
+      - Confirm the specification covers cross-sport allocation, concentration, drawdown, and exposure reconciliation.
+      - Confirm the specification states that future sizing changes require CLV, calibration, and walk-forward evidence.
+    acceptance_criteria:
+      - The spec defines evidence-qualified sizing inputs, rejection conditions, and operator-facing audit fields.
+      - The spec addresses portfolio-level behavior in addition to single-bet logic.
+      - The deliverable is planning-only and contains no live parameter changes.
+    failure_modes:
+      - scenario: The spec overfocuses on Kelly settings and under-specifies portfolio-level risk.
+        likelihood: medium
+        impact: high
+        mitigation: Require concentration, correlation, drawdown, and exposure-truth sections as first-class outputs.
+      - scenario: Drift findings are not integrated, leaving later implementation blind to operator-facing mismatches.
+        likelihood: medium
+        impact: medium
+        mitigation: Require explicit mapping from drift items to future risk-governance backlog entries.
+    task_type: documentation
+    audience: developers
+    coverage_matrix:
+      - Bankroll and Kelly inputs
+      - Concentration and correlation controls
+      - Drawdown and exposure-truth fields
+      - Evidence-qualified sizing rules
+
+  - id: evidence-readmodel-spec
+    title: Specify the sport-aware evidence and read-model contract
+    description: |
+      Convert the audit outputs into an implementation-ready read-model specification for
+      tracing games, odds, recommendations, placed bets, settlements, calibration evidence,
+      CLV evidence, and portfolio-risk evidence in PostgreSQL-backed reporting surfaces.
+      This task defines the evidence contract only; it does not implement new tables or views.
+    wave: 2
+    agent: gem-documentation-writer
+    priority: medium
+    status: done
+    dependencies:
+      - pipeline-evidence-map
+      - probability-calibration-audit
+      - pricing-clv-audit
+      - bankroll-risk-audit
+      - validation-evidence-audit
+    parallelizable: true
+    conflicts_with: []
+    context_files:
+      dashboard/data_layer.py: Current reporting data boundary.
+      dashboard/pages/calibration.py: Existing calibration evidence consumer.
+      plugins/bet_loader.py: Current recommendation and bet evidence boundary.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 210
+    focus_area: evidence read-model specification
+    verification:
+      - Confirm the specification covers the evidence fields required by every PRD audit dimension.
+      - Confirm the specification is sport-aware and can distinguish blocked, shadow, and candidate evidence states.
+    acceptance_criteria:
+      - The spec defines the evidence fields needed to trace end-to-end pipeline behavior in PostgreSQL.
+      - The spec supports future dashboard and audit consumers without requiring implementation this round.
+      - The deliverable remains planning-only and does not create migrations or live views.
+    failure_modes:
+      - scenario: The spec stays too high-level and cannot guide later implementation or review.
+        likelihood: medium
+        impact: high
+        mitigation: Require concrete field groups, producer/consumer notes, and evidence provenance requirements.
+      - scenario: Read-model requirements ignore portfolio-level evidence and focus only on model outputs.
+        likelihood: medium
+        impact: medium
+        mitigation: Require exposure, drawdown, and settlement evidence in the base contract.
+    task_type: documentation
+    audience: developers
+    coverage_matrix:
+      - Game and odds lineage fields
+      - Recommendation and placed-bet evidence fields
+      - Calibration and CLV evidence fields
+      - Portfolio-risk and settlement evidence fields
+
+  - id: follow-on-execution-roadmap
+    title: Produce the prioritized follow-on execution roadmap and deferred backlog
+    description: |
+      Synthesize the audit and specification outputs into a phased execution roadmap that
+      orders later implementation work, declares explicit dependencies, defines verification
+      gates, and keeps all runtime changes outside the current approval scope. This task is
+      the bridge from audit/spec outputs to later execution, not execution itself.
+    wave: 3
+    agent: gem-documentation-writer
+    priority: high
+    status: done
+    dependencies:
+      - governed-probability-spec
+      - pricing-clv-governance-spec
+      - portfolio-risk-spec
+      - evidence-readmodel-spec
+      - validation-evidence-audit
+      - runtime-config-drift-audit
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Source-of-truth scope and no-code-change decision.
+      docs/plan/2026-05-12-betting-pipeline-audit/plan.yaml: Canonical plan being revised.
+      dags/multi_sport_betting_workflow.py: Current runtime orchestration context for later phases.
+    estimated_effort: medium
+    estimated_files: 3
+    estimated_lines: 240
+    focus_area: execution planning
+    verification:
+      - Confirm every deferred implementation item has explicit prerequisites and verification gates.
+      - Confirm the roadmap separates current approval scope from follow-on execution scope.
+    acceptance_criteria:
+      - The roadmap is prioritized, dependency-aware, and directly consumable by later execution waves.
+      - Deferred implementation intent is moved into a clearly labeled non-executable backlog.
+      - The deliverable contains no approved runtime changes for this round.
+    failure_modes:
+      - scenario: Deferred implementation items leak back into executable current-wave tasks.
+        likelihood: medium
+        impact: high
+        mitigation: Keep all implementation items in a separate future_backlog section with explicit out-of-scope labeling.
+      - scenario: Dependencies are under-specified, causing unsafe parallelization in later rounds.
+        likelihood: medium
+        impact: high
+        mitigation: Require prerequisite lists and verification gates for each deferred execution item.
+    task_type: documentation
+    audience: stakeholders
+    coverage_matrix:
+      - Prioritized implementation phases
+      - Explicit prerequisites and contracts
+      - Verification gates for later execution
+      - Non-executable deferred backlog
+
+  - id: approval-readiness-review
+    title: Review the audit-and-planning package for PRD and dependency compliance
+    description: |
+      Review the revised plan package to confirm that executable tasks remain audit/spec/planning
+      only, all dependencies and conflicts are coherent, every task is execution-ready for a
+      future loop, and deferred implementation work is clearly outside current approval scope.
+    wave: 3
+    agent: gem-reviewer
+    priority: medium
+    status: done
+    dependencies:
+      - follow-on-execution-roadmap
+    parallelizable: false
+    conflicts_with: []
+    context_files:
+      docs/prd.yaml: Approval boundary and acceptance criteria.
+      docs/plan/2026-05-12-betting-pipeline-audit/plan.yaml: Revised canonical plan.
+      AGENTS.md: Repository-level planning and contract conventions.
+    estimated_effort: small
+    estimated_files: 3
+    estimated_lines: 140
+    focus_area: approval readiness
+    verification:
+      - Confirm no executable task performs implementation, migration, retuning, or live parameter work.
+      - Confirm all tasks include verification steps, acceptance criteria, dependencies, and line estimates.
+    acceptance_criteria:
+      - The package is review-ready as an audit-and-planning deliverable.
+      - Reviewer findings on scope, hidden dependencies, and missing task details are all closed.
+      - Any remaining future implementation intent is deferred outside current-wave scope.
+    failure_modes:
+      - scenario: A hidden dependency remains in the roadmap or spec sequencing.
+        likelihood: low
+        impact: high
+        mitigation: Require the review to cross-check every contract producer/consumer pair against task dependencies.
+      - scenario: The package still implies executable runtime changes in the current round.
+        likelihood: low
+        impact: high
+        mitigation: Require explicit PRD scope review against every wave and deferred backlog item.
+    requires_review: true
+    review_depth: standard
+    review_security_sensitive: false
+
+future_backlog:
+  approval_scope: deferred_outside_current_round
+  execution_rule: Non-executable in this audit-and-planning round; eligible only after plan approval and a later implementation cycle.
+  items:
+    - id: probability-pipeline-hardening
+      title: Implement governed probability and calibration wiring
+      summary: Future runtime work to apply the governed probability specification to live selection and persistence paths.
+      prerequisites:
+        - governed-probability-spec
+        - evidence-readmodel-spec
+        - approval-readiness-review
+      verification_gates:
+        - Contract coverage proves sport-specific probability artifacts or explicit blocked/shadow states.
+        - Runtime consumers and reporting surfaces use the same governed probability semantics.
+    - id: pricing-execution-hardening
+      title: Implement canonical pricing, fair-odds, and CLV behavior
+      summary: Future runtime work to unify pricing and CLV logic under the approved pricing/clv specification.
+      prerequisites:
+        - pricing-clv-governance-spec
+        - evidence-readmodel-spec
+        - approval-readiness-review
+      verification_gates:
+        - Reference pricing, executable pricing, and closing-line evidence are contract-aligned.
+        - Split CLV implementations are removed or explicitly superseded.
+    - id: risk-control-hardening
+      title: Implement evidence-qualified portfolio risk controls
+      summary: Future runtime work to align live sizing, concentration, and exposure handling with the approved portfolio-risk specification.
+      prerequisites:
+        - portfolio-risk-spec
+        - pricing-clv-governance-spec
+        - approval-readiness-review
+      verification_gates:
+        - Portfolio-level concentration, drawdown, and exposure-truth evidence are available.
+        - No bankroll, Kelly, or threshold change can advance without CLV, calibration, and walk-forward support.
+    - id: sport-validation-framework
+      title: Implement governed sport-by-sport validation outputs
+      summary: Future validation work to operationalize per-sport approval evidence and parity checks from the audit package.
+      prerequisites:
+        - governed-probability-spec
+        - pricing-clv-governance-spec
+        - evidence-readmodel-spec
+      verification_gates:
+        - Supported sports emit comparable evidence-tier outputs.
+        - Blocked, shadow-only, and candidate states are testable and visible.
+    - id: portfolio-drawdown-gate
+      title: Implement portfolio-level drawdown and risk-of-ruin gating
+      summary: Future runtime and reporting work to operationalize portfolio-level guardrails once evidence and risk contracts exist.
+      prerequisites:
+        - portfolio-risk-spec
+        - evidence-readmodel-spec
+        - sport-validation-framework
+      verification_gates:
+        - Drawdown, concentration, and risk-of-ruin evidence align across runtime and reporting layers.
+        - Unsafe parameter recommendations are blocked even when single-sport metrics appear strong.
+    - id: runtime-docs-and-final-gate
+      title: Align durable documentation with approved runtime behavior
+      summary: Future documentation and rollout work after implementation is complete and verified.
+      prerequisites:
+        - probability-pipeline-hardening
+        - pricing-execution-hardening
+        - risk-control-hardening
+        - portfolio-drawdown-gate
+      verification_gates:
+        - Durable docs reflect implemented behavior rather than planned behavior.
+        - Final approval package includes evidence-backed eligibility states and blocked recommendations.

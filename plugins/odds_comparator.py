@@ -6,10 +6,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+from functools import lru_cache
+from datetime import timedelta
 
+import numpy as np
 import pandas as pd
 
 from plugins.db_manager import DBManager, default_db
+from plugins.probability_calibration import (
+    GovernedProbabilityDecision,
+    publish_governed_probability_decision,
+)
 from naming_resolver import NamingResolver, NamingContext
 from constants import (
     DEFAULT_MIN_EDGE,
@@ -18,6 +25,43 @@ from constants import (
     MAX_MARKET_PROBABILITY,
     MAX_EDGE_THRESHOLD,
 )
+from plugins.pricing_governance import (
+    GovernedPriceQuote,
+    PriceRole,
+    build_single_venue_price_decision,
+    select_best_executable_quote,
+)
+
+SHARP_PRO_EDGE_THRESHOLD = 0.15
+
+
+def _detect_tennis_tour(
+    game_id: str, tickers_by_bm: Optional[Dict[str, Dict[str, str]]] = None
+) -> str:
+    """Infer ATP/WTA tour from Kalshi tickers first, then game ID."""
+    kalshi_tickers = tickers_by_bm.get("Kalshi", {}) if tickers_by_bm else {}
+    ticker_text = " ".join(
+        str(value or "") for value in kalshi_tickers.values()
+    ).upper()
+    game_id_upper = str(game_id or "").upper()
+
+    if "KXATP" in ticker_text or "ATP" in game_id_upper:
+        return "ATP"
+    if "KXWTA" in ticker_text or "WTA" in game_id_upper:
+        return "WTA"
+    return "ATP"
+
+
+@lru_cache(maxsize=1)
+def _load_tennis_probability_history() -> pd.DataFrame:
+    """Load tennis history once for optional probability-model inference."""
+    try:
+        from plugins.elo.tennis_probability_model import load_history_from_db
+
+        return load_history_from_db()
+    except Exception as exc:
+        print(f"⚠️ Tennis probability history unavailable; using Elo fallback: {exc}")
+        return pd.DataFrame()
 
 
 @dataclass
@@ -52,6 +96,7 @@ class BettingOpportunityConfig:
     elo_system: Any
     thresholds: BettingThresholds
     date_str: Optional[str] = None
+    enforce_governance: bool = False
 
 
 @dataclass
@@ -158,6 +203,23 @@ class BettingOutcome:
             "confidence": self.determine_confidence(config),
             "agreement_diff": self.agreement_diff,
         }
+        if context.is_mlb:
+            signal = context.market_signal_for_side(self.side)
+            pro_edge = signal.get("pro_edge")
+            reverse_line_movement = signal.get("reverse_line_movement")
+            opportunity.update(
+                {
+                    "sharp_confirmed": bool(reverse_line_movement)
+                    or (
+                        pro_edge is not None
+                        and float(pro_edge) >= SHARP_PRO_EDGE_THRESHOLD
+                    ),
+                    "pro_edge": pro_edge,
+                    "reverse_line_movement": reverse_line_movement,
+                    "market_signal_source": signal.get("source"),
+                    "market_signal_availability": signal.get("availability"),
+                }
+            )
         if context.is_epl:
             opportunity["schema_version"] = "v1"
             opportunity["payload_kind"] = "bet_opportunity"
@@ -168,6 +230,8 @@ class BettingOutcome:
                 )
         if context.is_tennis and context.tour:
             opportunity["tour"] = str(context.tour).upper()
+        if context.governed_decision:
+            opportunity.update(context.governed_decision.to_payload())
         return opportunity
 
 
@@ -188,9 +252,13 @@ class GameContext:
     tickers_by_bm: Dict[str, Dict[str, str]]
     elo_system: Any
     tour: Optional[str] = None
+    surface: Optional[str] = None
+    market_signals_by_side: Optional[Dict[str, Dict[str, Any]]] = None
+    enforce_governance: bool = False
     home_win_prob: float = 0.0
     draw_prob: Optional[float] = None
     away_win_prob: float = 0.0
+    governed_decision: Optional[GovernedProbabilityDecision] = None
 
     @property
     def is_epl(self) -> bool:
@@ -250,20 +318,36 @@ class GameContext:
         """Calculates Elo probabilities for this game context."""
         try:
             sport_lower = self.sport.lower()
-            if sport_lower == "tennis":
-                # Determine tour from Kalshi ticker
-                kalshi_ticker = (
-                    self.tickers_by_bm.get("Kalshi", {}).get("home", "") or ""
+            if sport_lower == "mlb" and getattr(
+                self.elo_system, "requires_governed_predictions", False
+            ):
+                if not self._apply_governed_mlb_probabilities():
+                    return self._finalize_governance()
+            elif sport_lower == "tennis":
+                self.tour = _detect_tennis_tour(self.game_id, self.tickers_by_bm)
+                predict_with_payload = getattr(
+                    type(self.elo_system), "predict_with_payload", None
                 )
-                if "KXATP" in kalshi_ticker.upper() or "ATP" in self.game_id.upper():
-                    self.tour = "atp"
-                elif "KXWTA" in kalshi_ticker.upper() or "WTA" in self.game_id.upper():
-                    self.tour = "wta"
+                if callable(predict_with_payload):
+                    payload = predict_with_payload(
+                        self.elo_system, self.elo_home, self.elo_away, tour=self.tour
+                    )
+                    tennis_result = self._maybe_apply_tennis_probability_model(
+                        calibrated_elo_prob=float(payload["calibrated_prob_a"])
+                    )
+                    self.home_win_prob = float(tennis_result["probability"])
+                    if self.enforce_governance:
+                        self.governed_decision = publish_governed_probability_decision(
+                            self.normalized_sport,
+                            probability_source=str(tennis_result["probability_source"]),
+                            evidence_state_source_artifact=str(
+                                tennis_result["artifact_ref"]
+                            ),
+                        )
                 else:
-                    self.tour = "atp"
-                self.home_win_prob = self.elo_system.predict(
-                    self.elo_home, self.elo_away, tour=self.tour
-                )
+                    self.home_win_prob = self.elo_system.predict(
+                        self.elo_home, self.elo_away, tour=self.tour
+                    )
                 self.away_win_prob = 1 - self.home_win_prob
             elif hasattr(self.elo_system, "predict_3way") and sport_lower in [
                 "epl",
@@ -278,13 +362,176 @@ class GameContext:
                     self.elo_home, self.elo_away
                 )
                 self.away_win_prob = 1 - self.home_win_prob
-            return True
+            return self._finalize_governance()
         except Exception as e:
             print(f"Error calculating probabilities for {self.game_id}: {e}")
             return False
 
+    def _finalize_governance(self) -> bool:
+        """Apply governed validation rules after probabilities are available."""
+        if not self.enforce_governance:
+            return True
+        if self.governed_decision is not None:
+            return True
+
+        if self.is_tennis:
+            self.governed_decision = publish_governed_probability_decision(
+                self.normalized_sport,
+                probability_source="tennis_calibrated_elo",
+                evidence_state_source_artifact=f"tennis_calibrated_elo:{str(self.tour or 'ATP').upper()}",
+            )
+            return True
+
+        if self.is_epl:
+            self.governed_decision = publish_governed_probability_decision(
+                self.normalized_sport,
+                probability_source="governed_abstention",
+                abstain=True,
+                abstention_reason="runtime_consumer_mismatch, governed_artifact_not_consumed",
+                evidence_state_source_artifact="epl_offline_ensemble:validation_state_publication",
+            )
+            return True
+
+        if self.sport.lower() == "ligue1":
+            governed_source = getattr(self.elo_system, "governed_probability_source", None)
+            if governed_source == "ligue1_live_ensemble":
+                self.governed_decision = publish_governed_probability_decision(
+                    self.normalized_sport,
+                    probability_source="ligue1_live_ensemble",
+                    evidence_state_source_artifact="ligue1_live_ensemble:runtime_adapter",
+                )
+            else:
+                self.governed_decision = publish_governed_probability_decision(
+                    self.normalized_sport,
+                    probability_source="governed_abstention",
+                    abstain=True,
+                    abstention_reason="governed_artifact_not_consumed",
+                    evidence_state_source_artifact="ligue1_live_ensemble:validation_state_publication",
+                )
+            return True
+
+        if self.normalized_sport.upper() in {"NBA", "NHL", "NFL", "NCAAB", "WNCAAB"}:
+            self.governed_decision = publish_governed_probability_decision(
+                self.normalized_sport.upper(),
+                probability_source="governed_abstention",
+                abstain=True,
+                abstention_reason="missing_market_clv_evidence, missing_calibration_evidence, missing_walk_forward_evidence, missing_governed_artifact_lineage",
+                evidence_state_source_artifact="governed_validation_publication",
+            )
+        return True
+
+    def _apply_governed_mlb_probabilities(self) -> bool:
+        """Use governed MLB prediction rows instead of runtime Elo inference."""
+        if not hasattr(self.elo_system, "get_governed_probabilities"):
+            print(
+                f"⚠️  Skipping {self.game_id}: MLB governed mode requires persisted predictions"
+            )
+            if self.enforce_governance:
+                self.governed_decision = publish_governed_probability_decision(
+                    self.normalized_sport,
+                    probability_source="mlb_model_predictions",
+                    abstain=True,
+                    abstention_reason="missing_governed_probability_artifact",
+                    evidence_state_source_artifact="mlb_model_predictions",
+                )
+            return False
+        probabilities = self.elo_system.get_governed_probabilities(self.game_id)
+        if not probabilities:
+            print(
+                f"⚠️  Skipping {self.game_id}: missing governed MLB predictions for run"
+            )
+            if self.enforce_governance:
+                self.governed_decision = publish_governed_probability_decision(
+                    self.normalized_sport,
+                    probability_source="mlb_model_predictions",
+                    abstain=True,
+                    abstention_reason="missing_governed_probability_artifact",
+                    evidence_state_source_artifact="mlb_model_predictions",
+                )
+            return False
+        home_win_prob = probabilities.get("home")
+        away_win_prob = probabilities.get("away")
+        if home_win_prob is None or away_win_prob is None:
+            print(
+                f"⚠️  Skipping {self.game_id}: incomplete governed MLB predictions for run"
+            )
+            return False
+        total = float(home_win_prob) + float(away_win_prob)
+        if not np.isfinite(total) or abs(total - 1.0) > 1e-6:
+            print(
+                f"⚠️  Skipping {self.game_id}: governed MLB probabilities must sum to 1.0"
+            )
+            return False
+        self.home_win_prob = float(home_win_prob)
+        self.away_win_prob = float(away_win_prob)
+        self.draw_prob = None
+        if self.enforce_governance:
+            metadata = getattr(self.elo_system, "governed_prediction_metadata", {})
+            artifact_ref = (
+                f"mlb_model_predictions:{metadata.get('model_version')}@"
+                f"{metadata.get('run_date')}"
+            )
+            self.governed_decision = publish_governed_probability_decision(
+                self.normalized_sport,
+                probability_source="mlb_model_predictions",
+                evidence_state_source_artifact=artifact_ref,
+            )
+        return True
+
+    def _maybe_apply_tennis_probability_model(
+        self, calibrated_elo_prob: float
+    ) -> Dict[str, Any]:
+        """Prefer enabled tennis feature model, otherwise calibrated Elo."""
+        try:
+            from plugins.elo.tennis_probability_model import (
+                DEFAULT_MODEL_PATH,
+                predict_with_artifact,
+            )
+
+            if self.enforce_governance and not getattr(
+                self.elo_system, "enable_governed_tennis_overlay", False
+            ):
+                return {
+                    "probability": calibrated_elo_prob,
+                    "probability_source": "tennis_calibrated_elo",
+                    "artifact_ref": f"tennis_calibrated_elo:{str(self.tour or 'ATP').upper()}",
+                }
+            if not DEFAULT_MODEL_PATH.exists():
+                return {
+                    "probability": calibrated_elo_prob,
+                    "probability_source": "tennis_calibrated_elo",
+                    "artifact_ref": f"tennis_calibrated_elo:{str(self.tour or 'ATP').upper()}",
+                }
+            result = predict_with_artifact(
+                player_a=self.elo_home,
+                player_b=self.elo_away,
+                tour=str(self.tour or "ATP"),
+                surface=str(self.surface or "Hard"),
+                as_of_date=self.recommendation_date,
+                history=_load_tennis_probability_history(),
+                calibrated_elo_prob_a=calibrated_elo_prob,
+                model_path=DEFAULT_MODEL_PATH,
+            )
+            return {
+                "probability": float(result.prob_a),
+                "probability_source": "tennis_feature_model_overlay",
+                "artifact_ref": str(result.model_version or "tennis_probability_model_v2"),
+            }
+        except Exception as exc:
+            print(
+                "⚠️ Tennis probability model unavailable for "
+                f"{self.game_id}; using calibrated Elo fallback: {exc}"
+            )
+            return {
+                "probability": calibrated_elo_prob,
+                "probability_source": "tennis_calibrated_elo",
+                "artifact_ref": f"tennis_calibrated_elo:{str(self.tour or 'ATP').upper()}",
+            }
+
     def evaluate(self, config: BettingThresholds) -> List[Dict[str, Any]]:
         """Evaluates this game for betting opportunities based on context and thresholds."""
+        if self.enforce_governance and self.governed_decision and self.governed_decision.abstain:
+            return [self._build_abstention_payload()]
         opportunities = []
         outcomes = self._prepare_outcomes()
 
@@ -294,6 +541,36 @@ class GameContext:
                 opportunities.append(opp)
 
         return opportunities
+
+    def _build_abstention_payload(self) -> Dict[str, Any]:
+        """Emit an explicit governed abstention row for persistence/reporting."""
+        ticker = self.tickers_by_bm.get("Kalshi", {}).get("home") or self.tickers_by_bm.get(
+            "Kalshi", {}
+        ).get("away")
+        payload = {
+            "sport": self.normalized_sport,
+            "game_id": self.game_id,
+            "home_team": self.home_team_name,
+            "away_team": self.away_team_name,
+            "home_rating": self.get_rating(self.elo_home),
+            "away_rating": self.get_rating(self.elo_away),
+            "bet_on": self.home_team_name,
+            "side": "home",
+            "elo_prob": float(self.home_win_prob or 0.5),
+            "market_prob": 0.5,
+            "market_odds": 2.0,
+            "bookmaker": "Kalshi",
+            "ticker": ticker,
+            "edge": 0.0,
+            "expected_value": 0.0,
+            "kelly_fraction": 0.0,
+            "sharp_confirmed": False,
+            "confidence": "LOW",
+            "agreement_diff": 0.0,
+        }
+        if self.governed_decision:
+            payload.update(self.governed_decision.to_payload())
+        return payload
 
     def _prepare_outcomes(self) -> List[tuple[str, str, float]]:
         """Prepares list of outcomes (side, team_name, elo_prob) to evaluate."""
@@ -350,6 +627,12 @@ class GameContext:
             return self.elo_system.get_rating(elo_name)
         return self.elo_system.get_rating(elo_name, tour=self.tour)
 
+    def market_signal_for_side(self, side: str) -> Dict[str, Any]:
+        """Return latest market-signal metadata for an outcome side."""
+        if not self.market_signals_by_side:
+            return {}
+        return self.market_signals_by_side.get(side, {})
+
 
 class OddsComparator:
     """
@@ -385,26 +668,67 @@ class OddsComparator:
         Returns a dictionary with 'home', 'away', and 'draw' best odds.
         """
         try:
+            df = self.db.fetch_df(
+                """
+                SELECT bookmaker, outcome_name, price, last_update, loaded_at, external_id, odds_id
+                FROM game_odds
+                WHERE game_id = :game_id
+            """,
+                {"game_id": game_id},
+            )
+            if df.empty:
+                return {}
+
             result = {}
             for side in ["home", "away", "draw"]:
-                df = self.db.fetch_df(
-                    """
-                    SELECT bookmaker, price, last_update
-                    FROM game_odds
-                    WHERE game_id = :game_id AND outcome_name = :side
-                    ORDER BY price DESC
-                    LIMIT 1
-                """,
-                    {"game_id": game_id, "side": side},
-                )
+                side_rows = df[df["outcome_name"] == side]
+                if side_rows.empty:
+                    continue
 
-                if not df.empty:
-                    row = df.iloc[0]
-                    result[side] = {
-                        "bookmaker": row["bookmaker"],
-                        "decimal_odds": float(row["price"]),
-                        "last_update": row["last_update"],
-                    }
+                quotes = [
+                    GovernedPriceQuote(
+                        role=PriceRole.EXECUTABLE,
+                        decimal_price=float(row["price"]),
+                        bookmaker=str(row["bookmaker"]),
+                        market_ticker=row.get("external_id"),
+                        selection_key=side,
+                        observed_at=row.get("last_update"),
+                        loaded_at=row.get("loaded_at"),
+                        payload_ref=row.get("odds_id") or row.get("external_id"),
+                    )
+                    for _, row in side_rows.iterrows()
+                    if float(row["price"]) > 0
+                ]
+                if not quotes:
+                    continue
+                parsed_times = []
+                for quote in quotes:
+                    if isinstance(quote.observed_at, datetime):
+                        parsed_times.append(quote.observed_at)
+                    elif quote.observed_at:
+                        parsed = pd.to_datetime(quote.observed_at, utc=True, errors="coerce")
+                        if not pd.isna(parsed):
+                            parsed_times.append(parsed.to_pydatetime())
+                as_of = max(parsed_times, default=datetime.now())
+
+                decision = build_single_venue_price_decision(
+                    executable_quote=max(quotes, key=lambda quote: quote.decimal_price),
+                    best_quote_candidates=quotes,
+                )
+                best_quote = select_best_executable_quote(
+                    quotes,
+                    as_of=as_of,
+                    max_age=timedelta(hours=4),
+                )
+                selected = best_quote or decision.executable_quote
+                result[side] = {
+                    "bookmaker": selected.bookmaker,
+                    "decimal_odds": float(selected.decimal_price),
+                    "last_update": selected.observed_at,
+                    "price_role": selected.role.value,
+                    "freshness_result": selected.freshness_result,
+                    "payload_ref": selected.payload_ref,
+                }
             return result
         except Exception as e:
             print(f"Error fetching best odds for {game_id}: {e}")
@@ -457,13 +781,28 @@ class OddsComparator:
         if "Kalshi" not in odds_by_bm:
             return None
 
+        market_signals_by_side = (
+            self._get_latest_mlb_market_signals(game_id)
+            if sport.lower() == "mlb"
+            else None
+        )
+
         # Safety guard: never bet when either team lacks a real Elo rating.
         # get_rating() silently inserts a 1500 default for unknown teams; we
         # must use has_real_rating() to distinguish "computed" from "default".
         if not self._both_teams_have_real_ratings(
-            elo_system, sport, elo_home, elo_away, game_id
+            elo_system, sport, elo_home, elo_away, game_id, tickers_by_bm
         ):
             return None
+
+        if sport.lower() == "mlb" and getattr(
+            elo_system, "requires_governed_predictions", False
+        ):
+            self._attach_governed_mlb_prediction_loader(
+                elo_system=elo_system,
+                game_id=game_id,
+                run_date=getattr(elo_system, "governed_run_date", row["game_date"]),
+            )
 
         return GameContext(
             sport=sport,
@@ -478,7 +817,274 @@ class OddsComparator:
             odds_by_bm=odds_by_bm,
             tickers_by_bm=tickers_by_bm,
             elo_system=elo_system,
+            surface=(
+                self._infer_tennis_surface(
+                    player_a=elo_home,
+                    player_b=elo_away,
+                    as_of_date=str(row["game_date"]),
+                )
+                if sport.lower() == "tennis"
+                else None
+            ),
+            market_signals_by_side=market_signals_by_side,
+            enforce_governance=getattr(self, "_enforce_governance", False),
         )
+
+    def _attach_governed_mlb_prediction_loader(
+        self,
+        *,
+        elo_system: Any,
+        game_id: str,
+        run_date: Any,
+    ) -> None:
+        """Attach a fail-closed governed MLB probability loader to the Elo object."""
+
+        def _loader(target_game_id: str) -> Optional[Dict[str, float]]:
+            if str(target_game_id) != str(game_id):
+                return None
+            probabilities = self._get_governed_mlb_probabilities(
+                game_id=str(target_game_id),
+                run_date=str(run_date)[:10],
+            )
+            setattr(
+                elo_system,
+                "governed_prediction_metadata",
+                getattr(self, "_latest_governed_mlb_metadata", {}),
+            )
+            return probabilities
+
+        setattr(elo_system, "get_governed_probabilities", _loader)
+
+    def _get_governed_mlb_probabilities(
+        self,
+        *,
+        game_id: str,
+        run_date: str,
+    ) -> Optional[Dict[str, float]]:
+        """Return latest complete governed MLB model predictions for a game/run date."""
+        try:
+            df = self.db.fetch_df(
+                """
+                WITH latest_model AS (
+                    SELECT model_version
+                    FROM mlb_model_predictions
+                    WHERE game_id = :game_id
+                      AND run_date = CAST(:run_date AS DATE)
+                      AND market_name = 'moneyline'
+                    GROUP BY model_version
+                    ORDER BY MAX(created_at) DESC, model_version DESC
+                    LIMIT 1
+                )
+                SELECT
+                    outcome_name,
+                    model_prob,
+                    abstain,
+                    abstention_reason,
+                    model_version,
+                    run_date,
+                    created_at
+                FROM mlb_model_predictions
+                WHERE game_id = :game_id
+                  AND run_date = CAST(:run_date AS DATE)
+                  AND market_name = 'moneyline'
+                  AND model_version = (SELECT model_version FROM latest_model)
+                """,
+                {"game_id": game_id, "run_date": run_date},
+            )
+        except Exception as exc:
+            print(f"⚠️ MLB governed predictions unavailable for {game_id}: {exc}")
+            return None
+
+        if df is None or df.empty:
+            return None
+
+        filtered = df.copy()
+        if "game_id" in filtered.columns:
+            filtered = filtered.loc[filtered["game_id"].astype(str) == str(game_id)]
+        if "run_date" in filtered.columns:
+            filtered = filtered.loc[
+                pd.to_datetime(filtered["run_date"], errors="coerce")
+                .dt.strftime("%Y-%m-%d")
+                .eq(run_date)
+            ]
+        if "market_name" in filtered.columns:
+            filtered = filtered.loc[filtered["market_name"].astype(str) == "moneyline"]
+        if filtered.empty:
+            return None
+
+        if "model_version" in filtered.columns:
+            if "created_at" in filtered.columns:
+                created_at = pd.to_datetime(filtered["created_at"], errors="coerce")
+                ranked = (
+                    filtered.assign(_created_at=created_at)
+                    .groupby("model_version", as_index=False)["_created_at"]
+                    .max()
+                    .sort_values(
+                        ["_created_at", "model_version"], ascending=[False, False]
+                    )
+                )
+                latest_model_version = str(ranked.iloc[0]["model_version"])
+            else:
+                latest_model_version = str(filtered["model_version"].astype(str).max())
+            filtered = filtered.loc[
+                filtered["model_version"].astype(str) == latest_model_version
+            ]
+        if filtered.empty:
+            return None
+
+        if (
+            "abstain" in filtered.columns
+            and filtered["abstain"].fillna(False).astype(bool).any()
+        ):
+            return None
+
+        if "created_at" in filtered.columns:
+            filtered = filtered.assign(
+                _created_at=pd.to_datetime(filtered["created_at"], errors="coerce")
+            ).sort_values("_created_at", ascending=False)
+
+        filtered = filtered.drop_duplicates(subset=["outcome_name"], keep="first")
+        if (
+            "abstain" in filtered.columns
+            and filtered["abstain"].fillna(False).astype(bool).any()
+        ):
+            return None
+
+        probabilities = {
+            str(row["outcome_name"]): float(row["model_prob"])
+            for _, row in filtered.iterrows()
+            if row["outcome_name"] in {"home", "away"}
+        }
+        if set(probabilities) != {"home", "away"}:
+            return None
+        first_row = filtered.iloc[0]
+        self._latest_governed_mlb_metadata = {
+            "model_version": str(first_row.get("model_version") or ""),
+            "run_date": str(first_row.get("run_date") or run_date)[:10],
+        }
+        return probabilities
+
+    def _get_latest_mlb_market_signals(self, game_id: str) -> Dict[str, Dict[str, Any]]:
+        """Return latest MLB market-signal row by outcome side."""
+        try:
+            df = self.db.fetch_df(
+                """
+                SELECT DISTINCT ON (outcome_name)
+                    outcome_name,
+                    pro_edge,
+                    reverse_line_movement,
+                    source,
+                    CASE
+                        WHEN ticket_pct IS NULL OR money_pct IS NULL THEN 'unavailable'
+                        ELSE 'available'
+                    END AS availability
+                FROM mlb_market_signals
+                WHERE game_id = :game_id
+                ORDER BY outcome_name, snapshot_at DESC
+                """,
+                {"game_id": game_id},
+            )
+        except Exception as exc:
+            print(f"⚠️ MLB market signals unavailable for {game_id}: {exc}")
+            return {}
+
+        if df is None or df.empty:
+            return {}
+
+        return {
+            str(row["outcome_name"]): {
+                "pro_edge": (
+                    None if pd.isna(row["pro_edge"]) else float(row["pro_edge"])
+                ),
+                "reverse_line_movement": bool(row["reverse_line_movement"]),
+                "source": row.get("source"),
+                "availability": row.get("availability"),
+            }
+            for _, row in df.iterrows()
+        }
+
+    def _infer_tennis_surface(
+        self,
+        *,
+        player_a: str,
+        player_b: str,
+        as_of_date: str,
+    ) -> str:
+        """Infer the likely surface for an upcoming tennis matchup.
+
+        Prefer the latest exact head-to-head surface when available. Otherwise,
+        fall back to the most recent surface both players have appeared on in
+        the recent window, then the single most recent observed player surface.
+        """
+        try:
+            df = self.db.fetch_df(
+                """
+                SELECT game_date, surface, winner, loser
+                FROM tennis_games
+                WHERE game_date <= CAST(:as_of_date AS DATE)
+                  AND surface IS NOT NULL
+                  AND surface <> ''
+                  AND (
+                        winner = :player_a
+                     OR loser = :player_a
+                     OR winner = :player_b
+                     OR loser = :player_b
+                  )
+                ORDER BY game_date DESC
+                LIMIT 60
+                """,
+                {"player_a": player_a, "player_b": player_b, "as_of_date": as_of_date},
+            )
+        except Exception as exc:
+            print(f"⚠️ Tennis surface lookup unavailable; defaulting to Hard: {exc}")
+            return "Hard"
+
+        if df is None or df.empty:
+            return "Hard"
+
+        rows = [
+            {
+                "surface": str(row["surface"]).strip().title(),
+                "winner": str(row["winner"]),
+                "loser": str(row["loser"]),
+            }
+            for _, row in df.iterrows()
+            if str(row.get("surface") or "").strip()
+        ]
+        if not rows:
+            return "Hard"
+
+        player_a_surfaces = {
+            row["surface"]
+            for row in rows
+            if row["winner"] == player_a or row["loser"] == player_a
+        }
+        player_b_surfaces = {
+            row["surface"]
+            for row in rows
+            if row["winner"] == player_b or row["loser"] == player_b
+        }
+        shared_surfaces = player_a_surfaces & player_b_surfaces
+        if shared_surfaces:
+            shared_recent = next(
+                (row["surface"] for row in rows if row["surface"] in shared_surfaces),
+                None,
+            )
+            if shared_recent:
+                return shared_recent
+
+        exact = next(
+            (
+                row["surface"]
+                for row in rows
+                if {row["winner"], row["loser"]} == {player_a, player_b}
+            ),
+            None,
+        )
+        if exact:
+            return exact
+
+        return rows[0]["surface"]
 
     def _both_teams_have_real_ratings(
         self,
@@ -487,6 +1093,7 @@ class OddsComparator:
         elo_home: str,
         elo_away: str,
         game_id: str,
+        tickers_by_bm: Optional[Dict[str, Dict[str, str]]] = None,
     ) -> bool:
         """Check that both teams have real (non-default) Elo ratings.
 
@@ -496,17 +1103,15 @@ class OddsComparator:
             elo_home: Elo-canonical name for the home team/player.
             elo_away: Elo-canonical name for the away team/player.
             game_id: Game identifier (for logging only).
+            tickers_by_bm: Market tickers by bookmaker/outcome, used to infer
+                tennis ATP/WTA tour when generic game IDs do not include tour.
 
         Returns:
             True if both teams have ratings computed from real game data,
             False if either team is unknown to the Elo system.
         """
         if sport.lower() == "tennis":
-            tour = (
-                "atp"
-                if "ATP" in game_id.upper() or "KXATP" in game_id.upper()
-                else "wta"
-            )
+            tour = _detect_tennis_tour(game_id, tickers_by_bm)
             home_ok = elo_system.has_real_rating(elo_home, tour=tour)
             away_ok = elo_system.has_real_rating(elo_away, tour=tour)
         else:
@@ -597,10 +1202,19 @@ class OddsComparator:
         opportunities = []
 
         try:
+            self._enforce_governance = bool(config.enforce_governance)
             games_df = self._get_games(config.sport, config.date_str)
             print(
                 f"🔍 Analyzing {len(games_df)} {config.sport.upper()} games for value bets..."
             )
+            if config.sport.lower() == "mlb" and getattr(
+                config.elo_system, "requires_governed_predictions", False
+            ):
+                setattr(
+                    config.elo_system,
+                    "governed_run_date",
+                    str(config.date_str or datetime.now().strftime("%Y-%m-%d")),
+                )
 
             for _, row in games_df.iterrows():
                 # 1. Resolve context

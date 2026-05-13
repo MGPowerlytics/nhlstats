@@ -1,0 +1,233 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/portfolio_optimizer_contract_v1.json",
+  "title": "Portfolio Optimizer Contract v1",
+  "description": "Canonical payloads produced by PortfolioOptimizer — portfolio allocation and optimization summary.",
+  "type": "object",
+  "oneOf": [
+    {
+      "$ref": "#/$defs/portfolio_allocation_result"
+    },
+    {
+      "$ref": "#/$defs/optimization_summary"
+    }
+  ],
+  "$defs": {
+    "portfolio_allocation_result": {
+      "type": "object",
+      "required": [
+        "bet_size",
+        "kelly_fraction",
+        "allocation_pct",
+        "opportunity",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "bet_size": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Dollar amount to bet on this opportunity"
+        },
+        "kelly_fraction": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Kelly Criterion fraction for this bet (0 = no bet, 1 = full Kelly)"
+        },
+        "allocation_pct": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Portfolio allocation percentage (0.0 to 1.0)"
+        },
+        "opportunity": {
+          "type": "object",
+          "description": "The underlying bet opportunity that generated this allocation",
+          "required": [
+            "sport",
+            "ticker",
+            "bet_on",
+            "team",
+            "opponent",
+            "home_team",
+            "away_team",
+            "elo_prob",
+            "market_prob",
+            "edge",
+            "confidence",
+            "yes_ask",
+            "no_ask",
+            "home_rating",
+            "away_rating"
+          ],
+          "properties": {
+            "sport": {
+              "type": "string",
+              "minLength": 1
+            },
+            "ticker": {
+              "type": "string",
+              "minLength": 1
+            },
+            "bet_on": {
+              "type": "string",
+              "minLength": 1
+            },
+            "team": {
+              "type": "string",
+              "minLength": 1
+            },
+            "opponent": {
+              "type": "string",
+              "minLength": 1
+            },
+            "home_team": {
+              "type": "string"
+            },
+            "away_team": {
+              "type": "string"
+            },
+            "home_team_raw": {
+              "type": "string",
+              "default": ""
+            },
+            "away_team_raw": {
+              "type": "string",
+              "default": ""
+            },
+            "elo_prob": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "market_prob": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1
+            },
+            "edge": {
+              "type": "number"
+            },
+            "confidence": {
+              "type": "string",
+              "enum": ["HIGH", "MEDIUM", "LOW"]
+            },
+            "yes_ask": {
+              "type": "number",
+              "minimum": 0
+            },
+            "no_ask": {
+              "type": "number",
+              "minimum": 0
+            },
+            "home_rating": {
+              "type": "number"
+            },
+            "away_rating": {
+              "type": "number"
+            },
+            "game_time": {
+              "type": ["string", "null"]
+            },
+            "game_id": {
+              "type": ["string", "null"]
+            },
+            "recommendation_id": {
+              "type": ["string", "null"]
+            },
+            "betmgm_prob": {
+              "type": ["number", "null"],
+              "minimum": 0,
+              "maximum": 1
+            },
+            "probability_source": {
+              "type": ["string", "null"]
+            },
+            "evidence_state": {
+              "type": ["string", "null"]
+            },
+            "evidence_state_reason": {
+              "type": ["string", "null"]
+            },
+            "evidence_state_source_artifact": {
+              "type": ["string", "null"]
+            },
+            "governance_status": {
+              "type": ["string", "null"]
+            },
+            "sizing_eligible": {
+              "type": "boolean"
+            },
+            "abstain": {
+              "type": "boolean"
+            },
+            "abstention_reason": {
+              "type": ["string", "null"]
+            }
+          },
+          "additionalProperties": false
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Contract schema version identifier"
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "portfolio_allocation",
+          "description": "Discriminator for the portfolio_allocation_result payload kind"
+        }
+      },
+      "additionalProperties": false
+    },
+    "optimization_summary": {
+      "type": "object",
+      "required": [
+        "date_str",
+        "total_opportunities",
+        "filtered_count",
+        "allocations_count",
+        "total_bet_size",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "date_str": {
+          "type": "string",
+          "description": "Date the optimization was run for (YYYY-MM-DD)"
+        },
+        "total_opportunities": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Total number of bet opportunities found before filtering"
+        },
+        "filtered_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of opportunities that passed filtering"
+        },
+        "allocations_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Number of allocations produced"
+        },
+        "total_bet_size": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Sum of all bet sizes in dollars"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "v1",
+          "description": "Contract schema version identifier"
+        },
+        "payload_kind": {
+          "type": "string",
+          "const": "optimization_summary",
+          "description": "Discriminator for the optimization_summary payload kind"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

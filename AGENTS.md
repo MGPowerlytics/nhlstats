@@ -1,6 +1,7 @@
 # AGENTS
 
 - PostgreSQL is the primary runtime system of record for operational data.
+- Treat CLV, calibration, and walk-forward evidence as mandatory approval gates for any bankroll sizing or threshold change; otherwise keep the change blocked.
 - Prefer immutable, reproducible runtime artifacts over mutable bind-mounted runtime behavior.
 - Keep a single canonical schema definition and governed migration path; conflicting DDL owners are not acceptable.
 - For EPL-owned contract boundaries, keep canonical contract schema assets in `tests/contracts/schemas/`; define governed PostgreSQL row compatibility there in one place, and preserve storage compatibility unless an explicit coordination plan says otherwise.

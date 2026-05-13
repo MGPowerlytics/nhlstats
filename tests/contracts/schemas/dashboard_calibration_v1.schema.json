@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "tests/contracts/schemas/dashboard_calibration_v1.schema.json",
+  "title": "Dashboard Calibration Read Model v1",
+  "description": "Canonical row contract for PostgreSQL view dashboard_calibration_v1.",
+  "version": "v1",
+  "type": "object",
+  "required": [
+    "bucket_start",
+    "bucket_end",
+    "prediction_count",
+    "avg_elo_prob",
+    "avg_market_prob",
+    "observed_win_rate",
+    "avg_edge",
+    "avg_expected_value",
+    "settled_count",
+    "unsettled_count"
+  ],
+  "properties": {
+    "bucket_start": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "bucket_end": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "maximum": 1
+    },
+    "prediction_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "avg_elo_prob": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "avg_market_prob": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "observed_win_rate": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "avg_edge": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": -1,
+      "maximum": 1
+    },
+    "avg_expected_value": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "settled_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "unsettled_count": {
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": false
+}

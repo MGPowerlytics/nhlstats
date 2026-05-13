@@ -45,8 +45,8 @@ class TennisGames:
                 print(f"📥 Downloading {tour.upper()} data ({year}) from {url}...")
                 try:
                     response = requests.get(url, headers=headers)
-                    if response.status_code == 404:
-                        print(f"  Note: Data for {tour} {year} not found.")
+                    if response.status_code != 200:
+                        print(f"  Note: Data for {tour} {year} not found (HTTP {response.status_code}).")
                         continue
 
                     response.raise_for_status()

@@ -138,6 +138,10 @@ def test_sync_orders_to_database_upserts_one_row_per_order(sample_orders):
         params = call.args[1]
         assert params["source"] == "system"
         assert params["status"] == "open"
+        assert params["entry_price_cents"] == params["price"]
+        assert params["entry_quote_role"] == "executable"
+        assert params["entry_quote_source_system"] == "kalshi_order"
+        assert params["entry_quote_fallback_status"] == "direct_order"
 
 
 def test_sync_orders_maps_resting_executed_canceled_to_local_status(sample_orders):
@@ -247,3 +251,39 @@ def test_sync_orders_calls_backfill_metrics_after_inserts(sample_orders):
                     sync_orders_to_database(db=db, client=client)
 
     mock_backfill.assert_called_once_with(db)
+
+
+def test_persist_execution_lineage_updates_order_row_with_runtime_selection():
+    from plugins.bet_tracker import persist_execution_lineage
+
+    db = MagicMock()
+
+    updated = persist_execution_lineage(
+        [
+            {
+                "order_id": "ORDER-123",
+                "ticker": "KXNHL-26MAY03NYRBOS-NYR",
+                "bet_on": "New York Rangers",
+                "recommendation_id": "REC-123",
+                "entry_price_cents": 62,
+                "entry_quote_role": "executable",
+                "entry_price_source": "yes_ask",
+                "entry_quote_source_system": "kalshi_market_details",
+                "entry_quote_bookmaker": "Kalshi",
+                "entry_quote_observed_at": "2026-05-03T13:55:00Z",
+                "entry_quote_loaded_at": "2026-05-03T13:56:00Z",
+                "entry_quote_payload_ref": "PAYLOAD-1",
+                "entry_quote_freshness_result": "fresh",
+                "entry_quote_fallback_status": "direct_market_quote",
+            }
+        ],
+        db=db,
+    )
+
+    assert updated == 1
+    sql, params = db.execute.call_args.args
+    assert "UPDATE placed_bets" in sql
+    assert params["bet_id"] == "ORDER-123"
+    assert params["recommendation_id"] == "REC-123"
+    assert params["entry_price_cents"] == 62
+    assert params["entry_quote_fallback_status"] == "direct_market_quote"

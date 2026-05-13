@@ -1,298 +1,183 @@
-# Portfolio-Level Betting Optimization
+# Portfolio Betting Runtime Runbook
 
-## Overview
+## Purpose
 
-The multi-sport betting system now includes **portfolio-level bet sizing optimization** using the Kelly Criterion and modern portfolio theory. Instead of placing fixed-size bets per sport independently, the system optimizes allocation across all sports simultaneously.
+This runbook documents the live governed portfolio-betting behavior implemented in Waves 1-6. It is the operator-facing source of truth for approval gating, exposure accounting, drawdown handling, and runtime rejection semantics.
 
-## Key Features
+Use this document for runtime review only. It does **not** authorize any bankroll, Kelly, threshold, or eligibility relaxation.
 
-### 1. **Kelly Criterion Bet Sizing**
-Uses the mathematically optimal Kelly formula to size each bet:
+## Live runtime controls
 
-```
-Kelly Fraction = (p × b - q) / b
-```
+The live portfolio path loads recommendations from PostgreSQL and enforces governed controls before any approval-sized allocation is produced.
 
-Where:
-- `p` = probability of winning (from Elo)
-- `q` = probability of losing (1 - p)
-- `b` = net odds (1/market_prob - 1)
+Current runtime sizing parameters:
 
-For safety, we use **fractional Kelly** (default: 0.25 = quarter Kelly) to reduce volatility.
+| Control | Live value | Source |
+| --- | --- | --- |
+| Daily risk cap | `25%` of current portfolio value | `plugins/constants.py`, `plugins/portfolio_optimizer.py`, `governed_portfolio_risk_state_v1.daily_risk_cap_dollars` |
+| Kelly scaling | `0.20` fractional Kelly | `plugins/constants.py`, `plugins/portfolio_optimizer.py` |
+| Minimum bet size | `$2.00` | `plugins/portfolio_optimizer.py` |
+| Maximum bet size | `$10.00` | `plugins/constants.py`, `plugins/portfolio_optimizer.py` |
+| Maximum single-bet exposure | `3%` of bankroll | `plugins/constants.py`, `plugins/portfolio_optimizer.py` |
+| Minimum edge filter | `3%` | `plugins/constants.py`, `plugins/portfolio_optimizer.py` |
 
-### 2. **Portfolio-Level Constraints**
+These are runtime values, not change approvals. Any proposal to raise Kelly, risk caps, bet size limits, or eligibility thresholds remains blocked unless approval-grade CLV, calibration, and walk-forward evidence are all simultaneously reviewable.
 
-- **Daily Risk Limit**: Max 10% of bankroll per day (configurable)
-- **Per-Bet Maximum**: Max 5% of bankroll per bet (configurable)
-- **Minimum/Maximum Bet Sizes**: $2 - $50 (configurable)
-- **Prioritization**: Bets sorted by expected value (EV)
+## Evidence gate before sizing
 
-### 3. **Multi-Sport Allocation**
+The live database-backed optimizer fails closed before sizing:
 
-The system:
-1. Loads bet opportunities from all sports (NHL, NBA, MLB, NFL)
-2. Filters by minimum edge (5%) and confidence (68%)
-3. Calculates Kelly fractions for each bet
-4. Allocates optimally within portfolio constraints
-5. Stops when daily risk limit is reached
+1. If governed recommendations are unavailable, live approvals stop with `approval_blocked_reason=governed_recommendations_unavailable`.
+2. If governed portfolio-risk context is unavailable, live approvals stop with `approval_blocked_reason=governed_risk_context_unavailable`.
+3. If a recommendation is marked `abstain`, `sizing_eligible=false`, contaminated, or missing approval-grade evidence, it is excluded before sizing.
+4. Approval-sized allocation is allowed only when recommendation evidence is not contaminated **and** CLV, calibration, and walk-forward evidence are approval-grade (or `approval_grade_evidence=true`).
 
-## Files
+Descriptive metrics are not approval evidence. Positive edge, positive EV, a Kelly output, or a non-null CLV row do **not** authorize sizing changes on their own.
 
-### Core Modules
+## Probability and confidence semantics
 
-- **`plugins/portfolio_optimizer.py`**: Core optimization logic
-  - `BetOpportunity`: Dataclass for bet opportunities
-  - `PortfolioAllocation`: Optimized bet sizes
-  - `PortfolioOptimizer`: Main optimization engine
+Use the governed recommendation surface for probability review:
 
-- **`plugins/portfolio_betting.py`**: Integration with Kalshi
-  - `PortfolioBettingManager`: Connects optimizer to Kalshi API
-  - Handles bet placement, tracking, and reporting
+- Read model: `governed_evidence_record_v1`
+- Key fields:
+  - `probability_source`
+  - `calibrated_probability`
+  - `market_probability`
+  - `edge`
+  - `expected_value`
+  - `kelly_fraction`
+  - `confidence_label`
 
-### Data Files
+Important:
 
-- **Input**: `data/{sport}/bets_{YYYY-MM-DD}.json` (per-sport recommendations)
-- **Output**:
-  - `data/portfolio/betting_report_{YYYY-MM-DD}.txt` (human-readable)
-  - `data/portfolio/betting_results_{YYYY-MM-DD}.json` (machine-readable)
-
-## Usage
-
-### Command Line
-
-```bash
-# Dry run (recommended for testing)
-python3 plugins/portfolio_betting.py 2026-01-19 --dry-run
-
-# Live betting (use with caution!)
-python3 plugins/portfolio_betting.py 2026-01-19
-```
-
-### Python API
-
-```python
-from plugins.portfolio_betting import PortfolioBettingManager
-from plugins.kalshi_betting import KalshiBetting
-
-# Initialize
-kalshi = KalshiBetting(api_key_id='...', private_key_path='...')
-manager = PortfolioBettingManager(
-    kalshi_client=kalshi,
-    max_daily_risk_pct=0.10,  # 10% max per day
-    kelly_fraction=0.25,       # Quarter Kelly
-    min_bet_size=2.0,
-    max_bet_size=50.0,
-    dry_run=True
-)
-
-# Process bets for a date
-results = manager.process_daily_bets('2026-01-19')
-```
-
-## Configuration
-
-### Risk Parameters (Adjustable)
-
-```python
-PortfolioBettingManager(
-    max_daily_risk_pct=0.10,    # Max 10% of bankroll per day
-    kelly_fraction=0.25,         # Use 1/4 Kelly (conservative)
-    min_bet_size=2.0,            # Minimum $2 per bet
-    max_bet_size=50.0,           # Maximum $50 per bet
-    max_single_bet_pct=0.05,    # Max 5% per bet
-    min_edge=0.05,               # Minimum 5% edge required
-    min_confidence=0.68,         # Minimum 68% Elo probability
-)
-```
-
-### Recommended Settings by Risk Tolerance
-
-| Risk Level | Kelly Fraction | Max Daily Risk | Max Per Bet |
-|------------|----------------|----------------|-------------|
-| Conservative | 0.10-0.25 | 5-10% | 2-5% |
-| Moderate | 0.25-0.50 | 10-15% | 5-10% |
-| Aggressive | 0.50-1.00 | 15-25% | 10-15% |
-
-⚠️ **Warning**: Full Kelly (1.0) has high variance. Quarter Kelly (0.25) is recommended.
-
-## Example Output
-
-### Betting Report
-
-```
-================================================================================
-PORTFOLIO-OPTIMIZED BETTING REPORT
-================================================================================
-Date: 2026-01-19
-Bankroll: $1,000.00
-Max Daily Risk: 10.0% ($100.00)
-Kelly Fraction: 25.00%
-
-SUMMARY
---------------------------------------------------------------------------------
-Opportunities Found:     4
-After Filtering:         4
-Bets to Place:           2
-Total Bet Amount:        $100.00 (10.00% of bankroll)
-Expected Profit:         $49.30
-Expected ROI:            49.30%
-Average Bet Size:        $50.00
-Average Edge:            22.40%
-
-BET ALLOCATIONS
---------------------------------------------------------------------------------
-
-NBA:
-  Sport Total: $100.00
-
-  1. Nuggets vs Lakers
-     Ticker: KXNBAGAME-26JAN20LALDEN-DEN
-     Bet Size: $50.00 (5.00% of bankroll)
-     Elo Prob: 75.5% | Market: 42.0% | Edge: +33.5%
-     Kelly Fraction: 0.578 (scaled: 0.144)
-     Expected Value: +79.78%
-     Confidence: HIGH
-
-  2. Rockets vs Spurs
-     Ticker: KXNBAGAME-26JAN20SASHOU-HOU
-     Bet Size: $50.00 (5.00% of bankroll)
-     Elo Prob: 71.3% | Market: 60.0% | Edge: +11.3%
-     Kelly Fraction: 0.282 (scaled: 0.071)
-     Expected Value: +18.83%
-     Confidence: MEDIUM
-================================================================================
-```
-
-## Advantages Over Old System
-
-### Old System (Per-Sport Independent)
-- ❌ Fixed bet sizes ($2-$5) regardless of edge
-- ❌ No portfolio-level risk management
-- ❌ Didn't account for total exposure
-- ❌ Could place too many small bets
-- ❌ No prioritization by expected value
-
-### New System (Portfolio-Optimized)
-- ✅ Kelly Criterion for mathematically optimal sizing
-- ✅ Portfolio-level daily risk limits
-- ✅ Prioritizes best opportunities by EV
-- ✅ Stops when daily limit reached
-- ✅ Unified view across all sports
-- ✅ Expected ROI tracking
-
-## Integration with Airflow DAG
-
-To integrate into `multi_sport_betting_workflow.py`, replace the `place_bets_on_recommendations` task with:
-
-```python
-@task(task_id="place_optimized_portfolio_bets")
-def place_portfolio_bets(**context):
-    """Place portfolio-optimized bets across all sports."""
-    from plugins.portfolio_betting import PortfolioBettingManager
-    from plugins.kalshi_betting import KalshiBetting
-    from plugins.kalshi_markets import load_kalshi_credentials
-    from pathlib import Path
-
-    # Load credentials
-    api_key_id, private_key = load_kalshi_credentials()
-    temp_key = Path('kalshi_private_key.pem')
-    temp_key.write_text(private_key)
-
-    try:
-        # Initialize
-        kalshi = KalshiBetting(api_key_id=api_key_id, private_key_path=str(temp_key))
-        manager = PortfolioBettingManager(
-            kalshi_client=kalshi,
-            max_daily_risk_pct=0.10,
-            kelly_fraction=0.25,
-            dry_run=False  # SET TO TRUE FOR TESTING
-        )
-
-        # Process bets
-        date_str = context['ds']
-        results = manager.process_daily_bets(date_str)
-
-        return results
-    finally:
-        if temp_key.exists():
-            temp_key.unlink()
-```
-
-## Mathematical Background
-
-### Kelly Criterion
-
-The Kelly Criterion maximizes long-term growth rate by betting a fraction of bankroll proportional to edge:
-
-```
-f* = (bp - q) / b = edge / odds
-```
-
-Where:
-- `f*` = fraction of bankroll to bet
-- `b` = net odds received on the bet
-- `p` = probability of winning
-- `q` = 1 - p (probability of losing)
-
-### Why Fractional Kelly?
-
-Full Kelly has high variance. Fractional Kelly (e.g., 1/4 Kelly) reduces volatility while maintaining good growth:
-
-- **Full Kelly**: Maximum growth rate, but ~50% drawdowns possible
-- **Half Kelly**: 75% of growth rate, ~25% drawdowns
-- **Quarter Kelly**: 50% of growth rate, ~12% drawdowns (recommended)
-
-### Expected Value
-
-Each bet's expected value is calculated as:
-
-```
-EV = edge / market_probability
-```
-
-Example:
-- Elo probability: 75%
-- Market probability: 42%
-- Edge: 33%
-- EV = 33% / 42% = +78.6%
-
-This means for every $1 bet, we expect to profit $0.786 on average.
-
-## Testing
-
-Always test with `--dry-run` first:
-
-```bash
-# Test today
-python3 plugins/portfolio_betting.py $(date +%Y-%m-%d) --dry-run
-
-# Test specific date
-python3 plugins/portfolio_betting.py 2026-01-19 --dry-run
-```
-
-Check outputs in `data/portfolio/` before going live.
-
-## Monitoring
-
-Track performance metrics:
-- **Actual ROI** vs **Expected ROI**
-- **Bankroll growth** over time
-- **Hit rate** by confidence level
-- **Calibration** of Elo probabilities
-
-Use `plugins/betting_backtest.py` for historical analysis.
-
-## Future Enhancements
-
-Potential improvements:
-1. **Correlation modeling**: Reduce bets on correlated outcomes
-2. **Dynamic Kelly fraction**: Adjust based on recent performance
-3. **Position limits**: Max % in any one sport/game
-4. **Time-weighted sizing**: Larger bets when more time to settle
-5. **Volatility adjustment**: Reduce sizing in high-variance periods
-
-## References
-
-- Kelly, J. L. (1956). "A New Interpretation of Information Rate"
-- Thorp, E. O. (2008). "The Kelly Criterion in Blackjack, Sports Betting, and the Stock Market"
-- MacLean, L. C., et al. (2011). "The Kelly Capital Growth Investment Criterion"
+- `confidence_label` is a descriptive edge band (`HIGH`/`MEDIUM`/`LOW`), not an approval gate.
+- Legacy numeric confidence settings are not the live approval control.
+- Sport approval readiness is determined by governed evidence state and approval-grade evidence, not by dashboard confidence labels.
+
+## Pricing and CLV semantics
+
+Use governed surfaces instead of legacy page-local inference:
+
+### Recommendation-time pricing
+
+- Read model: `governed_evidence_record_v1`
+- Key fields:
+  - `quote_price_role`
+  - `quote_source_system`
+  - `quote_bookmaker`
+  - `quote_observed_at`
+  - `quote_loaded_at`
+  - `quote_payload_ref`
+  - `quote_lineage_status`
+  - `quote_freshness_result`
+  - `quote_fallback_status`
+
+`quote_price_role` is the recommendation-time executable quote context. It is not the same as close-line evidence.
+
+### CLV review
+
+- Read model: `governed_clv_evidence_envelope_v1`
+- Key fields:
+  - `clv_source_type`
+  - `clv_delta`
+  - `clv_direction`
+  - `closing_quote_source`
+  - `closing_quote_at`
+  - `close_price_role`
+  - `close_freshness_result`
+  - `selected_close_rule`
+  - `selected_close_provenance`
+  - `clv_evidence_tier`
+  - `clv_contaminated_flag`
+
+Interpretation:
+
+- `clv_source_type=market_close` is the only governed market-close lineage.
+- `binary_result_placeholder`, `missing_close`, and `unlinked_close` are not approval-grade close evidence.
+- `clv_evidence_tier` and `clv_contaminated_flag` are descriptive quality fields; they do not by themselves unlock sizing changes.
+
+## Exposure truth and drawdown handling
+
+Use `governed_portfolio_risk_state_v1` for operator review and the Portfolio page's **Governed Risk State** table.
+
+Key fields:
+
+- `open_exposure_amount`
+- `resting_order_exposure_amount`
+- `executed_unsettled_exposure_amount`
+- `remaining_daily_risk_budget_dollars`
+- `drawdown_amount_dollars`
+- `drawdown_ratio`
+- `drawdown_state`
+- `risk_of_ruin_state`
+- `portfolio_guardrail_state`
+- `portfolio_guardrail_reason_code`
+- `portfolio_guardrail_reason_detail`
+- `exposure_state`
+- `rejection_reason_code`
+- `rejection_reason_detail`
+
+Runtime meaning:
+
+- Governed open exposure includes `pending`, `open`, `placed`, and `filled` positions.
+- Executed-but-unsettled exposure is included in live risk truth.
+- Remaining daily risk budget is `25%` of current portfolio value minus governed open exposure.
+- Drawdown state is derived from `portfolio_value_snapshots`.
+- The portfolio guardrail blocks new approvals when bankroll state is unavailable,
+  exhausted, governed open exposure already exhausts current portfolio value, or
+  the latest governed snapshot explicitly enables a drawdown guardrail via
+  `drawdown_gate_active=true`.
+- `concentration_state=descriptive_only_no_governed_limit` means concentration is being reported, but no separate governed sport concentration cap is currently approved in the live path.
+
+## Same-match conflict handling
+
+The runtime blocks new approvals when the portfolio already carries resting or executed-but-unsettled exposure on the same governed match.
+
+Operator cues:
+
+- `same_match_conflict`
+- `existing_position_state`
+- `rejection_reason_code=existing_position_conflict`
+
+This applies to same-side and same-event conflicts and uses canonical match linkage from governed execution context, not page-local ticker matching alone.
+
+## Sport validation baseline
+
+Use `sport_validation_state_v1` for readiness review.
+
+Current governed baseline:
+
+- `MLB`, `TENNIS`, `EPL`, `LIGUE1`: `shadow_only`
+- `NBA`, `NHL`, `NFL`, `NCAAB`, `WNCAAB`: `blocked`
+
+There is no current approval-grade sport state in the governed validation surface. Recommendations may still appear as descriptive rows, but approval-grade sizing changes remain blocked.
+
+## Rejection semantics to use in operations
+
+When reviewing blocked approvals, use the governed reason fields instead of legacy dashboard wording.
+
+| Field | Meaning |
+| --- | --- |
+| `portfolio_guardrail_reason_code` | Portfolio-level block such as `risk_of_ruin_gate_blocked` or `drawdown_gate_blocked` |
+| `portfolio_guardrail_reason_detail` | Human-readable explanation for the portfolio-level block |
+| `rejection_reason_code` | Recommendation/sport-level rejection such as `missing_evidence`, `contaminated_evidence`, `existing_position_conflict`, or `risk_of_ruin_gate_blocked` |
+| `rejection_reason_detail` | Human-readable reason aligned to the governed runtime decision |
+
+If any governed surface shows `descriptive_only_flag=true`, `excluded_from_approval_flag=true`, contamination, or a non-null rejection code, do not loosen Kelly, edge, exposure, or approval thresholds.
+
+## Operator review order
+
+1. Check `sport_validation_state_v1` for the sport readiness state.
+2. Check `governed_evidence_record_v1` for recommendation probability and quote lineage.
+3. Check `governed_clv_evidence_envelope_v1` for close-line lineage and contamination.
+4. Check `governed_recommendation_execution_link_v1` for recommendation-to-execution linkage.
+5. Check `governed_portfolio_risk_state_v1` for open exposure truth, drawdown state, and rejection codes.
+6. If evidence is descriptive-only, contaminated, or blocked anywhere in that chain, keep sizing and threshold changes blocked.
+
+## What operators must not infer
+
+- Do not treat dashboard confidence labels as approval readiness.
+- Do not treat descriptive CLV rows as approval-grade evidence.
+- Do not treat legacy open-risk semantics as current exposure truth.
+- Do not infer that current runtime parameters are approved to increase.
+- Do not recommend Kelly, bankroll, threshold, or eligibility relaxation without approval-grade CLV, calibration, and walk-forward evidence reviewed together.

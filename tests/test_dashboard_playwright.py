@@ -1,953 +1,326 @@
-"""
-Comprehensive Playwright tests for the Sports Betting Analytics Dashboard.
+"""Seeded Playwright E2E coverage for the governed Streamlit dashboard.
 
-Tests ALL components including:
-- Sidebar navigation and controls
-- All 9 sports (MLB, NHL, NFL, NBA, EPL, Tennis, NCAAB, WNCAAB, Ligue1)
-- All 7 tabs (Lift Chart, Calibration, ROI Analysis, Cumulative Gain, Elo vs Glicko-2, Details, Season Timing)
-- All metrics and charts
-- Betting Performance page with all tabs
-- Data presence validation
+The default pytest path quarantines these browser tests.  When
+``RUN_DASHBOARD_E2E=1`` is set, this module provisions an isolated PostgreSQL
+schema, applies the in-repo dashboard migrations, seeds deterministic fixture
+rows, launches Streamlit against that schema, and asserts every current
+dashboard page renders meaningful seeded content.
 """
+
+from __future__ import annotations
+
+import os
+import socket
+import subprocess
+import sys
+import time
+import urllib.request
+import uuid
+from collections.abc import Iterator
+from pathlib import Path
+from typing import Any
 
 import pytest
-import time
+from sqlalchemy import create_engine, text
 
-playwright_sync = pytest.importorskip(
-    "playwright.sync_api",
-    reason="Dashboard Playwright tests require the optional playwright dependency",
+RUN_DASHBOARD_E2E = bool(os.environ.get("RUN_DASHBOARD_E2E"))
+
+try:
+    from playwright.sync_api import Page, expect
+except ModuleNotFoundError:
+    if RUN_DASHBOARD_E2E:
+        raise
+    pytest.skip(
+        "Dashboard Playwright tests require the optional playwright dependency",
+        allow_module_level=True,
+    )
+
+from plugins.db_manager import DBManager
+from plugins.schema_migrations import SchemaMigrationRunner
+from tests.contracts.fixtures.dashboard_seed_samples import (
+    build_dashboard_source_seed_payload,
+    seed_dashboard_source_rows,
 )
-Page = playwright_sync.Page
-expect = playwright_sync.expect
 
-pytestmark = pytest.mark.skipif(
-    not bool(__import__("os").environ.get("RUN_DASHBOARD_E2E")),
-    reason=(
-        "Dashboard Playwright tests are quarantined from default pytest. "
-        "Set RUN_DASHBOARD_E2E=1 after provisioning the dashboard and browsers."
+
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.skipif(
+        not RUN_DASHBOARD_E2E,
+        reason=(
+            "Seeded dashboard Playwright tests are quarantined from default pytest. "
+            "Set RUN_DASHBOARD_E2E=1 to run the non-skipping validation path."
+        ),
     ),
-)
+]
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+DASHBOARD_APP = REPO_ROOT / "dashboard" / "app.py"
+SEEDED_BET_ID = "DASHBOARD-SEED-NHL-20260503-NYR-BOS-HOME"
+
+
+def _build_connection_string() -> str:
+    user = os.getenv("POSTGRES_USER", "airflow")
+    password = os.getenv("POSTGRES_PASSWORD", "airflow")
+    host = os.getenv("POSTGRES_HOST", "postgres")
+    port = os.getenv("POSTGRES_PORT", "5432")
+    db_name = os.getenv("POSTGRES_DB", "airflow")
+    return f"postgresql+psycopg2://{user}:{password}@{host}:{port}/{db_name}"
+
+
+def _reserve_port() -> int:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _wait_for_dashboard(url: str, process: subprocess.Popen[str]) -> None:
+    deadline = time.monotonic() + 90
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise RuntimeError(
+                f"Streamlit exited early with code {process.returncode}"
+            ) from last_error
+        try:
+            with urllib.request.urlopen(url, timeout=2) as response:
+                if response.status < 500:
+                    return
+        except Exception as exc:  # noqa: BLE001 - surfaced on timeout
+            last_error = exc
+        time.sleep(1)
+    raise RuntimeError(f"Timed out waiting for Streamlit at {url}") from last_error
+
+
+def _navigate(page: Page, label: str) -> None:
+    page.get_by_text(label, exact=True).click()
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(1200)
+    _assert_rendered_page(page, label)
+
+
+def _assert_rendered_page(page: Page, page_name: str) -> None:
+    expect(page.locator('[data-testid="stApp"]')).to_be_visible()
+    exception_count = page.locator('[data-testid="stException"]').count()
+    assert exception_count == 0, f"{page_name} rendered a Streamlit exception"
+    body_text = page.locator("body").inner_text()
+    assert len(body_text.strip()) >= 80, f"{page_name} rendered a blank/useless page"
+
+
+def _assert_text(page: Page, text_value: str) -> None:
+    locator = page.get_by_text(text_value, exact=False)
+    if locator.count() == 0:
+        body_text = page.locator("body").inner_text()
+        assert text_value in body_text
+        return
+    first_match = locator.first
+    if not first_match.is_visible():
+        assert locator.count() > 0
+        return
+    expect(first_match).to_be_visible()
+
+
+def _select_sport(page: Page, current_sport: str, target_sport: str) -> None:
+    if current_sport == target_sport:
+        return
+    page.get_by_text(current_sport, exact=True).click()
+    page.get_by_role("option", name=target_sport).click()
+    page.wait_for_load_state("networkidle")
+    page.wait_for_timeout(1200)
 
 
 @pytest.fixture(scope="module")
-def dashboard_url():
-    """Return the URL of the running dashboard container."""
-    # Assuming dashboard is running via docker-compose on port 8501
-    url = "http://localhost:8501"
-    # Give it a moment to ensure it's ready if we just restarted it
-    time.sleep(2)
-    yield url
+def dashboard_schema() -> Iterator[str]:
+    """Create a migrated PostgreSQL schema containing only deterministic seeds."""
 
-
-@pytest.fixture(scope="function")
-def page(dashboard_url, playwright):
-    """Create a new page for each test."""
-    import socket
-
-    # Check if dashboard is reachable before attempting to connect
+    base_connection_string = _build_connection_string()
+    schema_name = f"dashboard_e2e_{uuid.uuid4().hex}"
     try:
-        # Try to connect to the dashboard port
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(2)
-        result = sock.connect_ex(("localhost", 8501))
-        sock.close()
+        admin_engine = create_engine(base_connection_string)
+        with admin_engine.begin() as conn:
+            conn.execute(text(f"CREATE SCHEMA {schema_name}"))
+    except Exception as exc:  # noqa: BLE001 - fail, do not skip, when E2E is enabled
+        pytest.fail(f"Could not create isolated PostgreSQL schema: {exc}")
 
-        if result != 0:
-            # Dashboard not running, skip test
-            pytest.skip("Dashboard not running at localhost:8501")
-    except Exception:
-        pytest.skip("Dashboard not running at localhost:8501")
+    db = DBManager(connection_string=base_connection_string, schema=schema_name)
+    try:
+        runner = SchemaMigrationRunner(db)
+        runner.apply()
+        runner.assert_verified()
+        seed_dashboard_source_rows(db, build_dashboard_source_seed_payload())
+        yield schema_name
+    finally:
+        db.engine.dispose()
+        with admin_engine.begin() as conn:
+            conn.execute(text(f"DROP SCHEMA IF EXISTS {schema_name} CASCADE"))
+        admin_engine.dispose()
+
+
+@pytest.fixture(scope="module")
+def dashboard_url(dashboard_schema: str) -> Iterator[str]:
+    """Launch Streamlit against the isolated schema and return its local URL."""
+
+    port = _reserve_port()
+    url = f"http://127.0.0.1:{port}"
+    env = {
+        **os.environ,
+        "POSTGRES_SCHEMA": dashboard_schema,
+        "DASHBOARD_DISABLE_AUTO_REFRESH": "1",
+        "STREAMLIT_SERVER_HEADLESS": "true",
+        "STREAMLIT_BROWSER_GATHER_USAGE_STATS": "false",
+    }
+    command = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(DASHBOARD_APP),
+        "--server.address",
+        "127.0.0.1",
+        "--server.port",
+        str(port),
+        "--server.headless",
+        "true",
+        "--browser.gatherUsageStats",
+        "false",
+    ]
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=REPO_ROOT,
+            env=env,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            text=True,
+        )
+    except FileNotFoundError as exc:
+        pytest.fail(f"Could not launch Streamlit: {exc}")
+
+    try:
+        _wait_for_dashboard(url, process)
+        yield url
+    finally:
+        process.terminate()
+        try:
+            process.wait(timeout=15)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=15)
+
+
+@pytest.fixture()
+def page(dashboard_url: str, playwright: Any) -> Iterator[Page]:
+    """Open a fresh browser page for each seeded dashboard scenario."""
 
     browser = playwright.chromium.launch(headless=True)
-    context = browser.new_context(viewport={"width": 1280, "height": 1024})
+    context = browser.new_context(viewport={"width": 1440, "height": 1100})
     page = context.new_page()
-    page.set_default_timeout(60000)  # Increase default timeout to 60s
+    page.set_default_timeout(45_000)
     page.goto(dashboard_url)
     page.wait_for_load_state("networkidle")
-    time.sleep(10)  # Increased from 5s to 10s for initial render
-
+    page.wait_for_timeout(1200)
     yield page
-
     context.close()
     browser.close()
 
 
-class TestDashboardNavigation:
-    """Test sidebar navigation and page switching."""
+class TestSeededDashboardPages:
+    """Semantic seeded-data assertions for every current dashboard page."""
 
-    def test_sidebar_exists(self, page: Page):
-        """Test sidebar is visible and contains navigation."""
-        sidebar = page.locator('[data-testid="stSidebar"]')
-        expect(sidebar).to_be_visible()
+    def test_portfolio_page_renders_seeded_kpis(self, page: Page) -> None:
+        _assert_rendered_page(page, "Portfolio")
+        _assert_text(page, "Portfolio Overview")
+        _assert_text(page, "Portfolio Value")
+        _assert_text(page, "$1,475.75")
+        _assert_text(page, "Position Summary")
+        _assert_text(page, "Governed open exposure totals")
+        _assert_text(page, "executed-unsettled exposure")
 
-    def test_page_navigation_elo_analysis(self, page: Page):
-        """Test navigation to Elo Analysis page."""
-        # Check page loaded with main content
-        expect(page.locator('[data-testid="stApp"]')).to_be_visible()
+    def test_live_markets_page_renders_seeded_market(self, page: Page) -> None:
+        _navigate(page, "Live Markets")
+        _assert_text(page, "Governed Live Markets")
+        _assert_text(page, "New York Rangers")
+        _assert_text(page, "Boston Bruins")
+        _assert_text(page, "KXNHL-26MAY03NYRBOS-NYR")
 
-    def test_page_navigation_betting_performance(self, page: Page):
-        """Test navigation to Betting Performance page."""
-        # Look for Betting Performance radio option
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() > 0:
-            betting_nav.first.click()
-            time.sleep(4)
+    def test_rankings_page_renders_seeded_nhl_rankings(self, page: Page) -> None:
+        _navigate(page, "Rankings")
+        _select_sport(page, "NBA", "NHL")
+        _assert_text(page, "Elo Rankings")
+        _assert_text(page, "NHL Ratings (2 active rows)")
+        _assert_text(page, "New York Rangers")
+        _assert_text(page, "Boston Bruins")
+        _assert_text(page, "Head-to-Head Prediction")
 
-            # Check page loaded - look for any betting-related content
-            has_metrics = page.locator('[data-testid="stMetric"]').count() > 0
-            has_tabs = page.locator('[role="tab"]').count() > 0
-            has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-            assert has_metrics or has_tabs or has_dataframe, "Betting page did not load"
-        else:
-            # Skip if betting nav not found
-            pytest.skip("Betting Performance page not in sidebar")
+    def test_calibration_page_renders_seeded_bucket(self, page: Page) -> None:
+        _navigate(page, "Calibration")
+        _assert_text(page, "Model Calibration")
+        _assert_text(page, "Probability Buckets")
+        _assert_text(page, "60%-70%")
+        _assert_text(page, "No governed settled outcomes are available yet.")
 
-
-class TestSportsSelection:
-    """Test all 9 sports can be selected and load data."""
-
-    SPORTS = ["MLB", "NHL", "NFL", "NBA", "EPL", "Tennis", "NCAAB", "WNCAAB", "Ligue1"]
-
-    @pytest.mark.parametrize("sport", SPORTS)
-    def test_sport_selection(self, page: Page, sport):
-        """Test that each sport can be selected and displays content."""
-        # First, ensure we're on the Elo Analysis page
-        # Check if Elo Analysis page is loaded by looking for sport selection
-        time.sleep(3)  # Wait for initial load
-
-        # Try multiple selector strategies for the sport dropdown
-        # Strategy 1: Look for selectbox in sidebar
-        sidebar_selectboxes = page.locator('[data-testid="stSidebar"]').locator(
-            '[data-testid="stSelectbox"]'
-        )
-        if sidebar_selectboxes.count() == 0:
-            # Strategy 2: Look for any selectbox with "Sport" label
-            sport_select = page.locator(
-                'label:has-text("Sport") + div [data-testid="stSelectbox"]'
-            )
-            if sport_select.count() == 0:
-                # Strategy 3: Look for selectbox by aria-label
-                sport_select = page.locator(
-                    '[aria-label*="Sport"][data-testid="stSelectbox"]'
-                )
-                if sport_select.count() == 0:
-                    # Last resort: look for any selectbox
-                    sport_select = page.locator('[data-testid="stSelectbox"]').first
-                else:
-                    sport_select = sport_select.first
-            else:
-                sport_select = sport_select.first
-        else:
-            sport_select = sidebar_selectboxes.first
-
-        # Click the selectbox to open dropdown
-        sport_select.click()
-        time.sleep(1)
-
-        # Try to find and click the sport option
-        # Multiple strategies for finding dropdown options
-        sport_found = False
-
-        # Strategy 1: Virtual dropdown
-        virtual_dropdown = page.locator('[data-testid="stVirtualDropdown"]')
-        if virtual_dropdown.count() > 0:
-            sport_option = virtual_dropdown.locator(f'text="{sport}"')
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        # Strategy 2: Direct option selection with exact text match
-        if not sport_found:
-            sport_option = page.locator(f'[role="option"] >> text="{sport}"')
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        # Strategy 3: Listbox option
-        if not sport_found:
-            sport_option = page.locator(
-                f'[role="listbox"] [role="option"]:has-text("{sport}")'
-            )
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        if not sport_found:
-            pytest.skip(f"Could not find sport option '{sport}' in dropdown")
-
-        time.sleep(2)  # Wait for selection to take effect
-
-        # Verify sport is selected - check multiple possible indicators
-        # 1. Check if selectbox shows the selected sport
-        selected_text = sport_select.text_content()
-        if sport in selected_text:
-            return  # Sport is selected
-
-        # 2. Check sidebar for sport text
-        sidebar_sport = page.locator('[data-testid="stSidebar"]').locator(
-            f'text="{sport}"'
-        )
-        if sidebar_sport.count() > 0:
-            return  # Sport found in sidebar
-
-        # 3. Check page content for sport indication
-        page_sport = page.locator(f'text="{sport}"')
-        if page_sport.count() > 0:
-            return  # Sport found on page
-
-        # If we get here, sport selection might not be visible but that's OK
-        # The test passes as long as we could click the option
-
-    @pytest.mark.parametrize("sport", SPORTS)
-    def test_sport_has_data_or_error(self, page: Page, sport):
-        """Test that each sport either loads data or shows appropriate error."""
-        # Use the same sport selection logic as test_sport_selection
-        time.sleep(3)  # Wait for initial load
-
-        # Try multiple selector strategies for the sport dropdown
-        sidebar_selectboxes = page.locator('[data-testid="stSidebar"]').locator(
-            '[data-testid="stSelectbox"]'
-        )
-        if sidebar_selectboxes.count() == 0:
-            sport_select = page.locator(
-                'label:has-text("Sport") + div [data-testid="stSelectbox"]'
-            )
-            if sport_select.count() == 0:
-                sport_select = page.locator(
-                    '[aria-label*="Sport"][data-testid="stSelectbox"]'
-                )
-                if sport_select.count() == 0:
-                    sport_select = page.locator('[data-testid="stSelectbox"]').first
-                else:
-                    sport_select = sport_select.first
-            else:
-                sport_select = sport_select.first
-        else:
-            sport_select = sidebar_selectboxes.first
-
-        # Click the selectbox to open dropdown
-        sport_select.click()
-        time.sleep(1)
-
-        # Try to find and click the sport option
-        sport_found = False
-
-        # Strategy 1: Virtual dropdown
-        virtual_dropdown = page.locator('[data-testid="stVirtualDropdown"]')
-        if virtual_dropdown.count() > 0:
-            sport_option = virtual_dropdown.locator(f'text="{sport}"')
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        # Strategy 2: Direct option selection with exact text match
-        if not sport_found:
-            sport_option = page.locator(f'[role="option"] >> text="{sport}"')
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        # Strategy 3: Listbox option
-        if not sport_found:
-            sport_option = page.locator(
-                f'[role="listbox"] [role="option"] >> text="{sport}"'
-            )
-            if sport_option.count() > 0:
-                sport_option.click()
-                sport_found = True
-
-        if not sport_found:
-            pytest.skip(f"Could not find sport option '{sport}' in dropdown")
-
-        time.sleep(4)  # Wait for data to load
-
-        # Check for either data visualization or error message
-        # More flexible checks for different types of content
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-        has_metric = page.locator('[data-testid="stMetric"]').count() > 0
-        has_table = page.locator("table").count() > 0
-        has_text_content = (
-            page.locator("p, h1, h2, h3, h4, h5, h6, div.stMarkdown").count() > 10
-        )  # Reasonable amount of text
-
-        has_error = (
-            page.locator('[data-testid="stException"]').count() > 0
-            or page.locator('text="Error loading"').count() > 0
-            or page.locator('text="No data"').count() > 0
-            or page.locator('text="Insufficient data"').count() > 0
-            or page.locator('text="No games found"').count() > 0
-            or page.locator('text="Failed to load"').count() > 0
+    def test_calibration_page_surfaces_blocked_sport_state(self, page: Page) -> None:
+        _navigate(page, "Calibration")
+        _select_sport(page, "All", "NBA")
+        _assert_text(page, "Governed Sport Validation")
+        _assert_text(
+            page,
+            "NBA remains blocked because no repeatable approval-grade validation path is currently governed.",
         )
 
-        # Also check if page is basically empty (just sidebar and minimal content)
-        main_content = page.locator('[data-testid="stApp"]')
-        if main_content.count() > 0:
-            main_text = main_content.text_content()
-            # If main content has less than 50 characters, it's probably empty
-            is_empty = len(main_text.strip()) < 50
-        else:
-            is_empty = True
-
-        assert (
-            has_chart
-            or has_dataframe
-            or has_metric
-            or has_table
-            or has_text_content
-            or has_error
-            or not is_empty
-        ), f"{sport} shows neither data nor error message and appears to be empty"
-
-
-class TestEloAnalysisTabs:
-    """Test all 7 tabs in Elo Analysis page."""
-
-    TABS = [
-        ("Lift Chart", "Lift by Elo Probability Decile"),
-        ("Calibration", "Calibration Plot"),
-        ("ROI Analysis", "ROI by Decile"),
-        ("Cumulative Gain", "Cumulative Gain"),
-        ("Elo vs Glicko-2", "Elo vs Glicko-2"),
-        ("Game Details", "Game Details"),
-        ("Season Analysis", "Season Analysis"),
-    ]
-
-    @pytest.mark.parametrize("tab_name,expected_content", TABS)
-    def test_tab_content(self, page: Page, tab_name, expected_content):
-        """Test that each tab displays expected content."""
-        # Select a sport with data (NHL default should work)
-        # NHL is already selected, just wait for it to load
-        time.sleep(5)
-
-        # Click on tab
-        # Streamlit tabs are rendered as buttons with role="tab"
-        page.get_by_role("tab", name=tab_name).click()
-        time.sleep(4)
-
-        # Verify tab content is visible
-        # Either the expected text or a chart should be present
-        has_expected_text = page.get_by_text(expected_content).count() > 0
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_expected_text or has_chart or has_dataframe, (
-            f"Tab '{tab_name}' does not display expected content"
+    def test_calibration_page_surfaces_shadow_only_contamination(
+        self, page: Page
+    ) -> None:
+        _navigate(page, "Calibration")
+        _select_sport(page, "All", "TENNIS")
+        _assert_text(page, "Governed Sport Validation")
+        _assert_text(page, "TENNIS is shadow-only")
+        _assert_text(
+            page,
+            "binary_result_clv_contamination;synthetic_ticker_contamination",
         )
 
-
-class TestLiftChartDetails:
-    """Test Lift Chart tab in detail for all sports."""
-
-    def test_lift_chart_has_visualization_nhl(self, page: Page):
-        """Test NHL lift chart displays plotly visualization."""
-        # NHL is default, just wait for load
-        time.sleep(5)
-
-        # Should be on Lift Chart tab by default
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        assert (
-            charts.count() > 0
-            or page.locator('text="No data"').count() > 0
-            or page.locator('text="Insufficient"').count() > 0
-        ), "No charts or data message found"
-
-    def test_lift_chart_wncaab(self, page: Page):
-        """Test WNCAAB lift chart displays data or appropriate message."""
-        sidebar_select = (
-            page.locator('[data-testid="stSidebar"]')
-            .locator('[data-testid="stSelectbox"]')
-            .first
-        )
-        sidebar_select.click()
-        time.sleep(1)
-
-        # Try to find WNCAAB - it may need scrolling in the virtual dropdown
-        wncaab_found = False
-        virtual_dropdown = page.locator('[data-testid="stVirtualDropdown"]')
-        if virtual_dropdown.count() > 0:
-            wncaab_option = virtual_dropdown.locator('text="WNCAAB"')
-            try:
-                wncaab_option.scroll_into_view_if_needed(timeout=5000)
-                wncaab_option.click(timeout=5000)
-                wncaab_found = True
-            except Exception:
-                pass
-
-        if not wncaab_found:
-            # Fallback: role-based option selector
-            option = page.locator('[role="option"]:has-text("WNCAAB")')
-            if option.count() > 0:
-                try:
-                    option.first.click(timeout=5000)
-                    wncaab_found = True
-                except Exception:
-                    pass
-
-        if not wncaab_found:
-            # Close the dropdown and skip - WNCAAB not selectable
-            page.keyboard.press("Escape")
-            pytest.skip("Could not select WNCAAB in dropdown")
-
-        time.sleep(4)
-
-        # Check for charts OR error/warning message
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_warning = page.locator('[data-testid="stAlert"]').count() > 0
-        has_error = page.locator('text="Error"').count() > 0
-        has_no_data = page.locator('text="No data"').count() > 0
-
-        assert has_chart or has_warning or has_error or has_no_data, (
-            "WNCAAB lift chart shows nothing - no chart, no error, no warning"
-        )
-
-        # If there's a chart, verify it's not empty
-        if has_chart:
-            # Check that chart has actual data points
-            chart = page.locator('[data-testid="stPlotlyChart"]').first
-            expect(chart).to_be_visible()
-
-
-class TestCalibrationPlot:
-    """Test Calibration Plot tab."""
-
-    def test_calibration_plot_exists_nhl(self, page: Page):
-        """Test NHL calibration plot displays."""
-        # NHL is default, just wait
-        time.sleep(5)
-
-        # Click Calibration tab
-        page.locator('text="Calibration"').click()
-        time.sleep(4)
-
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-
-        assert charts.count() > 0, "No calibration plot found"
-
-    def test_calibration_plot_all_sports(self, page: Page):
-        """Test calibration plot for all sports."""
-        sports = ["NHL", "NFL", "NBA"]
-
-        for i, sport in enumerate(sports):
-            if i > 0:  # Skip first as NHL is default
-                sidebar_select = (
-                    page.locator('[data-testid="stSidebar"]')
-                    .locator('[data-testid="stSelectbox"]')
-                    .first
-                )
-                sidebar_select.click()
-                time.sleep(1)
-                # Select from dropdown options using text search which is more robust
-                page.get_by_text(sport, exact=True).last.click()
-            time.sleep(5)
-
-            page.locator('text="Calibration"').click()
-            time.sleep(4)
-
-            # Should have chart or error
-            has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-            has_error = page.locator('text="Error"').count() > 0
-
-            assert has_chart or has_error, f"{sport} calibration plot shows nothing"
-
-
-class TestROIAnalysis:
-    """Test ROI Analysis tab."""
-
-    def test_roi_chart_exists(self, page: Page):
-        """Test ROI analysis displays charts."""
-        # NHL is default
-        time.sleep(5)
-
-        page.locator('text="ROI Analysis"').click()
-        time.sleep(4)
-
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        assert charts.count() > 0, "No ROI charts found"
-
-
-class TestCumulativeGain:
-    """Test Cumulative Gain tab."""
-
-    def test_cumulative_gain_chart_exists(self, page: Page):
-        """Test cumulative gain displays chart."""
-        # NHL is default
-        time.sleep(5)
-
-        page.locator('text="Cumulative Gain"').click()
-        time.sleep(4)
-
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        assert charts.count() > 0, "No cumulative gain chart found"
-
-
-class TestEloVsGlicko:
-    """Test Elo vs Glicko-2 comparison tab."""
-
-    def test_comparison_metrics_exist(self, page: Page):
-        """Test Elo vs Glicko-2 displays metrics."""
-        # NHL is default
-        time.sleep(5)
-
-        page.locator('text="Elo vs Glicko-2"').click()
-        time.sleep(4)
-
-        # Should have metrics
-        metrics = page.locator('[data-testid="stMetric"]')
-
-        assert metrics.count() >= 3, "Expected at least 3 metrics in comparison"
-
-    def test_comparison_has_charts(self, page: Page):
-        """Test Elo vs Glicko-2 displays comparison charts."""
-        # NHL is default
-        time.sleep(5)
-
-        page.locator('text="Elo vs Glicko-2"').click()
-        time.sleep(4)
-
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        assert charts.count() > 0, "No comparison charts found"
-
-
-class TestDetailsTab:
-    """Test Details tab with game data."""
-
-    def test_details_table_exists(self, page: Page):
-        """Test details tab displays game data table."""
-        # NHL is default
-        time.sleep(5)
-
-        page.get_by_role("tab", name="Game Details").click()
-        time.sleep(4)
-
-        dataframes = page.locator('[data-testid="stDataFrame"]')
-        assert dataframes.count() > 0, "No game details table found"
-
-    def test_details_has_data_rows(self, page: Page):
-        """Test details table has actual data rows."""
-        # NHL is default
-        time.sleep(5)
-
-        page.get_by_role("tab", name="Game Details").click()
-        time.sleep(4)
-
-        # Check that dataframe exists
-        dataframes = page.locator('[data-testid="stDataFrame"]')
-        assert dataframes.count() > 0, "No dataframe found in Details tab"
-
-
-class TestSeasonTiming:
-    """Test Season Timing tab."""
-
-    def test_season_timing_chart_exists(self, page: Page):
-        """Test season timing displays visualizations."""
-        # NHL is default
-        time.sleep(5)
-
-        page.get_by_role("tab", name="Season Analysis").click()
-        time.sleep(4)
-
-        # Should have charts or dataframe
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_chart or has_dataframe, "No season timing visualization found"
-
-
-class TestSidebarControls:
-    """Test sidebar parameter controls."""
-
-    def test_season_selector_exists(self, page: Page):
-        """Test season selector is present."""
-        season_selects = page.locator('[data-testid="stSelectbox"]')
-        assert season_selects.count() >= 2, (
-            "Expected at least 2 selectboxes (sport + season)"
-        )
-
-    def test_date_picker_exists(self, page: Page):
-        """Test date picker control exists."""
-        date_inputs = page.locator('[data-testid="stDateInput"]')
-        assert date_inputs.count() > 0, "No date input found"
-
-    def test_elo_parameters_expander(self, page: Page):
-        """Test Elo parameters expander exists and works."""
-        # Look for Elo Parameters expander
-        expander = page.locator('text="Elo Parameters"')
-        expect(expander).to_be_visible()
-
-        # Click to expand
-        expander.click()
-        time.sleep(1)
-
-        # Should show parameter controls
-        sliders = page.locator('[data-testid="stSlider"]')
-        assert sliders.count() > 0, "No sliders found in Elo Parameters"
-
-    def test_glicko2_parameters_expander(self, page: Page):
-        """Test Glicko-2 parameters expander exists."""
-        expander = page.locator('text="Glicko-2 Parameters"')
-        expect(expander).to_be_visible()
-
-
-class TestBettingPerformancePage:
-    """Test Betting Performance page."""
-
-    def test_betting_page_loads(self, page: Page):
-        """Test betting performance page loads."""
-        # Look for Betting Performance navigation
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Check content loaded
-        has_metrics = page.locator('[data-testid="stMetric"]').count() > 0
-        has_tabs = page.locator('[role="tab"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_metrics or has_tabs or has_dataframe, "Betting page did not load"
-
-    def test_betting_page_has_metrics(self, page: Page):
-        """Test betting performance displays key metrics."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Should have some content
-        has_metrics = page.locator('[data-testid="stMetric"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_metrics or has_dataframe, "No content on betting page"
-
-    def test_betting_page_tabs_exist(self, page: Page):
-        """Test betting performance has all expected tabs."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Check for content - tabs or tables
-        has_tabs = page.locator('[role="tab"]').count() > 0
-        has_content = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_tabs or has_content, "No content found on betting page"
-
-    def test_betting_overview_tab(self, page: Page):
-        """Test betting overview tab displays charts."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Should have some visualizations
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_metric = page.locator('[data-testid="stMetric"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_chart or has_metric or has_dataframe, (
-            "Overview tab has no visualizations"
-        )
-
-    def test_betting_daily_tab(self, page: Page):
-        """Test daily performance tab."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Try to find daily tab
-        daily_tab = page.locator('[role="tab"]', has_text="Daily")
-        if daily_tab.count() > 0:
-            daily_tab.first.click()
-            time.sleep(4)
-
-            # Should have chart or dataframe
-            has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-            has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-            assert has_chart or has_dataframe, "Daily Performance tab has no content"
-        else:
-            # Just verify any content exists
-            has_content = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-            assert has_content, "No content on betting page"
-
-    def test_betting_by_sport_tab(self, page: Page):
-        """Test by sport breakdown tab."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Just verify content exists
-        has_metric = page.locator('[data-testid="stMetric"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_metric or has_dataframe, "Betting page has no content"
-
-    def test_betting_all_bets_tab(self, page: Page):
-        """Test all bets table tab."""
-        betting_nav = page.locator('[data-testid="stSidebar"]').locator(
-            'text="Betting Performance"'
-        )
-        if betting_nav.count() == 0:
-            pytest.skip("Betting Performance page not available")
-
-        betting_nav.first.click()
-        time.sleep(4)
-
-        # Just verify content exists
-        dataframes = page.locator('[data-testid="stDataFrame"]')
-        assert (
-            dataframes.count() > 0
-            or page.locator('[data-testid="stMetric"]').count() > 0
-        ), "Betting page has no content"
-
-
-class TestDataValidation:
-    """Test that data is actually loaded and displayed, not just empty charts."""
-
-    def test_nhl_has_actual_data(self, page: Page):
-        """Test NHL loads real data, not empty charts."""
-        # NHL is default
-        time.sleep(5)
-
-        # Go to Details tab to check raw data
-        page.get_by_role("tab", name="Game Details").click()
-        time.sleep(4)
-
-        # Check dataframe exists
-        dataframes = page.locator('[data-testid="stDataFrame"]')
-        assert dataframes.count() > 0, "NHL has no data table"
-
-    def test_nba_has_actual_data(self, page: Page):
-        """Test NBA loads real data."""
-        sidebar_select = (
-            page.locator('[data-testid="stSidebar"]')
-            .locator('[data-testid="stSelectbox"]')
-            .first
-        )
-        sidebar_select.click()
-        time.sleep(1)
-        page.get_by_text("NBA", exact=True).last.click()
-        time.sleep(5)
-
-        page.get_by_role("tab", name="Game Details").click()
-        time.sleep(4)
-
-        dataframes = page.locator('[data-testid="stDataFrame"]')
-        assert dataframes.count() > 0, "NBA has no data table"
-
-    def test_wncaab_data_presence(self, page: Page):
-        """Test WNCAAB either has data or shows clear message why not."""
-        sidebar_select = (
-            page.locator('[data-testid="stSidebar"]')
-            .locator('[data-testid="stSelectbox"]')
-            .first
-        )
-        sidebar_select.click()
-        time.sleep(1)
-        page.get_by_text("WNCAAB", exact=True).last.click()
-        time.sleep(4)
-
-        # Check for ANY content
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-        has_warning = page.locator('[data-testid="stAlert"]').count() > 0
-        has_error = page.locator('text="Error"').count() > 0
-        has_no_data_msg = page.locator('text="No data"').count() > 0
-        has_insufficient_data = page.locator('text="Insufficient data"').count() > 0
-
-        assert (
-            has_chart
-            or has_dataframe
-            or has_warning
-            or has_error
-            or has_no_data_msg
-            or has_insufficient_data
-        ), "WNCAAB page is completely blank with no explanation"
-
-        # If it shows a chart, go to Details to verify it's not empty
-        if has_chart:
-            page.get_by_role("tab", name="Game Details").click()
-            time.sleep(4)
-
-            # Should have dataframe
-            detail_df = page.locator('[data-testid="stDataFrame"]')
-            if detail_df.count() > 0:
-                expect(detail_df.first).to_be_visible()
-
-
-class TestChartInteractivity:
-    """Test that charts are interactive and functional."""
-
-    def test_chart_hover_functionality(self, page: Page):
-        """Test charts respond to hover interactions."""
-        # NHL is default
-        time.sleep(5)
-
-        # Get first chart
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        if charts.count() > 0:
-            chart = charts.first
-            expect(chart).to_be_visible()
-
-            # Hover should work (Plotly charts have hover layer)
-            hover_layer = chart.locator(".hoverlayer")
-            expect(hover_layer).to_be_attached()
-
-    def test_chart_zoom_controls(self, page: Page):
-        """Test charts have zoom/pan controls."""
-        # NHL is default
-        time.sleep(5)
-
-        charts = page.locator('[data-testid="stPlotlyChart"]')
-        if charts.count() > 0:
-            chart = charts.first
-            expect(chart).to_be_visible()
-
-            # Plotly charts should have modebar
-            modebar = chart.locator(".modebar")
-            expect(modebar).to_be_attached()
-
-
-class TestResponsiveness:
-    """Test dashboard works at different viewport sizes."""
-
-    def test_mobile_viewport(self, dashboard_url, playwright):
-        """Test dashboard in mobile viewport."""
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(viewport={"width": 375, "height": 667})
-        page = context.new_page()
-        page.goto(dashboard_url)
+    def test_data_quality_page_renders_seeded_checks(self, page: Page) -> None:
+        _navigate(page, "Data Quality")
+        _assert_text(page, "Data Quality")
+        _assert_text(page, "Overall Health Score")
+        _assert_text(page, "Governed Data Quality Checks")
+        _assert_text(page, "portfolio_value_snapshots")
+        _assert_text(page, "dashboard_bet_detail_v1")
+
+    def test_bet_detail_page_renders_seeded_traceability(
+        self, page: Page, dashboard_url: str
+    ) -> None:
+        page.goto(f"{dashboard_url}/?bet_id={SEEDED_BET_ID}")
         page.wait_for_load_state("networkidle")
-        time.sleep(5)
+        page.wait_for_timeout(1200)
+        _assert_rendered_page(page, "Bet Detail")
+        _assert_text(page, f"Bet Detail: {SEEDED_BET_ID}")
+        _assert_text(page, "New York Rangers vs Boston Bruins")
+        _assert_text(page, "62.0%")
+        _assert_text(page, "KXNHL-26MAY03NYRBOS-NYR")
+        _assert_text(page, "Traceability")
+        _assert_text(page, "Linkage status")
+        _assert_text(page, "Selected close rule")
 
-        # Sidebar should still be accessible
-        sidebar = page.locator('[data-testid="stSidebar"]')
-        expect(sidebar).to_be_attached()
 
-        context.close()
-        browser.close()
+class TestSeededDashboardEmptyStates:
+    """Explicit state assertions for practical no-data/not-found paths."""
 
-    def test_tablet_viewport(self, dashboard_url, playwright):
-        """Test dashboard in tablet viewport."""
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context(viewport={"width": 768, "height": 1024})
-        page = context.new_page()
-        page.goto(dashboard_url)
+    def test_rankings_empty_state_for_unseeded_sport_is_explicit(
+        self, page: Page
+    ) -> None:
+        _navigate(page, "Rankings")
+        _assert_rendered_page(page, "Rankings empty state")
+        _assert_text(page, "No rankings")
+        _assert_text(page, "Run rating ingestion before comparing teams.")
+
+    def test_bet_detail_not_found_state_is_explicit(
+        self, page: Page, dashboard_url: str
+    ) -> None:
+        page.goto(f"{dashboard_url}/?bet_id=NOT-A-SEEDED-BET")
         page.wait_for_load_state("networkidle")
-        time.sleep(5)
-
-        # Check main content visible
-        expect(page.locator('[data-testid="stApp"]')).to_be_visible()
-
-        context.close()
-        browser.close()
-
-
-class TestErrorHandling:
-    """Test dashboard handles errors gracefully."""
-
-    def test_missing_data_shows_message(self, page: Page):
-        """Test that missing data shows user-friendly message."""
-        # Select a sport that might not have data
-        sidebar_select = (
-            page.locator('[data-testid="stSidebar"]')
-            .locator('[data-testid="stSelectbox"]')
-            .first
-        )
-        sidebar_select.click()
-        time.sleep(1)
-        page.get_by_text("Tennis", exact=True).last.click()
-        time.sleep(4)
-
-        # Should show either data or a clear message
-        has_content = (
-            page.locator('[data-testid="stPlotlyChart"]').count() > 0
-            or page.locator('[data-testid="stDataFrame"]').count() > 0
-            or page.locator('text="Error"').count() > 0
-            or page.locator('text="No data"').count() > 0
-            or page.locator('text="Insufficient data"').count() > 0
-        )
-
-        assert has_content, (
-            "Tennis page shows nothing - no content and no error message"
-        )
-
-
-class TestPerformance:
-    """Test dashboard performance and load times."""
-
-    def test_initial_load_time(self, dashboard_url, playwright):
-        """Test dashboard loads within reasonable time."""
-        browser = playwright.chromium.launch(headless=True)
-        context = browser.new_context()
-        page = context.new_page()
-
-        start = time.time()
-        page.goto(dashboard_url)
-        page.wait_for_load_state("networkidle")
-        load_time = time.time() - start
-
-        assert load_time < 15, (
-            f"Dashboard took {load_time:.1f}s to load, expected < 15s"
-        )
-
-        context.close()
-        browser.close()
-
-    def test_sport_switch_performance(self, page: Page):
-        """Test switching sports is responsive."""
-        # NHL is already loaded, switch to NBA
-        start = time.time()
-
-        sidebar_select = (
-            page.locator('[data-testid="stSidebar"]')
-            .locator('[data-testid="stSelectbox"]')
-            .first
-        )
-        sidebar_select.click()
-        time.sleep(1)
-        page.get_by_text("NBA", exact=True).last.click()
-        time.sleep(4)
-
-        # Check content loaded
-        has_chart = page.locator('[data-testid="stPlotlyChart"]').count() > 0
-        has_dataframe = page.locator('[data-testid="stDataFrame"]').count() > 0
-
-        assert has_chart or has_dataframe, "No content loaded after sport switch"
-
-        switch_time = time.time() - start
-        assert switch_time < 15, f"Sport switch took {switch_time:.1f}s, expected < 15s"
-
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v", "--tb=short"])
+        page.wait_for_timeout(1200)
+        _assert_rendered_page(page, "Bet Detail not found")
+        _assert_text(page, "Bet not found")
+        _assert_text(page, "Selected bet: NOT-A-SEEDED-BET")

@@ -405,6 +405,7 @@ class TestPortfolioBettingPricing:
             "ticker": "VALID-TICKER",
             "close_time": "2099-12-31T00:00:00Z",
             "yes_ask": 62,
+            "last_update": "2026-04-21T18:58:00Z",
         }
 
         manager = PortfolioBettingManager(
@@ -440,6 +441,53 @@ class TestPortfolioBettingPricing:
         placed_bet = results["placed_bets"][0]
         assert placed_bet["price"] == 62
         assert placed_bet["bet_line_prob"] == pytest.approx(0.62)
+        assert placed_bet["entry_price_cents"] == 62
+        assert placed_bet["entry_price_source"] == "yes_ask"
+        assert placed_bet["entry_quote_source_system"] == "kalshi_market_details"
+        assert placed_bet["entry_quote_freshness_result"] == "fresh"
+        assert placed_bet["entry_quote_fallback_status"] == "direct_market_quote"
+
+    def test_place_optimized_bets_marks_recommendation_fallback_when_live_quote_missing(
+        self, mock_kalshi_client
+    ):
+        mock_kalshi_client.get_market_details.return_value = {
+            "status": "active",
+            "ticker": "VALID-TICKER",
+            "close_time": "2099-12-31T00:00:00Z",
+        }
+
+        manager = PortfolioBettingManager(
+            kalshi_client=mock_kalshi_client,
+            config=PortfolioConfig(bankroll=1000.0),
+            dry_run=True,
+        )
+
+        opp = BetOpportunity(
+            sport="mlb",
+            ticker="VALID-TICKER",
+            bet_on="home",
+            team="Chicago Cubs",
+            opponent="St. Louis Cardinals",
+            elo_prob=0.62,
+            market_prob=0.47,
+            edge=0.15,
+            confidence="HIGH",
+            yes_ask=47,
+            no_ask=53,
+        )
+        allocations = [
+            PortfolioAllocation(
+                opportunity=opp, bet_size=10.0, kelly_fraction=0.25, allocation_pct=0.01
+            )
+        ]
+
+        results = manager._place_optimized_bets(allocations, "2026-04-21")
+
+        placed_bet = results["placed_bets"][0]
+        assert placed_bet["entry_price_cents"] == 47
+        assert placed_bet["entry_price_source"] == "recommendation_yes_ask_fallback"
+        assert placed_bet["entry_quote_source_system"] == "bet_recommendations"
+        assert placed_bet["entry_quote_fallback_status"] == "recommendation_fallback"
 
 
 if __name__ == "__main__":

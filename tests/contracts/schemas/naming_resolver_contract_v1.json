@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "NamingResolver Contract v1",
+  "description": "Contract for NamingResolver resolve and add_mapping outputs.",
+  "anyOf": [
+    {"$ref": "#/$defs/resolve_result"},
+    {"$ref": "#/$defs/add_mapping_result"}
+  ],
+  "$defs": {
+    "resolve_result": {
+      "type": "object",
+      "required": [
+        "input_key",
+        "resolved_name",
+        "was_mapped",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "input_key": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 2
+        },
+        "resolved_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "was_mapped": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "v1"
+        },
+        "payload_kind": {
+          "const": "resolve_result"
+        }
+      },
+      "additionalProperties": false
+    },
+    "add_mapping_result": {
+      "type": "object",
+      "required": [
+        "context_key",
+        "canonical_name",
+        "success",
+        "schema_version",
+        "payload_kind"
+      ],
+      "properties": {
+        "context_key": {
+          "type": "array",
+          "items": {"type": "string"},
+          "minItems": 2
+        },
+        "canonical_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "success": {
+          "type": "boolean"
+        },
+        "schema_version": {
+          "const": "v1"
+        },
+        "payload_kind": {
+          "const": "add_mapping_result"
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}
