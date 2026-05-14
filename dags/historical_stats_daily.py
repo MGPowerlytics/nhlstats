@@ -601,6 +601,7 @@ def _fetch_stats_tennis(**context: Any) -> None:
     yesterday = _yesterday_from_context(context)
     for tour in ("atp", "wta"):
         fetcher = TennisBoxScoreFetcher(tour=tour)
+        fetcher.ensure_repos_cloned()
         _run_tennis_fetch_by_date(fetcher, yesterday)
 
 

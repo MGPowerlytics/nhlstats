@@ -594,8 +594,8 @@ def _empty_state(kind: str) -> dict[str, str | None]:
         "no_tennis_model_health": _state(
             "no_tennis_model_health",
             "No production tennis model health snapshots",
-            "No production PostgreSQL tennis model-vs-BetMGM evaluation rows are available yet.",
-            "Ingest tennis BetMGM odds and player-match stats, then run scripts/train_tennis_probability_model.py without --evaluate-only to publish production evidence to PostgreSQL.",
+            "No production PostgreSQL tennis model-vs-market evaluation rows are available yet.",
+            "Ensure Kalshi tennis markets are being fetched and run scripts/train_tennis_probability_model.py without --evaluate-only to publish production evidence to PostgreSQL.",
             "info",
         ),
     }
@@ -1047,7 +1047,7 @@ def get_tennis_model_health(limit: int = 30) -> pd.DataFrame:
 
     df = _fetch_read_model(
         TENNIS_MODEL_HEALTH_VIEW,
-        where="data_source = :data_source AND betmgm_holdout_rows > 0",
+        where="data_source = :data_source",
         params={"data_source": "postgres_tennis_games"},
         order_by="run_date DESC, created_at DESC, model_version ASC",
         limit=limit,

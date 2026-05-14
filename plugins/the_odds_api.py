@@ -34,6 +34,7 @@ class TheOddsAPI:
         "epl": "soccer_epl",
         "ncaab": "basketball_ncaab",
         "ligue1": "soccer_france_ligue_one",
+        "tennis": "tennis_atp",
     }
 
     def __init__(

@@ -715,7 +715,7 @@ def test_tennis_model_health_reads_governed_view(
             "ensemble_vs_betmgm_log_loss_delta, ensemble_vs_betmgm_brier_delta, "
             "ensemble_vs_betmgm_accuracy_delta, created_at "
             "FROM dashboard_tennis_model_health_v1 WHERE data_source = "
-            ":data_source AND betmgm_holdout_rows > 0 ORDER BY run_date DESC, "
+            ":data_source ORDER BY run_date DESC, "
             "created_at DESC, model_version ASC LIMIT 10"
         )
     ]
@@ -734,8 +734,8 @@ def test_zero_row_tennis_model_health_returns_explicit_empty_state(
     assert health.attrs["empty_state"] == {
         "kind": "no_tennis_model_health",
         "title": "No production tennis model health snapshots",
-        "message": "No production PostgreSQL tennis model-vs-BetMGM evaluation rows are available yet.",
-        "action": "Ingest tennis BetMGM odds and player-match stats, then run scripts/train_tennis_probability_model.py without --evaluate-only to publish production evidence to PostgreSQL.",
+        "message": "No production PostgreSQL tennis model-vs-market evaluation rows are available yet.",
+        "action": "Ensure Kalshi tennis markets are being fetched and run scripts/train_tennis_probability_model.py without --evaluate-only to publish production evidence to PostgreSQL.",
         "severity": "info",
     }
 

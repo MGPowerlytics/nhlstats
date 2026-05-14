@@ -81,9 +81,9 @@ def _empty_health() -> pd.DataFrame:
     df.attrs["empty_state"] = {
         "kind": "no_tennis_model_health",
         "title": "No production tennis model health snapshots",
-        "message": "No production PostgreSQL tennis model-vs-BetMGM evaluation rows are available yet.",
+        "message": "No production PostgreSQL tennis model-vs-market evaluation rows are available yet.",
         "action": (
-            "Ingest tennis BetMGM odds and player-match stats, then run "
+            "Ensure Kalshi tennis markets are being fetched and run "
             "scripts/train_tennis_probability_model.py without --evaluate-only "
             "to publish production evidence to PostgreSQL."
         ),
@@ -99,7 +99,7 @@ def _flatten_calls(fake_st: FakeStreamlit) -> str:
 def test_tennis_model_health_page_renders_rows(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Seeded rows expose the latest BetMGM comparison metrics."""
+    """Seeded rows expose the latest market comparison metrics."""
     fake_st = FakeStreamlit()
     monkeypatch.setattr(tennis_model_health, "st", fake_st)
     monkeypatch.setattr(
@@ -114,7 +114,7 @@ def test_tennis_model_health_page_renders_rows(
     assert len(dataframe_calls) == 1
     rendered = dataframe_calls[0][1].data
     row = rendered.iloc[0]
-    assert bool(row["Beats BetMGM"]) is True
+    assert bool(row["Beats Market"]) is True
     assert row["Log Loss Delta"] == -0.0144
     assert row["Accuracy Delta"] == 0.0069
     rendered_text = _flatten_calls(fake_st)

@@ -383,38 +383,42 @@ def load_history_from_db() -> pd.DataFrame:
 
     return default_db.fetch_df(
         """
-        WITH latest_betmgm AS (
+        WITH latest_market_odds AS (
             SELECT DISTINCT ON (go.game_id, go.outcome_name)
                 go.game_id,
+                ug.game_date,
+                ug.home_team_name,
+                ug.away_team_name,
                 go.outcome_name,
                 go.price
             FROM game_odds go
-            WHERE LOWER(go.bookmaker) = 'betmgm'
+            JOIN unified_games ug ON ug.game_id = go.game_id
+            WHERE LOWER(go.bookmaker) IN ('kalshi', 'betmgm')
               AND COALESCE(go.is_pregame, TRUE) = TRUE
               AND go.price IS NOT NULL
               AND go.price > 1.0
+              AND UPPER(ug.sport) = 'TENNIS'
             ORDER BY go.game_id, go.outcome_name, go.last_update DESC NULLS LAST, go.odds_id ASC
         ),
         market_probs AS (
             SELECT
-                ug.game_id,
+                lmo.game_date,
+                lmo.home_team_name AS player_a,
+                lmo.away_team_name AS player_b,
                 MAX(
                     CASE
-                        WHEN lb.outcome_name IN ('home', ug.home_team_name)
-                        THEN 1.0 / lb.price
+                        WHEN lmo.outcome_name IN ('home', lmo.home_team_name)
+                        THEN 1.0 / lmo.price
                     END
-                ) AS winner_raw_prob,
+                ) AS player_a_raw_prob,
                 MAX(
                     CASE
-                        WHEN lb.outcome_name IN ('away', ug.away_team_name)
-                        THEN 1.0 / lb.price
+                        WHEN lmo.outcome_name IN ('away', lmo.away_team_name)
+                        THEN 1.0 / lmo.price
                     END
-                ) AS loser_raw_prob
-            FROM unified_games ug
-            LEFT JOIN latest_betmgm lb
-                ON lb.game_id = ug.game_id
-            WHERE UPPER(ug.sport) = 'TENNIS'
-            GROUP BY ug.game_id
+                ) AS player_b_raw_prob
+            FROM latest_market_odds lmo
+            GROUP BY lmo.game_date, lmo.home_team_name, lmo.away_team_name
         )
         SELECT
             tg.game_id,
@@ -465,18 +469,26 @@ def load_history_from_db() -> pd.DataFrame:
                 )
             END AS loser_return_win_pct,
             CASE
-                WHEN mp.winner_raw_prob IS NULL
-                  OR mp.loser_raw_prob IS NULL
-                  OR (mp.winner_raw_prob + mp.loser_raw_prob) <= 0
+                WHEN mp.player_a_raw_prob IS NULL
+                  OR mp.player_b_raw_prob IS NULL
+                  OR (mp.player_a_raw_prob + mp.player_b_raw_prob) <= 0
                 THEN NULL
-                ELSE mp.winner_raw_prob / (mp.winner_raw_prob + mp.loser_raw_prob)
+                WHEN tg.winner = mp.player_a AND tg.loser = mp.player_b
+                THEN mp.player_a_raw_prob / (mp.player_a_raw_prob + mp.player_b_raw_prob)
+                WHEN tg.winner = mp.player_b AND tg.loser = mp.player_a
+                THEN mp.player_b_raw_prob / (mp.player_a_raw_prob + mp.player_b_raw_prob)
+                ELSE NULL
             END AS winner_market_prob,
             CASE
-                WHEN mp.winner_raw_prob IS NULL
-                  OR mp.loser_raw_prob IS NULL
-                  OR (mp.winner_raw_prob + mp.loser_raw_prob) <= 0
+                WHEN mp.player_a_raw_prob IS NULL
+                  OR mp.player_b_raw_prob IS NULL
+                  OR (mp.player_a_raw_prob + mp.player_b_raw_prob) <= 0
                 THEN NULL
-                ELSE mp.loser_raw_prob / (mp.winner_raw_prob + mp.loser_raw_prob)
+                WHEN tg.loser = mp.player_a AND tg.winner = mp.player_b
+                THEN mp.player_a_raw_prob / (mp.player_a_raw_prob + mp.player_b_raw_prob)
+                WHEN tg.loser = mp.player_b AND tg.winner = mp.player_a
+                THEN mp.player_b_raw_prob / (mp.player_a_raw_prob + mp.player_b_raw_prob)
+                ELSE NULL
             END AS loser_market_prob
         FROM tennis_games tg
         LEFT JOIN tennis_player_match_stats ws
@@ -486,7 +498,9 @@ def load_history_from_db() -> pd.DataFrame:
             ON ls.game_id = tg.game_id
            AND ls.player_name = tg.loser
         LEFT JOIN market_probs mp
-            ON mp.game_id = tg.game_id
+            ON mp.game_date = tg.game_date
+            AND ((tg.winner = mp.player_a AND tg.loser = mp.player_b)
+                 OR (tg.winner = mp.player_b AND tg.loser = mp.player_a))
         WHERE tg.game_date IS NOT NULL
           AND tg.winner IS NOT NULL
           AND tg.loser IS NOT NULL
@@ -1008,7 +1022,7 @@ def should_publish_metrics_to_db(metrics: TennisModelMetrics) -> bool:
     """Return whether a tennis evaluation is safe to surface on the dashboard."""
     return (
         metrics.data_source == "postgres_tennis_games"
-        and metrics.betmgm_holdout_rows > 0
+        and metrics.holdout_rows > 0
     )
 
 
