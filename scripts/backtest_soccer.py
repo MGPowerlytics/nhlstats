@@ -267,12 +267,11 @@ def calculate_3way_metrics(df: pd.DataFrame, prob_col: str, model_name: str) -> 
         "num_games": n,
     }
 
-def apply_mov_multiplier(df: pd.DataFrame, mov_constant: float = 2.2, mov_scaling: float = 0.001) -> pd.DataFrame:
+def apply_mov_multiplier(df: pd.DataFrame, mov_scaling: float = 0.001) -> pd.DataFrame:
     """Apply Margin of Victory multiplier to probabilities.
 
     Args:
         df: DataFrame with game data
-        mov_constant: Constant in MOV formula
         mov_scaling: Scaling factor for Elo difference
 
     Returns:

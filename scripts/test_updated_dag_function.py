@@ -11,7 +11,6 @@ sys.path.insert(0, "plugins")
 
 # Import the actual function from DAG
 import importlib.util
-import tempfile
 
 
 # Create a test context
