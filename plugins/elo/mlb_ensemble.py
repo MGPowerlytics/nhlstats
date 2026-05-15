@@ -24,7 +24,6 @@ from typing import Optional
 
 from plugins.elo.mlb_elo_rating import MLBEloRating
 from plugins.elo.mlb_features import (
-    bayesian_shrink,
     bullpen_elo_adjustment,
     park_factor_elo_adjustment,
     pythagorean_elo_adjustment,

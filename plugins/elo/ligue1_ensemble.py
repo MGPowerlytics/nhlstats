@@ -15,13 +15,9 @@ import logging
 # Standard ML imports
 try:
     import xgboost as xgb
-    import lightgbm as lgb
-    from sklearn.ensemble import GradientBoostingClassifier
     from sklearn.preprocessing import StandardScaler
 except ImportError:
     xgb = None
-    lgb = None
-    GradientBoostingClassifier = None
     StandardScaler = None
 
 logger = logging.getLogger(__name__)

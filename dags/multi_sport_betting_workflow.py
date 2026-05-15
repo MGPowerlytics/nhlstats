@@ -1616,8 +1616,6 @@ def place_portfolio_optimized_bets(**context: Any) -> None:
                 "ncaab",
                 "wncaab",
                 "tennis",
-                "epl",
-                "ligue1",
             ],
         )
 

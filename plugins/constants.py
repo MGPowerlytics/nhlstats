@@ -70,6 +70,7 @@ CENTS_PER_DOLLAR = (
 MAX_SINGLE_BET_PCT = 0.03  # Maximum 3% of bankroll per bet (matches DAG)
 MIN_EDGE_FOR_BET = 0.03  # Minimum 3% edge required for betting (positive EV)
 MIN_CONFIDENCE_FOR_BET = 0.68  # Minimum confidence level required
+MIN_ELO_PROB_FOR_BET = 0.55  # Minimum Elo win probability required to place a bet
 
 # Edge threshold constants (matches DAG values for consistency)
 MAX_EDGE_THRESHOLD = 0.40  # Maximum 40% edge cap (reject likely data errors)

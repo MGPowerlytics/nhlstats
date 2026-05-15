@@ -1,6 +1,7 @@
 import unittest
 import pandas as pd
 from unittest.mock import patch
+from plugins.constants import MIN_ELO_PROB_FOR_BET
 from plugins.portfolio_optimizer import (
     DatabaseRowParser,
     JsonFileParser,
@@ -16,6 +17,9 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
         self.json_parser = JsonFileParser()
         self.config = PortfolioConfig(bankroll=1000.0)
         self.optimizer = PortfolioOptimizer(self.config)
+
+    def test_portfolio_config_min_elo_prob_uses_shared_constant(self):
+        self.assertEqual(self.config.min_elo_prob, MIN_ELO_PROB_FOR_BET)
 
     @staticmethod
     def _apply_approval_grade_evidence(opportunity: BetOpportunity) -> BetOpportunity:
@@ -721,8 +725,8 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
                 bet_on="home",
                 team="Arsenal",
                 opponent="Newcastle",
-                elo_prob=0.5279,
-                market_prob=0.15,
+                elo_prob=0.62,
+                market_prob=0.24,
                 edge=0.3779,
                 confidence="HIGH",
                 yes_ask=15,
@@ -734,9 +738,9 @@ class TestPortfolioOptimizerRefactored(unittest.TestCase):
                 bet_on="away",
                 team="Athletics",
                 opponent="Mariners",
-                elo_prob=0.4887,
-                market_prob=0.39,
-                edge=0.0987,
+                elo_prob=0.61,
+                market_prob=0.48,
+                edge=0.13,
                 confidence="MEDIUM",
                 yes_ask=39,
                 no_ask=61,
