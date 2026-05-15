@@ -243,6 +243,7 @@ class PortfolioConfig:
         DEFAULT_MIN_EDGE  # Minimum 3% positive edge required (positive EV)
     )
     min_confidence: float = 0.0
+    min_elo_prob: float = 0.55
     excluded_segments: Optional[List[Tuple[str, str]]] = None
 
 
@@ -692,6 +693,7 @@ class PortfolioOptimizer:
         self.max_single_bet_pct = config.max_single_bet_pct
         self.min_edge = config.min_edge
         self.min_confidence = config.min_confidence
+        self.min_elo_prob = config.min_elo_prob
         self.excluded_segments = config.excluded_segments or []
         self._last_risk_audit: List[Dict[str, Any]] = []
 
@@ -1500,7 +1502,7 @@ class PortfolioOptimizer:
         """Filter opportunities based on minimum thresholds."""
         self._last_risk_audit = []
         filtered = []
-        stats = {"segment": 0, "edge": 0, "confidence": 0, "kelly": 0, "governance": 0}
+        stats = {"segment": 0, "edge": 0, "elo_prob": 0, "confidence": 0, "kelly": 0, "governance": 0}
         sport_confidence_stats = {}
         risk_context = risk_context or self._empty_risk_context(
             self.bankroll * self.max_daily_risk_pct
@@ -1582,6 +1584,11 @@ class PortfolioOptimizer:
                 stats["edge"] += 1
                 continue
 
+            # Skip bets where Elo probability is too low
+            if opp.elo_prob <= self.min_elo_prob:
+                stats["elo_prob"] += 1
+                continue
+
             # Check Kelly fraction - must be positive for valid value bets
             if opp.kelly_fraction <= 0:
                 stats["kelly"] += 1
@@ -1605,6 +1612,10 @@ class PortfolioOptimizer:
         if stats["edge"] > 0:
             print(
                 f"🚫 Excluded {stats['edge']} due to low edge (< {self.min_edge:.1%})"
+            )
+        if stats["elo_prob"] > 0:
+            print(
+                f"🚫 Excluded {stats['elo_prob']} due to low Elo probability (<= {self.min_elo_prob:.0%})"
             )
         if stats["confidence"] > 0:
             print(f"🚫 Excluded {stats['confidence']} due to low confidence")
