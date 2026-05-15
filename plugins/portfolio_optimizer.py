@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
+from plugins.constants import MIN_ELO_PROB_FOR_BET
 
 # Constants for portfolio optimization
 YEAR_START_INDEX = 0
@@ -243,7 +244,7 @@ class PortfolioConfig:
         DEFAULT_MIN_EDGE  # Minimum 3% positive edge required (positive EV)
     )
     min_confidence: float = 0.0
-    min_elo_prob: float = 0.55
+    min_elo_prob: float = MIN_ELO_PROB_FOR_BET
     excluded_segments: Optional[List[Tuple[str, str]]] = None
 
 
