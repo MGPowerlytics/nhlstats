@@ -14,6 +14,7 @@ from plugins.mlb_modeling.features import (
     RelieverAppearance,
     build_advanced_feature_payload,
     calculate_bullpen_fatigue,
+    get_recent_bullpen_appearances,
     recency_weighted_average,
     stable_feature_hash,
 )
@@ -40,6 +41,10 @@ from plugins.mlb_modeling.props import (
 from plugins.mlb_modeling.simulation import (
     MLBGameSimulationResult,
     MLBMonteCarloSimulator,
+)
+from plugins.mlb_modeling.matchup_assembler import (
+    MatchupAssemblyConfig,
+    assemble_matchup_features,
 )
 from plugins.mlb_modeling.validation import (
     MLBValidationGateConfig,
@@ -115,15 +120,18 @@ __all__ = [
     "compare_model_metrics",
     "EloBacktestConfig",
     "calculate_bullpen_fatigue",
+    "get_recent_bullpen_appearances",
     "empirical_bayes_rate",
     "evaluate_prediction_records",
     "MoneylineModelArtifact",
     "MoneylineTrainingRow",
     "artifact_passes_gate",
+    "assemble_matchup_features",
     "evaluate_binary_predictions",
     "expected_calibration_error",
     "evaluate_validation_gates",
     "log5_probability",
+    "MatchupAssemblyConfig",
     "recency_weighted_average",
     "run_elo_backtest",
     "run_standard_elo_improvement_backtest",

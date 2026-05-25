@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 from math import exp
 from typing import Any, Dict, Iterable, Mapping, Optional, Sequence
@@ -97,6 +97,71 @@ def calculate_bullpen_fatigue(
         relievers_over_20_pitches=over_20,
         velocity_penalty=round(penalty, 4),
     )
+
+
+def get_recent_bullpen_appearances(
+    db: Any,
+    team: str,
+    as_of_date: date,
+    days_back: int = 5,
+) -> list[RelieverAppearance]:
+    """Query ``mlb_player_game_pitching_stats`` for recent reliever appearances.
+
+    Args:
+        db: Database manager with an ``execute(sql, params)`` method.
+        team: Team abbreviation or name to filter by.
+        as_of_date: Reference date; looks back *days_back* days from here.
+        days_back: How many days to look back (default 5).
+
+    Returns:
+        List of :class:`RelieverAppearance` instances, newest first.
+    """
+    sql = """
+        SELECT
+            pitcher_id,
+            game_date,
+            pitch_count,
+            avg_velocity
+        FROM mlb_player_game_pitching_stats
+        WHERE team = :team
+          AND is_starter = FALSE
+          AND game_date >= :start_date
+          AND game_date <= :as_of_date
+        ORDER BY game_date DESC
+    """
+    start_date = as_of_date - timedelta(days=days_back)
+    result = db.execute(
+        sql,
+        {"team": team, "start_date": start_date.isoformat(), "as_of_date": as_of_date.isoformat()},
+    )
+    appearances: list[RelieverAppearance] = []
+    if result:
+        for row_obj in result:
+            row = dict(row_obj._mapping) if hasattr(row_obj, "_mapping") else dict(row_obj)
+            raw_date = row.get("game_date")
+            parsed_date: date | None = None
+            if isinstance(raw_date, date):
+                parsed_date = raw_date
+            elif raw_date is not None:
+                try:
+                    parsed_date = date.fromisoformat(str(raw_date))
+                except (ValueError, TypeError):
+                    pass
+            if parsed_date is None:
+                continue
+            appearances.append(
+                RelieverAppearance(
+                    pitcher_id=str(row.get("pitcher_id", "")),
+                    appearance_date=parsed_date,
+                    pitch_count=int(row.get("pitch_count", 0) or 0),
+                    avg_velocity=(
+                        float(row["avg_velocity"])
+                        if row.get("avg_velocity") is not None
+                        else None
+                    ),
+                )
+            )
+    return appearances
 
 
 def recency_weighted_average(
