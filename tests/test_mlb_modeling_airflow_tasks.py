@@ -7,12 +7,19 @@ import json
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
 from plugins.mlb_modeling.airflow_tasks import (
     MODEL_ARTIFACT_UNAVAILABLE_REASON,
     MODEL_FEATURES_UNAVAILABLE_REASON,
+    assemble_mlb_matchup_features,
     build_abstaining_moneyline_payloads,
+    compute_mlb_rolling_features,
+    fetch_mlb_environment_features,
+    fetch_mlb_player_stats,
+    fetch_mlb_travel_features,
     score_mlb_moneyline_model,
+    train_mlb_model_periodic,
 )
 from plugins.mlb_modeling.models import (
     MoneylineTrainingRow,
@@ -47,8 +54,8 @@ class _FakeDb:
             return self.odds
         return self.games
 
-    def execute(self, sql: str, params: dict) -> None:
-        self.execute_calls.append((sql, params))
+    def execute(self, sql: str, params: dict | None = None) -> None:
+        self.execute_calls.append((sql, params or {}))
 
 
 def _load_schema(filename: str) -> dict:
@@ -284,3 +291,72 @@ def test_score_mlb_moneyline_model_no_games_is_noop() -> None:
         "abstentions_written": 0,
     }
     assert db.execute_calls == []
+
+
+# ---------------------------------------------------------------------------
+# Tests for new upstream callables
+# ---------------------------------------------------------------------------
+
+
+class TestFetchMlbPlayerStats:
+    def test_no_completed_games_returns_zeros(self) -> None:
+        """Empty completed-games query yields zero counts."""
+        db = _FakeDb(pd.DataFrame())
+
+        result = fetch_mlb_player_stats(run_date="2026-05-10", db=db)
+
+        assert result == {"games_fetched": 0, "batting_rows": 0, "pitching_rows": 0}
+
+
+class TestComputeMlbRollingFeatures:
+    def test_empty_data_returns_zero_upserted(self) -> None:
+        """When no player data exists, zero rows are upserted."""
+        db = _FakeDb(pd.DataFrame())
+        db.execute_calls = []
+
+        result = compute_mlb_rolling_features(run_date="2026-05-10", db=db)
+
+        assert "rows_upserted" in result
+        assert "as_of_date" in result
+        assert result["as_of_date"] == "2026-05-10"
+        assert isinstance(result["rows_upserted"], int)
+
+
+class TestAssembleMlbMatchupFeatures:
+    def test_no_upcoming_games_returns_zeros(self) -> None:
+        """No upcoming games yields zero assembled."""
+        db = _FakeDb(pd.DataFrame())
+
+        result = assemble_mlb_matchup_features(run_date="2026-05-10", db=db, horizon_days=2)
+
+        assert result == {"games_assembled": 0}
+
+
+class TestTrainMlbModelPeriodic:
+    def test_no_training_games_raises(self) -> None:
+        """When no completed games exist, train_and_evaluate_model raises ValueError."""
+        db = _FakeDb(pd.DataFrame())
+        db.execute_calls = []
+
+        with pytest.raises(ValueError, match="No training rows found"):
+            train_mlb_model_periodic(run_date="2026-05-10", db=db)
+
+
+class TestFetchMlbEnvironmentFeatures:
+    def test_no_upcoming_games_returns_zeros(self) -> None:
+        """No upcoming games yields zero features stored."""
+        db = _FakeDb(pd.DataFrame())
+
+        result = fetch_mlb_environment_features(run_date="2026-05-10", db=db, horizon_days=2)
+
+        assert result == {"features_stored": 0}
+
+
+class TestFetchMlbTravelFeatures:
+    def test_no_upcoming_games_returns_zeros(self) -> None:
+        """No upcoming games yields zero features stored."""
+        db = _FakeDb(pd.DataFrame())
+
+        result = fetch_mlb_travel_features(run_date="2026-05-10", db=db, horizon_days=2)
+
+        assert result == {"features_stored": 0}

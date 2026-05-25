@@ -14,6 +14,7 @@ from plugins.mlb_modeling.models import (
     CalibratedMoneylineModel,
     DEFAULT_MONEYLINE_MODEL_PATH,
     load_moneyline_model_artifact,
+    save_moneyline_model_artifact,
     validate_runtime_feature_inputs,
 )
 
@@ -392,3 +393,313 @@ def score_mlb_moneyline_model(
         "predictions_written": predictions_written,
         "abstentions_written": abstentions_written,
     }
+
+
+# ---------------------------------------------------------------------------
+# Upstream data-ingestion callables
+# ---------------------------------------------------------------------------
+
+
+def fetch_mlb_player_stats(
+    *,
+    run_date: str | date,
+    db: Optional[Any] = None,
+) -> Dict[str, int]:
+    """Fetch per-player batting, pitching, and pitch-level data for completed games.
+
+    Queries completed ``mlb_games`` for *run_date*, then calls the MLB Stats
+    API for each game's boxscore and live-feed data.  Batting, pitching, and
+    pitch-feature rows are upserted into the V010 tables.
+
+    Args:
+        run_date: Execution date (ISO string or ``date``).
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+
+    Returns:
+        Dict with keys ``games_fetched``, ``batting_rows``, ``pitching_rows``.
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    parsed = _coerce_run_date(run_date)
+
+    # Find completed games for this date.
+    games = db.fetch_df(
+        """
+        SELECT game_id::TEXT AS game_id, game_date, home_team, away_team
+        FROM mlb_games
+        WHERE game_date = CAST(:run_date AS DATE)
+          AND status IN ('Final', 'Game Over', 'Completed Early')
+        """,
+        {"run_date": parsed.isoformat()},
+    )
+
+    if games is None or games.empty:
+        return {"games_fetched": 0, "batting_rows": 0, "pitching_rows": 0}
+
+    from plugins.mlb_modeling.player_stats_fetcher import MLBPlayerStatsFetcher
+
+    fetcher = MLBPlayerStatsFetcher(db=db)
+    total_batting = 0
+    total_pitching = 0
+
+    for _, game in games.iterrows():
+        game_id = str(game["game_id"])
+        try:
+            result = fetcher.fetch_game_stats(game_id)
+            fetcher.upsert_all(result)
+            total_batting += len(result.batting_rows)
+            total_pitching += len(result.pitching_rows)
+        except Exception as exc:  # noqa: BLE001 - best-effort per game
+            print(f"⚠️  MLB player stats fetch failed for game {game_id}: {exc}")
+
+    return {
+        "games_fetched": int(len(games)),
+        "batting_rows": total_batting,
+        "pitching_rows": total_pitching,
+    }
+
+
+def compute_mlb_rolling_features(
+    *,
+    run_date: str | date,
+    db: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """Compute rolling features for all active MLB players.
+
+    Discovers player IDs from the batting and pitching stats tables and
+    computes 7d, 14d, and 30d rolling-window features for each.
+
+    Args:
+        run_date: Reference date (ISO string or ``date``).  Only games strictly
+            before this date are included in the rolling computation.
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+
+    Returns:
+        Dict with ``rows_upserted`` and ``as_of_date``.
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    from plugins.mlb_modeling.rolling_features import compute_all_rolling_features
+
+    parsed = _coerce_run_date(run_date)
+    rows_upserted = compute_all_rolling_features(db, parsed)
+    return {
+        "rows_upserted": rows_upserted,
+        "as_of_date": parsed.isoformat(),
+    }
+
+
+def assemble_mlb_matchup_features(
+    *,
+    run_date: str | date,
+    horizon_days: int = 2,
+    db: Optional[Any] = None,
+) -> Dict[str, int]:
+    """Assemble matchup feature vectors for upcoming MLB games.
+
+    Loads games that are not yet final within the scoring horizon and calls
+    :func:`~plugins.mlb_modeling.matchup_assembler.assemble_matchup_features`
+    for each, persisting the result to ``mlb_matchup_features``.
+
+    Args:
+        run_date: Execution date.
+        horizon_days: How many days ahead to look for upcoming games.
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+
+    Returns:
+        Dict with ``games_assembled``.
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    from plugins.mlb_modeling.matchup_assembler import assemble_matchup_features as _assemble
+
+    parsed = _coerce_run_date(run_date)
+    games = _load_upcoming_games(db, parsed, horizon_days=horizon_days)
+
+    if games.empty:
+        return {"games_assembled": 0}
+
+    count = 0
+    for _, game in games.iterrows():
+        try:
+            result = _assemble(
+                db,
+                game_id=str(game["game_id"]),
+                home_team=str(game["home_team"]),
+                away_team=str(game["away_team"]),
+                game_date=parsed,
+            )
+            if result is not None:
+                count += 1
+        except Exception as exc:  # noqa: BLE001 - best-effort per game
+            print(f"⚠️  Matchup assembly failed for game {game['game_id']}: {exc}")
+
+    return {"games_assembled": count}
+
+
+def train_mlb_model_periodic(
+    *,
+    run_date: Optional[str | date] = None,
+    db: Optional[Any] = None,
+    model_path: Path = DEFAULT_MONEYLINE_MODEL_PATH,
+) -> Dict[str, Any]:
+    """Periodic MLB moneyline model training (intended for weekly schedule).
+
+    Trains on completed games from the last 365 days, evaluates against the
+    current production artifact (if it exists), and persists the new artifact
+    when gate checks pass.
+
+    Args:
+        run_date: Optional execution date.  When ``None``, uses ``date.today()``.
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+        model_path: Path to persist the trained artifact.
+
+    Returns:
+        Dict with training summary (model version, row count, metrics, enabled).
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    from plugins.mlb_modeling.training import train_and_evaluate_model
+
+    if run_date is None:
+        run_date = date.today()
+    parsed = _coerce_run_date(run_date)
+
+    # Train on the year leading up to (but not including) today.
+    train_end = parsed - timedelta(days=1)
+    train_start = train_end - timedelta(days=365)
+
+    model_version = f"mlb_moneyline_v{parsed.strftime('%Y%m%d')}"
+
+    artifact = train_and_evaluate_model(
+        db,
+        train_start=train_start,
+        train_end=train_end,
+        model_version=model_version,
+        baseline_path=model_path,
+    )
+
+    save_moneyline_model_artifact(artifact, model_path=model_path)
+
+    return {
+        "model_version": model_version,
+        "training_rows": artifact.metrics.sample_count,
+        "accuracy": artifact.metrics.accuracy,
+        "brier_score": artifact.metrics.brier_score,
+        "log_loss": artifact.metrics.log_loss,
+        "ece": artifact.metrics.expected_calibration_error,
+        "enabled": artifact.enabled,
+    }
+
+
+def fetch_mlb_environment_features(
+    *,
+    run_date: str | date,
+    horizon_days: int = 2,
+    db: Optional[Any] = None,
+) -> Dict[str, int]:
+    """Fetch environment features (park factors, weather) for upcoming MLB games.
+
+    Loads upcoming games and calls
+    :func:`~plugins.mlb_modeling.environment_fetcher.fetch_environment_features`
+    for each, persisting to ``mlb_environment_features``.
+
+    Args:
+        run_date: Execution date.
+        horizon_days: How many days ahead to look for upcoming games.
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+
+    Returns:
+        Dict with ``features_stored``.
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    from plugins.mlb_modeling.environment_fetcher import (
+        fetch_environment_features as _fetch_environment,
+    )
+    from plugins.mlb_modeling.travel_fetcher import TEAM_INFO
+
+    parsed = _coerce_run_date(run_date)
+    games = _load_upcoming_games(db, parsed, horizon_days=horizon_days)
+
+    if games.empty:
+        return {"features_stored": 0}
+
+    count = 0
+    for _, game in games.iterrows():
+        game_id = str(game["game_id"])
+        home_team = str(game["home_team"])
+        try:
+            venue = TEAM_INFO[home_team]["venue"]
+            _fetch_environment(db, game_id, parsed, venue)
+            count += 1
+        except KeyError:
+            print(f"⚠️  Unknown venue for team {home_team}; skipping environment")
+        except Exception as exc:  # noqa: BLE001 - best-effort per game
+            print(f"⚠️  Environment fetch failed for game {game_id}: {exc}")
+
+    return {"features_stored": count}
+
+
+def fetch_mlb_travel_features(
+    *,
+    run_date: str | date,
+    horizon_days: int = 2,
+    db: Optional[Any] = None,
+) -> Dict[str, int]:
+    """Compute travel fatigue features for upcoming MLB games.
+
+    Loads upcoming games and calls
+    :func:`~plugins.mlb_modeling.travel_fetcher.fetch_travel_features`
+    for each, persisting to ``mlb_travel_features``.
+
+    Args:
+        run_date: Execution date.
+        horizon_days: How many days ahead to look for upcoming games.
+        db: Database manager.  Falls back to ``default_db`` when ``None``.
+
+    Returns:
+        Dict with ``features_stored`` (2 rows per game — home and away).
+    """
+    if db is None:
+        from plugins.db_manager import default_db
+
+        db = default_db
+
+    from plugins.mlb_modeling.travel_fetcher import (
+        fetch_travel_features as _fetch_travel,
+    )
+
+    parsed = _coerce_run_date(run_date)
+    games = _load_upcoming_games(db, parsed, horizon_days=horizon_days)
+
+    if games.empty:
+        return {"features_stored": 0}
+
+    count = 0
+    for _, game in games.iterrows():
+        game_id = str(game["game_id"])
+        home_team = str(game["home_team"])
+        away_team = str(game["away_team"])
+        try:
+            _fetch_travel(db, game_id, home_team, away_team, parsed)
+            count += 2  # home + away rows
+        except Exception as exc:  # noqa: BLE001 - best-effort per game
+            print(f"⚠️  Travel feature fetch failed for game {game_id}: {exc}")
+
+    return {"features_stored": count}

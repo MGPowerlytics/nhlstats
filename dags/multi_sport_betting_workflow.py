@@ -933,6 +933,95 @@ def fetch_mlb_current_odds(**context: Any) -> int:
     return saved
 
 
+def _mlb_fetch_player_stats(**context: Any) -> Dict[str, int]:
+    """Airflow callable: fetch per-player MLB stats for completed games."""
+    print("📊 Fetching MLB player stats for completed games...")
+    from plugins.mlb_modeling.airflow_tasks import fetch_mlb_player_stats
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = fetch_mlb_player_stats(run_date=date_str)
+    print(
+        "✓ MLB player stats fetched: "
+        f"{result['games_fetched']} games, "
+        f"{result['batting_rows']} batting, "
+        f"{result['pitching_rows']} pitching"
+    )
+    return result
+
+
+def _mlb_compute_rolling_features(**context: Any) -> Dict[str, Any]:
+    """Airflow callable: compute rolling features for all active MLB players."""
+    print("📈 Computing MLB rolling features...")
+    from plugins.mlb_modeling.airflow_tasks import compute_mlb_rolling_features
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = compute_mlb_rolling_features(run_date=date_str)
+    print(
+        "✓ MLB rolling features complete: "
+        f"{result['rows_upserted']} rows upserted"
+    )
+    return result
+
+
+def _mlb_assemble_matchup_features(**context: Any) -> Dict[str, int]:
+    """Airflow callable: assemble matchup feature vectors for upcoming MLB games."""
+    print("🔗 Assembling MLB matchup features...")
+    from plugins.mlb_modeling.airflow_tasks import assemble_mlb_matchup_features
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = assemble_mlb_matchup_features(run_date=date_str)
+    print(
+        "✓ MLB matchup assembly complete: "
+        f"{result['games_assembled']} games assembled"
+    )
+    return result
+
+
+def _mlb_fetch_environment_features(**context: Any) -> Dict[str, int]:
+    """Airflow callable: fetch environment features for upcoming MLB games."""
+    print("🌤️  Fetching MLB environment features...")
+    from plugins.mlb_modeling.airflow_tasks import fetch_mlb_environment_features
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = fetch_mlb_environment_features(run_date=date_str)
+    print(
+        "✓ MLB environment features stored: "
+        f"{result['features_stored']} features"
+    )
+    return result
+
+
+def _mlb_fetch_travel_features(**context: Any) -> Dict[str, int]:
+    """Airflow callable: compute travel fatigue features for upcoming MLB games."""
+    print("✈️  Computing MLB travel features...")
+    from plugins.mlb_modeling.airflow_tasks import fetch_mlb_travel_features
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = fetch_mlb_travel_features(run_date=date_str)
+    print(
+        "✓ MLB travel features stored: "
+        f"{result['features_stored']} features"
+    )
+    return result
+
+
+def _mlb_train_model_periodic(**context: Any) -> Dict[str, Any]:
+    """Airflow callable: periodic (weekly) MLB moneyline model training."""
+    print("🧠 Training MLB moneyline model (periodic)...")
+    from plugins.mlb_modeling.airflow_tasks import train_mlb_model_periodic
+
+    date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
+    result = train_mlb_model_periodic(run_date=date_str)
+    print(
+        "✓ MLB model training complete: "
+        f"version={result['model_version']}, "
+        f"rows={result['training_rows']}, "
+        f"accuracy={result['accuracy']:.4f}, "
+        f"enabled={result['enabled']}"
+    )
+    return result
+
+
 def train_tennis_probability_model(**context: Any) -> Dict[str, Any]:
     """Refresh the production tennis probability-model artifact from PostgreSQL."""
     print("🎾 Training tennis probability model artifact...")
@@ -1913,7 +2002,45 @@ for sport in ALL_SPORTS:
             python_callable=score_mlb_model_predictions,
             dag=dag,
         )
-        markets_task >> mlb_external_odds_task >> model_scoring_task >> bets_task
+
+        # --- Sabermetrics pipeline (upstream of model_scoring) ---
+        player_stats_task = PythonOperator(
+            task_id="mlb_fetch_player_stats",
+            python_callable=_mlb_fetch_player_stats,
+            dag=dag,
+        )
+        rolling_task = PythonOperator(
+            task_id="mlb_compute_rolling_features",
+            python_callable=_mlb_compute_rolling_features,
+            dag=dag,
+        )
+        matchup_task = PythonOperator(
+            task_id="mlb_assemble_matchup_features",
+            python_callable=_mlb_assemble_matchup_features,
+            dag=dag,
+        )
+        environment_task = PythonOperator(
+            task_id="mlb_fetch_environment_features",
+            python_callable=_mlb_fetch_environment_features,
+            dag=dag,
+        )
+        travel_task = PythonOperator(
+            task_id="mlb_fetch_travel_features",
+            python_callable=_mlb_fetch_travel_features,
+            dag=dag,
+        )
+
+        # Dependencies:
+        #   load -> player_stats -> rolling -> matchup
+        #   load -> environment (parallel with rolling)
+        #   load -> travel (parallel with rolling)
+        #   markets -> external_odds
+        #   [matchup, external_odds] -> model_scoring -> bets
+        load_task >> player_stats_task >> rolling_task >> matchup_task
+        load_task >> environment_task
+        load_task >> travel_task
+        markets_task >> mlb_external_odds_task
+        [matchup_task, mlb_external_odds_task] >> model_scoring_task >> bets_task
     elif sport == "tennis":
         tennis_training_task = PythonOperator(
             task_id="tennis_train_probability_model",
@@ -1962,6 +2089,13 @@ for sport in ALL_SPORTS:
             bets_task >> place_bets_task >> load_bets_task
         else:
             bets_task >> load_bets_task
+
+# Add periodic MLB model training task (weekly, not in the daily chain)
+mlb_model_training_task = PythonOperator(
+    task_id="mlb_train_model_periodic",
+    python_callable=_mlb_train_model_periodic,
+    dag=dag,
+)
 
 # Add unified portfolio betting task (runs after all sports have identified bets)
 portfolio_betting_task = PythonOperator(

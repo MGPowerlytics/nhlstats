@@ -14,6 +14,7 @@ from plugins.mlb_modeling.features import (
     RelieverAppearance,
     build_advanced_feature_payload,
     calculate_bullpen_fatigue,
+    get_recent_bullpen_appearances,
     recency_weighted_average,
     stable_feature_hash,
 )
@@ -41,6 +42,10 @@ from plugins.mlb_modeling.simulation import (
     MLBGameSimulationResult,
     MLBMonteCarloSimulator,
 )
+from plugins.mlb_modeling.matchup_assembler import (
+    MatchupAssemblyConfig,
+    assemble_matchup_features,
+)
 from plugins.mlb_modeling.validation import (
     MLBValidationGateConfig,
     MLBValidationGateResult,
@@ -50,8 +55,19 @@ from plugins.mlb_modeling.validation import (
 from plugins.mlb_modeling.airflow_tasks import (
     MODEL_ARTIFACT_UNAVAILABLE_REASON,
     PUBLIC_MONEYLINE_MODEL_VERSION,
+    assemble_mlb_matchup_features,
     build_abstaining_moneyline_payloads,
+    compute_mlb_rolling_features,
+    fetch_mlb_environment_features,
+    fetch_mlb_player_stats,
+    fetch_mlb_travel_features,
     score_mlb_moneyline_model,
+    train_mlb_model_periodic,
+)
+from plugins.mlb_modeling.training import (
+    _reconstruct_pre_game_features,
+    build_training_rows,
+    train_and_evaluate_model,
 )
 from plugins.mlb_modeling.evidence import (
     BettingEvidenceMetrics,
@@ -68,6 +84,16 @@ from plugins.mlb_modeling.evidence import (
     run_elo_backtest,
     run_standard_elo_improvement_backtest,
     summarize_betting_evidence_by_edge_bucket,
+)
+from plugins.mlb_modeling.player_stats_fetcher import (
+    MLBPlayerStatsFetcher,
+    PlayerStatsFetchResult,
+    compute_advanced_batting_metrics,
+    compute_advanced_pitching_metrics,
+    fetch_player_stats,
+    upsert_batting_stats,
+    upsert_pitching_stats,
+    upsert_pitch_features,
 )
 
 __all__ = [
@@ -105,15 +131,18 @@ __all__ = [
     "compare_model_metrics",
     "EloBacktestConfig",
     "calculate_bullpen_fatigue",
+    "get_recent_bullpen_appearances",
     "empirical_bayes_rate",
     "evaluate_prediction_records",
     "MoneylineModelArtifact",
     "MoneylineTrainingRow",
     "artifact_passes_gate",
+    "assemble_matchup_features",
     "evaluate_binary_predictions",
     "expected_calibration_error",
     "evaluate_validation_gates",
     "log5_probability",
+    "MatchupAssemblyConfig",
     "recency_weighted_average",
     "run_elo_backtest",
     "run_standard_elo_improvement_backtest",
@@ -124,4 +153,23 @@ __all__ = [
     "summarize_betting_evidence_by_edge_bucket",
     "train_logistic_moneyline_model",
     "validate_runtime_feature_inputs",
+    # player_stats_fetcher
+    "MLBPlayerStatsFetcher",
+    "PlayerStatsFetchResult",
+    "compute_advanced_batting_metrics",
+    "compute_advanced_pitching_metrics",
+    "fetch_player_stats",
+    "upsert_batting_stats",
+    "upsert_pitching_stats",
+    "upsert_pitch_features",
+    # training
+    "build_training_rows",
+    "train_and_evaluate_model",
+    # airflow_tasks (new callables)
+    "assemble_mlb_matchup_features",
+    "compute_mlb_rolling_features",
+    "fetch_mlb_environment_features",
+    "fetch_mlb_player_stats",
+    "fetch_mlb_travel_features",
+    "train_mlb_model_periodic",
 ]
