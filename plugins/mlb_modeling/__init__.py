@@ -69,6 +69,16 @@ from plugins.mlb_modeling.evidence import (
     run_standard_elo_improvement_backtest,
     summarize_betting_evidence_by_edge_bucket,
 )
+from plugins.mlb_modeling.player_stats_fetcher import (
+    MLBPlayerStatsFetcher,
+    PlayerStatsFetchResult,
+    compute_advanced_batting_metrics,
+    compute_advanced_pitching_metrics,
+    fetch_player_stats,
+    upsert_batting_stats,
+    upsert_pitching_stats,
+    upsert_pitch_features,
+)
 
 __all__ = [
     "AvailabilityStatus",
@@ -124,4 +134,13 @@ __all__ = [
     "summarize_betting_evidence_by_edge_bucket",
     "train_logistic_moneyline_model",
     "validate_runtime_feature_inputs",
+    # player_stats_fetcher
+    "MLBPlayerStatsFetcher",
+    "PlayerStatsFetchResult",
+    "compute_advanced_batting_metrics",
+    "compute_advanced_pitching_metrics",
+    "fetch_player_stats",
+    "upsert_batting_stats",
+    "upsert_pitching_stats",
+    "upsert_pitch_features",
 ]
