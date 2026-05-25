@@ -55,8 +55,19 @@ from plugins.mlb_modeling.validation import (
 from plugins.mlb_modeling.airflow_tasks import (
     MODEL_ARTIFACT_UNAVAILABLE_REASON,
     PUBLIC_MONEYLINE_MODEL_VERSION,
+    assemble_mlb_matchup_features,
     build_abstaining_moneyline_payloads,
+    compute_mlb_rolling_features,
+    fetch_mlb_environment_features,
+    fetch_mlb_player_stats,
+    fetch_mlb_travel_features,
     score_mlb_moneyline_model,
+    train_mlb_model_periodic,
+)
+from plugins.mlb_modeling.training import (
+    _reconstruct_pre_game_features,
+    build_training_rows,
+    train_and_evaluate_model,
 )
 from plugins.mlb_modeling.evidence import (
     BettingEvidenceMetrics,
@@ -151,4 +162,14 @@ __all__ = [
     "upsert_batting_stats",
     "upsert_pitching_stats",
     "upsert_pitch_features",
+    # training
+    "build_training_rows",
+    "train_and_evaluate_model",
+    # airflow_tasks (new callables)
+    "assemble_mlb_matchup_features",
+    "compute_mlb_rolling_features",
+    "fetch_mlb_environment_features",
+    "fetch_mlb_player_stats",
+    "fetch_mlb_travel_features",
+    "train_mlb_model_periodic",
 ]
