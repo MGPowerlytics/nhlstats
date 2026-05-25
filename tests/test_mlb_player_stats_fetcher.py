@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1137,11 +1138,38 @@ class TestFetchPlayerStats:
 # =========================================================================
 
 
+class _FakeConnection:
+    """In-memory fake SQLAlchemy connection."""
+
+    def __init__(self, calls: list[tuple[str, dict]]) -> None:
+        self._calls = calls
+
+    def execute(self, stmt: Any, params: dict) -> None:
+        self._calls.append((str(stmt), params))
+
+    def __enter__(self) -> _FakeConnection:
+        return self
+
+    def __exit__(self, *args: Any) -> None:
+        pass
+
+
+class _FakeEngine:
+    """Fake SQLAlchemy engine with a begin() context manager."""
+
+    def __init__(self, calls: list[tuple[str, dict]]) -> None:
+        self._calls = calls
+
+    def begin(self) -> _FakeConnection:
+        return _FakeConnection(self._calls)
+
+
 class _FakeDb:
     """In-memory fake DBManager that captures SQL calls."""
 
     def __init__(self) -> None:
         self.calls: list[tuple[str, dict]] = []
+        self.engine = _FakeEngine(self.calls)
 
     def execute(self, sql: str, params: dict) -> None:
         self.calls.append((sql, params))
@@ -1333,27 +1361,14 @@ class TestMLBPlayerStatsFetcher:
             ],
         )
 
-        with (
-            patch(
-                "plugins.mlb_modeling.player_stats_fetcher.upsert_batting_stats"
-            ) as mock_bat,
-            patch(
-                "plugins.mlb_modeling.player_stats_fetcher.upsert_pitching_stats"
-            ) as mock_pit,
-            patch(
-                "plugins.mlb_modeling.player_stats_fetcher.upsert_pitch_features"
-            ) as mock_pf,
-        ):
-            mock_bat.return_value = 1
-            mock_pit.return_value = 1
-            mock_pf.return_value = 1
+        total = fetcher.upsert_all(result)
 
-            total = fetcher.upsert_all(result)
-
-            assert total == 3
-            mock_bat.assert_called_once_with(db, result.batting_rows)
-            mock_pit.assert_called_once_with(db, result.pitching_rows)
-            mock_pf.assert_called_once_with(db, result.pitch_features)
+        assert total == 3
+        # All three statements were executed in a single transaction
+        assert len(db.calls) == 3
+        assert "mlb_player_game_batting_stats" in db.calls[0][0]
+        assert "mlb_player_game_pitching_stats" in db.calls[1][0]
+        assert "mlb_pitch_level_features" in db.calls[2][0]
 
     def test_fetch_game_stats_without_date_fetches_metadata(self) -> None:
         """When game_date is None, the class fetches the date from the API."""
@@ -1391,7 +1406,10 @@ class TestMLBPlayerStatsFetcher:
             result = fetcher.fetch_game_stats("g1", game_date=None)
 
             mock_fn.assert_called_once_with(
-                "g1", date(2024, 8, 1), fetcher._limiter.wait
+                "g1",
+                date(2024, 8, 1),
+                fetcher._limiter.wait,
+                live_feed=mock_meta_resp.json(),
             )
             assert result == mock_result
 

@@ -43,11 +43,13 @@ from __future__ import annotations
 import logging
 import statistics
 import time
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import date
 from typing import Any, Callable, Optional
 
 import requests
+from sqlalchemy import text
 
 from plugins.db_manager import DBManager
 from plugins.stats.advanced_stats import compute_baseball_fip, compute_baseball_woba
@@ -115,9 +117,66 @@ _SEASON_CONSTANTS: dict[int, dict[str, float]] = {
         "lg_era": 4.15,
         "lg_hr_per_fb": 0.137,
     },
+    2026: {
+        "lg_wOBA": 0.312,
+        "lg_wOBA_scale": 1.18,
+        "fip_constant": 3.06,
+        "lg_era": 4.15,
+        "lg_hr_per_fb": 0.137,
+    },
 }
 
-_DEFAULT_SEASON: int = 2025
+_DEFAULT_SEASON: int = 2026
+
+
+# ---------------------------------------------------------------------------
+# Retry helper
+# ---------------------------------------------------------------------------
+
+
+def _retry_request(
+    url: str,
+    *,
+    max_retries: int = 3,
+    backoff: float = 1.0,
+    timeout: int = 30,
+) -> requests.Response:
+    """GET *url* with retries on transient errors (429, 5xx).
+
+    Uses exponential backoff: wait = backoff * 2^attempt seconds.
+    """
+    last_exc: Exception | None = None
+    for attempt in range(max_retries + 1):
+        try:
+            resp = requests.get(url, timeout=timeout)
+            if resp.status_code < 500 and resp.status_code != 429:
+                resp.raise_for_status()
+                return resp
+        except requests.exceptions.ConnectionError as exc:
+            last_exc = exc
+        except requests.exceptions.Timeout as exc:
+            last_exc = exc
+        except requests.exceptions.HTTPError as exc:
+            if resp.status_code >= 500 or resp.status_code == 429:
+                last_exc = exc
+            else:
+                raise
+
+        if attempt < max_retries:
+            wait = backoff * (2 ** attempt)
+            logger.warning(
+                "Request to %s failed (attempt %d/%d): %s. Retrying in %.1fs.",
+                url[:80],
+                attempt + 1,
+                max_retries + 1,
+                last_exc,
+                wait,
+            )
+            time.sleep(wait)
+
+    raise RuntimeError(
+        f"Request to {url[:80]} failed after {max_retries + 1} attempts"
+    ) from last_exc
 
 
 # ---------------------------------------------------------------------------
@@ -453,8 +512,6 @@ def _aggregate_pitch_features(
     Returns:
         List of pitch-feature dicts for ``mlb_pitch_level_features``.
     """
-    from collections import defaultdict
-
     groups: dict[
         tuple[str, str, str],
         dict[str, Any],
@@ -541,6 +598,8 @@ def fetch_player_stats(
     game_id: str,
     game_date: date,
     rate_limiter: Callable[[], None],
+    *,
+    live_feed: dict[str, Any] | None = None,
 ) -> PlayerStatsFetchResult:
     """Fetch per-player batting and pitching stats for one MLB game.
 
@@ -552,6 +611,8 @@ def fetch_player_stats(
         game_date: Official game date (used for season year).
         rate_limiter: Zero-argument callable that blocks to respect the API
             rate limit.  Call between each API request.
+        live_feed: Pre-fetched live feed JSON. When provided, the live-feed
+            API call is skipped (caller already fetched it).
 
     Returns:
         A :class:`PlayerStatsFetchResult` containing batting, pitching, and
@@ -560,15 +621,14 @@ def fetch_player_stats(
     season = game_date.year
 
     # ---- Live feed ----
-    rate_limiter()
-    live_resp = requests.get(_LIVE_FEED_URL.format(game_pk=game_id), timeout=30)
-    live_resp.raise_for_status()
-    live_feed: dict[str, Any] = live_resp.json()
+    if live_feed is None:
+        rate_limiter()
+        live_resp = _retry_request(_LIVE_FEED_URL.format(game_pk=game_id))
+        live_feed = live_resp.json()
 
     # ---- Boxscore ----
     rate_limiter()
-    box_resp = requests.get(_BOXSCORE_URL.format(game_pk=game_id), timeout=30)
-    box_resp.raise_for_status()
+    box_resp = _retry_request(_BOXSCORE_URL.format(game_pk=game_id))
     boxscore: dict[str, Any] = box_resp.json()
 
     # ---- Team abbreviations from live feed ----
@@ -951,7 +1011,8 @@ class MLBPlayerStatsFetcher:
         """Fetch player stats for a single game.
 
         When *game_date* is ``None`` the live feed's ``officialDate`` is
-        used (meaning a second API call for metadata only).
+        used.  The live feed is fetched once and reused for both the date
+        and the pitch-level data.
 
         Args:
             game_id: MLB game PK.
@@ -960,12 +1021,15 @@ class MLBPlayerStatsFetcher:
         Returns:
             :class:`PlayerStatsFetchResult`.
         """
+        pre_fetched_live: dict[str, Any] | None = None
+
         if game_date is None:
-            # Fetch just the official date from the live feed
             self._limiter.wait()
-            meta_resp = requests.get(_LIVE_FEED_URL.format(game_pk=game_id), timeout=30)
-            meta_resp.raise_for_status()
+            meta_resp = _retry_request(
+                _LIVE_FEED_URL.format(game_pk=game_id)
+            )
             meta: dict[str, Any] = meta_resp.json()
+            pre_fetched_live = meta
             official_date = (
                 meta.get("gameData", {}).get("datetime", {}).get("officialDate", "")
             )
@@ -973,10 +1037,12 @@ class MLBPlayerStatsFetcher:
                 date.fromisoformat(official_date) if official_date else date.today()
             )
 
-        return fetch_player_stats(game_id, game_date, self._limiter.wait)
+        return fetch_player_stats(
+            game_id, game_date, self._limiter.wait, live_feed=pre_fetched_live,
+        )
 
     def upsert_all(self, result: PlayerStatsFetchResult) -> int:
-        """Persist all three tables from a fetch result.
+        """Persist all three tables from a fetch result in a single transaction.
 
         Args:
             result: The fetch result to persist.
@@ -985,7 +1051,14 @@ class MLBPlayerStatsFetcher:
             Total rows upserted across all three tables.
         """
         total = 0
-        total += upsert_batting_stats(self.db, result.batting_rows)
-        total += upsert_pitching_stats(self.db, result.pitching_rows)
-        total += upsert_pitch_features(self.db, result.pitch_features)
+        with self.db.engine.begin() as conn:
+            for row in result.batting_rows:
+                conn.execute(text(_BATTING_UPSERT_SQL), row)
+                total += 1
+            for row in result.pitching_rows:
+                conn.execute(text(_PITCHING_UPSERT_SQL), row)
+                total += 1
+            for row in result.pitch_features:
+                conn.execute(text(_PITCH_FEATURES_UPSERT_SQL), row)
+                total += 1
         return total
