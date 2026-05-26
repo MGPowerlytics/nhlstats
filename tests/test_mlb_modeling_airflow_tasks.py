@@ -333,13 +333,16 @@ class TestAssembleMlbMatchupFeatures:
 
 
 class TestTrainMlbModelPeriodic:
-    def test_no_training_games_raises(self) -> None:
-        """When no completed games exist, train_and_evaluate_model raises ValueError."""
+    def test_no_training_games_returns_skipped(self) -> None:
+        """When no completed games exist, returns skipped status instead of raising."""
         db = _FakeDb(pd.DataFrame())
         db.execute_calls = []
 
-        with pytest.raises(ValueError, match="No training rows found"):
-            train_mlb_model_periodic(run_date="2026-05-10", db=db)
+        result = train_mlb_model_periodic(run_date="2026-05-10", db=db)
+
+        assert result["skipped"] is True
+        assert result["reason"] == "no_training_rows"
+        assert result["training_rows"] == 0
 
 
 class TestFetchMlbEnvironmentFeatures:

@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import json
+import logging
 from datetime import date, datetime, time, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
 
 from plugins.mlb_modeling.features import stable_feature_hash
 from plugins.mlb_modeling.models import (
@@ -583,13 +586,27 @@ def train_mlb_model_periodic(
 
     model_version = f"mlb_moneyline_v{parsed.strftime('%Y%m%d')}"
 
-    artifact = train_and_evaluate_model(
-        db,
-        train_start=train_start,
-        train_end=train_end,
-        model_version=model_version,
-        baseline_path=model_path,
-    )
+    try:
+        artifact = train_and_evaluate_model(
+            db,
+            train_start=train_start,
+            train_end=train_end,
+            model_version=model_version,
+            baseline_path=model_path,
+        )
+    except ValueError:
+        logger.warning(
+            "No training rows for %s to %s — skipping model training.",
+            train_start,
+            train_end,
+        )
+        return {
+            "model_version": model_version,
+            "training_rows": 0,
+            "enabled": False,
+            "skipped": True,
+            "reason": "no_training_rows",
+        }
 
     save_moneyline_model_artifact(artifact, model_path=model_path)
 
