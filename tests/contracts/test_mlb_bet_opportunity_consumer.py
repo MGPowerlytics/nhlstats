@@ -60,8 +60,8 @@ def test_mlb_opportunity_contract_freezes_edge_band(
 ) -> None:
     """Persisted opportunities must satisfy MIN/MAX edge thresholds."""
     edge_schema = opportunity_contract["properties"]["edge"]
-    assert edge_schema["minimum"] == 0.03
-    assert edge_schema["maximum"] == 0.40
+    assert edge_schema["minimum"] == 0.05
+    assert edge_schema["maximum"] == 0.15
 
 
 def test_mlb_opportunity_contract_freezes_confidence_enum(

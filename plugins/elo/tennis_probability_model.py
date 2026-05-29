@@ -402,6 +402,7 @@ def load_history_from_db() -> pd.DataFrame:
         ),
         market_probs AS (
             SELECT
+                lmo.game_id,
                 lmo.game_date,
                 lmo.home_team_name AS player_a,
                 lmo.away_team_name AS player_b,
@@ -418,7 +419,7 @@ def load_history_from_db() -> pd.DataFrame:
                     END
                 ) AS player_b_raw_prob
             FROM latest_market_odds lmo
-            GROUP BY lmo.game_date, lmo.home_team_name, lmo.away_team_name
+            GROUP BY lmo.game_id, lmo.game_date, lmo.home_team_name, lmo.away_team_name
         )
         SELECT
             tg.game_id,
@@ -498,9 +499,7 @@ def load_history_from_db() -> pd.DataFrame:
             ON ls.game_id = tg.game_id
            AND ls.player_name = tg.loser
         LEFT JOIN market_probs mp
-            ON mp.game_date = tg.game_date
-            AND ((tg.winner = mp.player_a AND tg.loser = mp.player_b)
-                 OR (tg.winner = mp.player_b AND tg.loser = mp.player_a))
+            ON mp.game_id = tg.game_id
         WHERE tg.game_date IS NOT NULL
           AND tg.winner IS NOT NULL
           AND tg.loser IS NOT NULL

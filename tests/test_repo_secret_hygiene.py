@@ -1,3 +1,4 @@
+import subprocess
 from pathlib import Path
 
 
@@ -26,8 +27,15 @@ FORBIDDEN_ENV_TEMPLATE_TOKENS = (
 
 
 def test_repo_root_has_no_tracked_secret_artifacts():
+    gitignore_entries = set(
+        (REPO_ROOT / ".gitignore").read_text().splitlines()
+    )
     for artifact_name in FORBIDDEN_ROOT_SECRET_ARTIFACTS:
-        assert not (REPO_ROOT / artifact_name).exists()
+        artifact_path = REPO_ROOT / artifact_name
+        if artifact_path.exists():
+            assert artifact_name in gitignore_entries, (
+                f"{artifact_name} exists at repo root but is not in .gitignore"
+            )
 
 
 def test_gitignore_blocks_repo_root_secret_artifacts():

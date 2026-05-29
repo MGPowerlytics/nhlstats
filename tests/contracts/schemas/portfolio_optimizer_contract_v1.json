@@ -163,6 +163,18 @@
             },
             "abstention_reason": {
               "type": ["string", "null"]
+            },
+            "clv_evidence_tier": {
+              "type": ["string", "null"]
+            },
+            "calibration_evidence_tier": {
+              "type": ["string", "null"]
+            },
+            "walk_forward_evidence_tier": {
+              "type": ["string", "null"]
+            },
+            "approval_grade_evidence": {
+              "type": "boolean"
             }
           },
           "additionalProperties": false

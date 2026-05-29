@@ -27,7 +27,7 @@ class TestExpectedTeamsComprehensive:
         from data_validation import EXPECTED_TEAMS
 
         assert len(EXPECTED_TEAMS["nba"]) == 30
-        assert "Lakers" in EXPECTED_TEAMS["nba"] or "Los Angeles Lakers" in str(
+        assert "LAL" in EXPECTED_TEAMS["nba"] or "Los Angeles Lakers" in str(
             EXPECTED_TEAMS["nba"]
         )
 

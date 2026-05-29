@@ -317,13 +317,14 @@ def translate_sql(sql):
         sql = sql.replace("test_nhlstats.", "").replace("TEST_NHLSTATS.", "")
 
     if sql_upper.startswith("INSERT INTO ") and "ON CONFLICT" not in sql_upper:
-        if "GAMES" in sql_upper:
+        table_name = sql_upper.split()[2] if len(sql_upper.split()) > 2 else ""
+        if "GAMES" in table_name:
             sql = sql.rstrip(";").rstrip() + " ON CONFLICT (game_id) DO NOTHING"
-        elif "TEAMS" in sql_upper:
+        elif "TEAMS" in table_name:
             sql = sql.rstrip(";").rstrip() + " ON CONFLICT (team_id) DO NOTHING"
-        elif "PLACED_BETS" in sql_upper:
+        elif "PLACED_BETS" in table_name:
             sql = sql.rstrip(";").rstrip() + " ON CONFLICT (bet_id) DO NOTHING"
-        elif "BET_RECOMMENDATIONS" in sql_upper:
+        elif "BET_RECOMMENDATIONS" in table_name:
             sql = sql.rstrip(";").rstrip() + " ON CONFLICT (bet_id) DO NOTHING"
 
     # Convert PostgreSQL ON CONFLICT ... DO UPDATE SET to SQLite INSERT OR REPLACE

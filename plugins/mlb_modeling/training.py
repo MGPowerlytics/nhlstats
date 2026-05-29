@@ -37,6 +37,60 @@ from plugins.mlb_modeling.matchup_assembler import (
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
+# Team name → abbreviation mapping
+# mlb_games stores full names ("Detroit Tigers") while
+# mlb_player_game_pitching_stats / mlb_player_rolling_features use
+# standard MLB abbreviations ("DET").  This map bridges the two.
+# ---------------------------------------------------------------------------
+
+MLB_TEAM_NAME_TO_ABBREV: dict[str, str] = {
+    "Arizona Diamondbacks": "AZ",
+    "Atlanta Braves": "ATL",
+    "Baltimore Orioles": "BAL",
+    "Boston Red Sox": "BOS",
+    "Chicago Cubs": "CHC",
+    "Chicago White Sox": "CWS",
+    "Cincinnati Reds": "CIN",
+    "Cleveland Guardians": "CLE",
+    "Cleveland Indians": "CLE",
+    "Colorado Rockies": "COL",
+    "Detroit Tigers": "DET",
+    "Houston Astros": "HOU",
+    "Kansas City Royals": "KC",
+    "Los Angeles Angels": "LAA",
+    "Los Angeles Dodgers": "LAD",
+    "Miami Marlins": "MIA",
+    "Milwaukee Brewers": "MIL",
+    "Minnesota Twins": "MIN",
+    "New York Mets": "NYM",
+    "New York Yankees": "NYY",
+    "Athletics": "ATH",
+    "Oakland Athletics": "ATH",
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates": "PIT",
+    "San Diego Padres": "SD",
+    "San Francisco Giants": "SF",
+    "Seattle Mariners": "SEA",
+    "St. Louis Cardinals": "STL",
+    "Tampa Bay Rays": "TB",
+    "Texas Rangers": "TEX",
+    "Toronto Blue Jays": "TOR",
+    "Washington Nationals": "WSH",
+}
+
+
+def _team_abbrev(full_name: str) -> str:
+    """Return the standard MLB team abbreviation for *full_name*.
+
+    Raises ``KeyError`` when the name cannot be mapped so callers fail
+    loudly rather than silently producing wrong results.
+    """
+    if full_name in MLB_TEAM_NAME_TO_ABBREV:
+        return MLB_TEAM_NAME_TO_ABBREV[full_name]
+    raise KeyError(f"Unknown MLB team name: {full_name!r}")
+
+
+# ---------------------------------------------------------------------------
 # SQL Queries — strict temporal cutoff (< game_date, never <=)
 # ---------------------------------------------------------------------------
 
@@ -59,7 +113,9 @@ _ACTUAL_STARTER_SQL = """
     FROM mlb_player_game_pitching_stats
     WHERE game_id = :game_id
       AND team = :team
-      AND is_starter = TRUE
+    ORDER BY is_starter DESC,
+             innings_pitched DESC NULLS LAST,
+             pitch_count DESC NULLS LAST
     LIMIT 1
 """
 
@@ -95,14 +151,33 @@ _TEAM_PRIOR_GAME_COUNT_SQL = """
 """
 
 _PRE_GAME_BULLPEN_SQL = """
-    SELECT pitcher_id, game_date, pitch_count, avg_velocity
-    FROM mlb_player_game_pitching_stats
-    WHERE team = :team
-      AND is_starter = FALSE
-      AND game_date >= :start_date
-      AND game_date < :game_date
-    ORDER BY game_date DESC
+    SELECT ps.pitcher_id, g.game_date, ps.pitch_count, ps.avg_velocity
+    FROM mlb_player_game_pitching_stats ps
+    JOIN mlb_games g ON g.game_id::text = ps.game_id
+    WHERE ps.team = :team
+      AND ps.is_starter = FALSE
+      AND g.game_date >= :start_date
+      AND g.game_date < :game_date
+    ORDER BY g.game_date DESC
 """
+
+_ELO_RATINGS_SQL = """
+    SELECT entity_name, rating
+    FROM elo_ratings
+    WHERE sport = 'MLB'
+      AND entity_name = :team
+      AND valid_from <= :game_date
+      AND (valid_to IS NULL OR valid_to >= :game_date)
+    ORDER BY valid_from DESC
+    LIMIT 1
+"""
+
+_ELO_HOME_ADVANTAGE: float = 20.0
+
+
+def _elo_home_win_prob(home_rating: float, away_rating: float) -> float:
+    """Standard Elo expected score for the home team."""
+    return 1.0 / (1.0 + 10.0 ** ((away_rating - (home_rating + _ELO_HOME_ADVANTAGE)) / 400.0))
 
 
 # ---------------------------------------------------------------------------
@@ -335,8 +410,29 @@ def _reconstruct_pre_game_features(
     ``plate_discipline.home_o_swing_pct``).
     """
     game_id = str(game["game_id"])
-    home_team = str(game["home_team"])
-    away_team = str(game["away_team"])
+    home_team_full = str(game["home_team"])
+    away_team_full = str(game["away_team"])
+    home_team = _team_abbrev(home_team_full)
+    away_team = _team_abbrev(away_team_full)
+
+    # ---- 0. Elo Ratings ----------------------------------------------------
+    home_elo_row = _query_one(
+        db, _ELO_RATINGS_SQL,
+        {"team": home_team_full, "game_date": game_date},
+    )
+    away_elo_row = _query_one(
+        db, _ELO_RATINGS_SQL,
+        {"team": away_team_full, "game_date": game_date},
+    )
+    home_elo_rating = float(home_elo_row["rating"]) if home_elo_row else 1500.0
+    away_elo_rating = float(away_elo_row["rating"]) if away_elo_row else 1500.0
+    elo_home_prob = _elo_home_win_prob(home_elo_rating, away_elo_rating)
+
+    elo: dict[str, float] = {
+        "home_rating": home_elo_rating,
+        "away_rating": away_elo_rating,
+        "home_win_prob": round(elo_home_prob, 6),
+    }
 
     # ---- 1. Sabermetrics ---------------------------------------------------
 
@@ -424,6 +520,7 @@ def _reconstruct_pre_game_features(
 
     features: dict[str, float] = {}
     for prefix, subdict in (
+        ("elo", elo),
         ("sabermetrics", sabermetrics),
         ("plate_discipline", plate_discipline),
         ("matchup_dynamics", matchup_dynamics),

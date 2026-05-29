@@ -53,5 +53,5 @@ def build_mlb_bet_opportunity_lowercase_sport() -> dict[str, Any]:
 
 
 def build_mlb_bet_opportunity_out_of_range_edge(edge: float) -> dict[str, Any]:
-    """Build an opportunity payload whose edge falls outside [0.03, 0.40]."""
+    """Build an opportunity payload whose edge falls outside [0.05, 0.15]."""
     return build_mlb_bet_opportunity(edge=edge)

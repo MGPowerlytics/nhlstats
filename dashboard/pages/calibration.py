@@ -5,6 +5,7 @@ import plotly.graph_objects as go
 import pandas as pd
 
 from dashboard.data_layer import DashboardDataError, get_calibration_data
+from dashboard.shared import render_state
 
 
 def _format_validation_state(state: str | None) -> str:
@@ -13,26 +14,6 @@ def _format_validation_state(state: str | None) -> str:
     if not state:
         return "unknown"
     return state.replace("_", "-")
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    """Render a governed empty/error state without exposing raw exceptions."""
-
-    title = payload["title"] or "Dashboard state"
-    message = payload["message"]
-    action = payload["action"]
-    body = title if message is None else f"{title}: {message}"
-    severity = payload.get("severity")
-
-    if severity == "error":
-        st.error(body)
-    elif severity == "warning":
-        st.warning(body)
-    else:
-        st.info(body)
-
-    if action:
-        st.caption(action)
 
 
 def _format_percent(value: float | None) -> str:
@@ -116,7 +97,7 @@ def render():
     try:
         data = get_calibration_data(sport)
     except DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     sport_validation_state = data.get("sport_validation_state")
@@ -127,7 +108,7 @@ def render():
 
     empty_state = data.get("empty_state")
     if empty_state:
-        _render_state(empty_state)
+        render_state(empty_state)
         return
 
     buckets = data.get("buckets", [])
@@ -142,7 +123,7 @@ def render():
 
     settled_empty_state = data.get("settled_empty_state")
     if settled_empty_state:
-        _render_state(settled_empty_state)
+        render_state(settled_empty_state)
         return
 
     st.subheader("Calibration Curve")

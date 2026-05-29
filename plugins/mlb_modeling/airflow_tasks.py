@@ -428,18 +428,37 @@ def fetch_mlb_player_stats(
 
     parsed = _coerce_run_date(run_date)
 
-    # Find completed games for this date.
+    # Find completed games from the last 2 days.  A 2-day window
+    # catches games whose status flips to Final after the previous
+    # DAG run (e.g. West Coast games ending ~05:00 UTC).
+    lookback_start = parsed - timedelta(days=1)
+
     games = db.fetch_df(
         """
         SELECT game_id::TEXT AS game_id, game_date, home_team, away_team
         FROM mlb_games
-        WHERE game_date = CAST(:run_date AS DATE)
+        WHERE game_date BETWEEN CAST(:start_date AS DATE) AND CAST(:run_date AS DATE)
           AND status IN ('Final', 'Game Over', 'Completed Early')
         """,
-        {"run_date": parsed.isoformat()},
+        {"start_date": lookback_start.isoformat(), "run_date": parsed.isoformat()},
     )
 
     if games is None or games.empty:
+        return {"games_fetched": 0, "batting_rows": 0, "pitching_rows": 0}
+
+    # Skip games that already have player stats to avoid redundant API calls.
+    existing = db.fetch_df(
+        """
+        SELECT DISTINCT game_id
+        FROM mlb_player_game_pitching_stats
+        WHERE game_id = ANY(:game_ids)
+        """,
+        {"game_ids": games["game_id"].tolist()},
+    )
+    existing_ids = set(existing["game_id"].tolist()) if not existing.empty else set()
+    games = games[~games["game_id"].isin(existing_ids)]
+
+    if games.empty:
         return {"games_fetched": 0, "batting_rows": 0, "pitching_rows": 0}
 
     from plugins.mlb_modeling.player_stats_fetcher import MLBPlayerStatsFetcher

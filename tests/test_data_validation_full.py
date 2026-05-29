@@ -40,17 +40,17 @@ class TestExpectedTeams:
         from data_validation import EXPECTED_TEAMS
 
         nba_teams = EXPECTED_TEAMS["nba"]
-        assert "Lakers" in nba_teams
-        assert "Celtics" in nba_teams
-        assert "Warriors" in nba_teams
+        assert "LAL" in nba_teams
+        assert "BOS" in nba_teams
+        assert "GSW" in nba_teams
 
     def test_nhl_teams_valid(self):
         """Test some NHL teams are present."""
         from data_validation import EXPECTED_TEAMS
 
         nhl_teams = EXPECTED_TEAMS["nhl"]
-        assert "Boston Bruins" in nhl_teams
-        assert "Toronto Maple Leafs" in nhl_teams
+        assert "BOS" in nhl_teams
+        assert "TOR" in nhl_teams
 
     def test_mlb_teams_valid(self):
         """Test some MLB teams are present."""

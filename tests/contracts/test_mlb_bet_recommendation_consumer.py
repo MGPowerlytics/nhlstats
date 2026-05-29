@@ -63,8 +63,8 @@ def test_mlb_recommendation_contract_freezes_edge_band(
     edge_schema = recommendation_contract["$defs"]["base_recommendation"][
         "properties"
     ]["edge"]
-    assert edge_schema["minimum"] == 0.03
-    assert edge_schema["maximum"] == 0.40
+    assert edge_schema["minimum"] == 0.05
+    assert edge_schema["maximum"] == 0.15
 
 
 def test_mlb_recommendation_contract_freezes_confidence_enum(

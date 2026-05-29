@@ -486,21 +486,22 @@ def _fetch_active_elo_rows(
     entity_type: str,
     entity_ids: list[str],
 ) -> list[dict[str, Any]]:
+    if not entity_ids:
+        return []
+    placeholders = ", ".join(f":eid_{i}" for i in range(len(entity_ids)))
+    params: dict[str, Any] = {"sport": sport, "entity_type": entity_type}
+    params.update({f"eid_{i}": eid for i, eid in enumerate(entity_ids)})
     df = db.fetch_df(
-        """
+        f"""
         SELECT sport, entity_type, entity_id, entity_name, rating, valid_from,
                valid_to, games_played, created_at
         FROM elo_ratings
         WHERE sport = :sport
           AND entity_type = :entity_type
-          AND entity_id = ANY(:entity_ids)
+          AND entity_id IN ({placeholders})
           AND valid_to IS NULL
         """,
-        {
-            "sport": sport,
-            "entity_type": entity_type,
-            "entity_ids": entity_ids,
-        },
+        params,
     )
     if df.empty:
         return []

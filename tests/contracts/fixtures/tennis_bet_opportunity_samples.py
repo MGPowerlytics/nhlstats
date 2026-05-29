@@ -38,16 +38,16 @@ def build_tennis_bet_opportunity(**overrides: Any) -> dict[str, Any]:
 
 
 def build_tennis_bet_opportunity_high_edge() -> dict[str, Any]:
-    """Build a high-confidence Tennis bet opportunity (edge >= 0.15)."""
+    """Build a high-confidence Tennis bet opportunity (edge close to max of 0.15)."""
     return build_tennis_bet_opportunity(
-        edge=0.20,
-        elo_prob=0.86,
+        edge=0.14,
+        elo_prob=0.80,
         market_prob=0.66,
         confidence="HIGH",
-        agreement_diff=0.20,
+        agreement_diff=0.14,
     )
 
 
 def build_tennis_bet_opportunity_clamped_edge() -> dict[str, Any]:
-    """Build a Tennis bet opportunity with edge clamped to MAX_EDGE_THRESHOLD."""
-    return build_tennis_bet_opportunity(edge=0.40, elo_prob=0.99, market_prob=0.59)
+    """Build a Tennis bet opportunity with edge at the MAX_EDGE_THRESHOLD (0.15)."""
+    return build_tennis_bet_opportunity(edge=0.15, elo_prob=0.99, market_prob=0.84)

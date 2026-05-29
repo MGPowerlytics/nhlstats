@@ -65,8 +65,8 @@
         },
         "edge": {
           "type": "number",
-          "minimum": 0.03,
-          "maximum": 0.40
+          "minimum": 0.05,
+          "maximum": 0.15
         },
         "expected_value": {
           "type": ["number", "null"]

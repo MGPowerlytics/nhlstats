@@ -29,7 +29,12 @@ class InMemoryEloRatingsDB:
         params = params or {}
         sport = params["sport"]
         entity_type = params["entity_type"]
-        entity_ids = set(params["entity_ids"])
+        # Extract entity_ids from individual eid_0, eid_1, ... keys
+        entity_ids = {
+            v for k, v in params.items() if k.startswith("eid_")
+        }
+        if not entity_ids:
+            entity_ids = set(params.get("entity_ids", []))
         active_rows = [
             row.copy()
             for row in self.rows

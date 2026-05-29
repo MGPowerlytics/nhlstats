@@ -63,8 +63,8 @@
     },
     "edge": {
       "type": "number",
-      "minimum": 0.03,
-      "maximum": 0.40
+      "minimum": 0.05,
+      "maximum": 0.15
     },
     "expected_value": {
       "type": ["number", "null"]
@@ -105,6 +105,14 @@
     },
     "away_rating": {
       "type": ["number", "null"]
+    },
+    "home_team_raw": {
+      "type": ["string", "null"],
+      "default": ""
+    },
+    "away_team_raw": {
+      "type": ["string", "null"],
+      "default": ""
     }
   },
   "additionalProperties": false

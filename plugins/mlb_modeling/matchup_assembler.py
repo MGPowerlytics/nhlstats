@@ -42,6 +42,53 @@ logger = logging.getLogger(__name__)
 _DEFAULT_ROLLING_WINDOWS: tuple[str, ...] = ("30d", "14d", "7d")
 
 # ---------------------------------------------------------------------------
+# Team name → abbreviation mapping
+# ---------------------------------------------------------------------------
+
+MLB_TEAM_NAME_TO_ABBREV: dict[str, str] = {
+    "Arizona Diamondbacks": "AZ",
+    "Atlanta Braves": "ATL",
+    "Baltimore Orioles": "BAL",
+    "Boston Red Sox": "BOS",
+    "Chicago Cubs": "CHC",
+    "Chicago White Sox": "CWS",
+    "Cincinnati Reds": "CIN",
+    "Cleveland Guardians": "CLE",
+    "Cleveland Indians": "CLE",
+    "Colorado Rockies": "COL",
+    "Detroit Tigers": "DET",
+    "Houston Astros": "HOU",
+    "Kansas City Royals": "KC",
+    "Los Angeles Angels": "LAA",
+    "Los Angeles Dodgers": "LAD",
+    "Miami Marlins": "MIA",
+    "Milwaukee Brewers": "MIL",
+    "Minnesota Twins": "MIN",
+    "New York Mets": "NYM",
+    "New York Yankees": "NYY",
+    "Athletics": "ATH",
+    "Oakland Athletics": "ATH",
+    "Philadelphia Phillies": "PHI",
+    "Pittsburgh Pirates": "PIT",
+    "San Diego Padres": "SD",
+    "San Francisco Giants": "SF",
+    "Seattle Mariners": "SEA",
+    "St. Louis Cardinals": "STL",
+    "Tampa Bay Rays": "TB",
+    "Texas Rangers": "TEX",
+    "Toronto Blue Jays": "TOR",
+    "Washington Nationals": "WSH",
+}
+
+
+def _team_abbrev(full_name: str) -> str:
+    """Return the standard MLB team abbreviation for *full_name*."""
+    if full_name in MLB_TEAM_NAME_TO_ABBREV:
+        return MLB_TEAM_NAME_TO_ABBREV[full_name]
+    raise KeyError(f"Unknown MLB team name: {full_name!r}")
+
+
+# ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
@@ -71,13 +118,16 @@ class MatchupAssemblyConfig:
 # ---------------------------------------------------------------------------
 
 _STARTER_GAME_SQL = """
-    SELECT pitcher_id, pitcher_name, throws, avg_velocity,
-           primary_pitch_type, primary_pitch_pct
-    FROM mlb_player_game_pitching_stats
-    WHERE team = :team
-      AND is_starter = TRUE
-      AND game_date <= :game_date
-    ORDER BY game_date DESC
+    SELECT ps.pitcher_id, ps.pitcher_name, ps.throws, ps.avg_velocity,
+           ps.primary_pitch_type, ps.primary_pitch_pct
+    FROM mlb_player_game_pitching_stats ps
+    JOIN mlb_games g ON g.game_id::text = ps.game_id
+    WHERE ps.team = :team
+      AND g.game_date <= :game_date
+    ORDER BY ps.is_starter DESC,
+             ps.innings_pitched DESC NULLS LAST,
+             ps.pitch_count DESC NULLS LAST,
+             g.game_date DESC
     LIMIT 1
 """
 
@@ -103,6 +153,25 @@ _TEAM_ROLLING_FEATURES_SQL = """
       AND as_of_date <= :game_date
     ORDER BY player_id, as_of_date DESC
 """
+
+_ELO_RATINGS_SQL = """
+    SELECT entity_name, rating
+    FROM elo_ratings
+    WHERE sport = 'MLB'
+      AND entity_name = :team
+      AND valid_from <= :game_date
+      AND (valid_to IS NULL OR valid_to >= :game_date)
+    ORDER BY valid_from DESC
+    LIMIT 1
+"""
+
+# MLB Elo home advantage (matches MLBEloRating production default)
+_ELO_HOME_ADVANTAGE: float = 20.0
+
+
+def _elo_home_win_prob(home_rating: float, away_rating: float) -> float:
+    """Standard Elo expected score for the home team (home advantage baked in)."""
+    return 1.0 / (1.0 + 10.0 ** ((away_rating - (home_rating + _ELO_HOME_ADVANTAGE)) / 400.0))
 
 
 # ---------------------------------------------------------------------------
@@ -350,10 +419,10 @@ def _compute_matchup_dynamics(
         "pitcher_batter_contact_rate_delta": 0.0,
         "pitch_mix_mismatch": pitch_mix_diff,
         "platoon_advantage": 0.0,
-        "catcher_framing_runs": None,
-        "umpire_zone_runs": None,
-        "pitch_accuracy": None,
-        "vertical_location_score": None,
+        "catcher_framing_runs": 0.0,
+        "umpire_zone_runs": 0.0,
+        "pitch_accuracy": 0.0,
+        "vertical_location_score": 0.0,
     }
 
 
@@ -461,6 +530,38 @@ def _build_feature_availability(
 # ---------------------------------------------------------------------------
 
 
+def _compute_elo_features(
+    db: Any,
+    home_team_full: str,
+    away_team_full: str,
+    game_date: date,
+) -> dict[str, float]:
+    """Query pre-game Elo ratings and return Elo-derived features.
+
+    Uses the ``elo_ratings`` table to find each team's rating as it stood
+    before *game_date*, then computes the home win probability via the
+    standard Elo formula with MLB-tuned home advantage.
+
+    Falls back to the default rating (1500.0) when a team has no Elo record.
+    """
+    home_row = _query_one(
+        db, _ELO_RATINGS_SQL,
+        {"team": home_team_full, "game_date": game_date.isoformat()},
+    )
+    away_row = _query_one(
+        db, _ELO_RATINGS_SQL,
+        {"team": away_team_full, "game_date": game_date.isoformat()},
+    )
+    home_rating = float(home_row["rating"]) if home_row else 1500.0
+    away_rating = float(away_row["rating"]) if away_row else 1500.0
+    home_prob = _elo_home_win_prob(home_rating, away_rating)
+    return {
+        "home_rating": home_rating,
+        "away_rating": away_rating,
+        "home_win_prob": round(home_prob, 6),
+    }
+
+
 def assemble_matchup_features(
     db: Any,
     *,
@@ -497,12 +598,19 @@ def assemble_matchup_features(
     if as_of_ts is None:
         as_of_ts = datetime.now()
 
-    # ---- 1. Sabermetrics ---------------------------------------------------
-    home_starter = _get_starter_data(db, home_team, game_date)
-    away_starter = _get_starter_data(db, away_team, game_date)
+    # Convert full team names to abbreviations (DB stats tables use abbrevs)
+    home_abbr = _team_abbrev(home_team)
+    away_abbr = _team_abbrev(away_team)
 
-    home_batting = _get_team_batting_features(db, home_team, game_date)
-    away_batting = _get_team_batting_features(db, away_team, game_date)
+    # ---- 0. Elo Ratings ----------------------------------------------------
+    elo = _compute_elo_features(db, home_team, away_team, game_date)
+
+    # ---- 1. Sabermetrics ---------------------------------------------------
+    home_starter = _get_starter_data(db, home_abbr, game_date)
+    away_starter = _get_starter_data(db, away_abbr, game_date)
+
+    home_batting = _get_team_batting_features(db, home_abbr, game_date)
+    away_batting = _get_team_batting_features(db, away_abbr, game_date)
 
     sabermetrics: dict[str, Any] = {
         "home_woba": _zero_if_none(home_batting.get("woba")),
@@ -520,8 +628,8 @@ def assemble_matchup_features(
     }
 
     # ---- 2. Plate Discipline -----------------------------------------------
-    home_pd = _get_team_plate_discipline(db, home_team, game_date)
-    away_pd = _get_team_plate_discipline(db, away_team, game_date)
+    home_pd = _get_team_plate_discipline(db, home_abbr, game_date)
+    away_pd = _get_team_plate_discipline(db, away_abbr, game_date)
 
     plate_discipline: dict[str, Any] = {
         "home_o_swing_pct": _zero_if_none(home_pd.get("o_swing_pct")),
@@ -545,8 +653,8 @@ def assemble_matchup_features(
 
     # ---- 4. Bullpen Fatigue ------------------------------------------------
     if cfg.include_bullpen:
-        home_apps = get_recent_bullpen_appearances(db, home_team, game_date)
-        away_apps = get_recent_bullpen_appearances(db, away_team, game_date)
+        home_apps = get_recent_bullpen_appearances(db, home_abbr, game_date)
+        away_apps = get_recent_bullpen_appearances(db, away_abbr, game_date)
         home_bullpen = calculate_bullpen_fatigue(home_apps, game_date)
         away_bullpen = calculate_bullpen_fatigue(away_apps, game_date)
     else:
@@ -556,7 +664,7 @@ def assemble_matchup_features(
         away_bullpen = BullpenFatigueSummary(0, 0, 0, 0, 0.0)
 
     # ---- 5. Recency --------------------------------------------------------
-    recency = _compute_recency(db, home_team, away_team, game_date)
+    recency = _compute_recency(db, home_abbr, away_abbr, game_date)
 
     # ---- 6. Feature Availability -------------------------------------------
     feature_availability = _build_feature_availability(
@@ -576,6 +684,7 @@ def assemble_matchup_features(
         home_team=home_team,
         away_team=away_team,
         as_of_ts=as_of_ts,
+        elo=elo,
         sabermetrics=sabermetrics,
         plate_discipline=plate_discipline,
         matchup_dynamics=matchup_dynamics,

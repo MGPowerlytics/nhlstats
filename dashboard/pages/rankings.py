@@ -9,19 +9,8 @@ from dashboard.data_layer import (
     get_current_elo_ratings,
     get_elo_history,
 )
+from dashboard.shared import render_state, SPORT_OPTIONS
 
-
-SPORT_OPTIONS = [
-    "NBA",
-    "NHL",
-    "MLB",
-    "NFL",
-    "NCAAB",
-    "WNCAAB",
-    "TENNIS",
-    "EPL",
-    "LIGUE1",
-]
 RANKING_DISPLAY_COLUMNS = [
     "rank",
     "sport",
@@ -33,28 +22,6 @@ RANKING_DISPLAY_COLUMNS = [
     "valid_to",
     "created_at",
 ]
-
-
-def _state_text(payload: dict[str, str | None]) -> str:
-    """Build a compact, sanitized state message from a data-layer payload."""
-
-    parts = [
-        payload.get("kind"),
-        payload.get("title"),
-        payload.get("message"),
-        payload.get("action"),
-    ]
-    return " — ".join(str(part) for part in parts if part)
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    """Render an explicit governed empty/error state."""
-
-    message = _state_text(payload)
-    if payload.get("severity") == "error":
-        st.error(message)
-    else:
-        st.info(message)
 
 
 def _empty_rankings_payload(sport: str) -> dict[str, str | None]:
@@ -89,7 +56,7 @@ def render():
     try:
         ratings = get_current_elo_ratings(sport)
     except DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     if not ratings.empty:
@@ -156,6 +123,6 @@ def render():
         else:
             st.caption("At least two active ranking rows are required for comparison.")
     else:
-        _render_state(
+        render_state(
             ratings.attrs.get("empty_state") or _empty_rankings_payload(sport)
         )

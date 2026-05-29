@@ -200,3 +200,20 @@ def test_tennis_probability_model_uses_inferred_surface(
     assert context.calculate_probabilities()
     assert context.home_win_prob == pytest.approx(0.59)
     assert captured["surface"] == "Clay"
+
+
+class TestNormalizeTennisName:
+    def test_no_periods(self) -> None:
+        assert OddsComparator._normalize_tennis_name("Novak Djokovic") == "Novak Djokovic"
+
+    def test_periods_removed(self) -> None:
+        assert OddsComparator._normalize_tennis_name("J.J. Wolf") == "JJ Wolf"
+
+    def test_collapses_whitespace(self) -> None:
+        assert OddsComparator._normalize_tennis_name("  Alex   de Minaur  ") == "Alex de Minaur"
+
+    def test_empty_string(self) -> None:
+        assert OddsComparator._normalize_tennis_name("") == ""
+
+    def test_single_name(self) -> None:
+        assert OddsComparator._normalize_tennis_name("Iga") == "Iga"

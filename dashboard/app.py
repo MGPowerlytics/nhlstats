@@ -23,17 +23,20 @@ st.set_page_config(
 
 from dashboard.data_layer import bust_cache
 
-# Per-page refresh intervals (seconds)
-PAGE_REFRESH = {
-    "Portfolio": 30,
-    "Live Markets": 30,
-    "Tennis Predictions": 30,
-    "Tennis Model Health": 300,
-    "Upcoming Games": 300,
-    "Rankings": 300,
-    "Calibration": 3600,
-    "Data Quality": 300,
-    "Bet Detail": 0,  # manual only
+# Per-page metadata: (module_path, refresh_seconds)
+PAGE_MAP: dict[str, tuple[str, int]] = {
+    "Portfolio":             ("dashboard.pages.portfolio",            30),
+    "Live Markets":          ("dashboard.pages.live_markets",         30),
+    "Tennis Predictions":    ("dashboard.pages.tennis_predictions",    30),
+    "Tennis Model Health":   ("dashboard.pages.tennis_model_health", 300),
+    "Upcoming Games":        ("dashboard.pages.upcoming_games",      300),
+    "Rankings":              ("dashboard.pages.rankings",            300),
+    "Calibration":           ("dashboard.pages.calibration",        3600),
+    "Data Quality":          ("dashboard.pages.data_quality",        300),
+}
+
+PAGE_REFRESH: dict[str, int] = {
+    name: seconds for name, (_, seconds) in PAGE_MAP.items()
 }
 
 
@@ -102,26 +105,9 @@ def auto_refresh_loop(page: str):
 def main():
     page = render_sidebar()
 
-    # Route to the correct page module
-    if page == "Portfolio":
-        from dashboard.pages.portfolio import render
-    elif page == "Live Markets":
-        from dashboard.pages.live_markets import render
-    elif page == "Tennis Predictions":
-        from dashboard.pages.tennis_predictions import render
-    elif page == "Tennis Model Health":
-        from dashboard.pages.tennis_model_health import render
-    elif page == "Upcoming Games":
-        from dashboard.pages.upcoming_games import render
-    elif page == "Rankings":
-        from dashboard.pages.rankings import render
-    elif page == "Calibration":
-        from dashboard.pages.calibration import render
-    elif page == "Data Quality":
-        from dashboard.pages.data_quality import render
-    else:
-        from dashboard.pages.portfolio import render
-
+    # Lazy-load the selected page module via dictionary dispatch
+    module_path = PAGE_MAP.get(page, PAGE_MAP["Portfolio"])[0]
+    render = __import__(module_path, fromlist=["render"]).render
     render()
 
     # Handle bet detail drill-down via query params

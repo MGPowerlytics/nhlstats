@@ -47,6 +47,7 @@ class MoneylineModelArtifact:
     model_version: str
     feature_names: list[str]
     model: Any
+    scaler: Any  # sklearn StandardScaler or None
     calibration_method: str
     metrics: BinaryCalibrationMetrics
     enabled: bool = False
@@ -56,6 +57,8 @@ class MoneylineModelArtifact:
         x = np.array(
             [[float(features[name]) for name in self.feature_names]], dtype=float
         )
+        if self.scaler is not None:
+            x = self.scaler.transform(x)
         return float(self.model.predict_proba(x)[0, 1])
 
 
@@ -74,6 +77,7 @@ def save_moneyline_model_artifact(
                 {"feature_names": list(artifact.feature_names)}
             ),
             "model": artifact.model,
+            "scaler": artifact.scaler,
             "calibration_method": artifact.calibration_method,
             "metrics": {
                 "accuracy": artifact.metrics.accuracy,
@@ -147,6 +151,7 @@ def load_moneyline_model_artifact(
         model_version=str(payload["model_version"]),
         feature_names=list(feature_names),
         model=model,
+        scaler=payload.get("scaler"),
         calibration_method=str(payload["calibration_method"]),
         metrics=metrics,
         enabled=bool(payload["enabled"]),
@@ -299,6 +304,8 @@ def train_logistic_moneyline_model(
     if not ordered_rows:
         raise ValueError("training rows must be non-empty")
 
+    from sklearn.preprocessing import StandardScaler
+
     feature_names = sorted(ordered_rows[0].features.keys())
     x = np.array(
         [[float(row.features[name]) for name in feature_names] for row in ordered_rows],
@@ -306,7 +313,12 @@ def train_logistic_moneyline_model(
     )
     y = np.array([int(row.label_home_win) for row in ordered_rows], dtype=int)
 
-    model = LogisticRegression(C=1.0, max_iter=1000)
+    # Scale features for stable convergence with mixed units
+    # (Elo ratings ~1500, rate stats ~0.01-0.30, bullpen counts ~0-200)
+    scaler = StandardScaler()
+    x = scaler.fit_transform(x)
+
+    model = LogisticRegression(C=1.0, max_iter=5000, solver="lbfgs")
     model.fit(x, y)
     probabilities = model.predict_proba(x)[:, 1]
     metrics = evaluate_binary_predictions(y.tolist(), probabilities.tolist())
@@ -317,6 +329,7 @@ def train_logistic_moneyline_model(
         model_version=model_version,
         feature_names=feature_names,
         model=model,
+        scaler=scaler,
         calibration_method="logistic",
         metrics=metrics,
         enabled=enabled,

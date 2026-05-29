@@ -31,7 +31,7 @@
     "market_odds": {"type": "number", "exclusiveMinimum": 1.0},
     "bookmaker": {"type": "string", "minLength": 1},
     "ticker": {"type": ["string", "null"], "minLength": 1},
-    "edge": {"type": "number", "minimum": -0.40, "maximum": 0.40},
+    "edge": {"type": "number", "minimum": -0.40, "maximum": 0.15},
     "expected_value": {"type": ["number", "null"]},
     "kelly_fraction": {"type": ["number", "null"], "minimum": 0.0},
     "sharp_confirmed": {"type": "boolean"},
@@ -39,7 +39,15 @@
     "agreement_diff": {"type": "number", "minimum": 0.0},
     "home_rating": {"type": ["number", "null"]},
     "away_rating": {"type": ["number", "null"]},
-    "tour": {"type": "string", "enum": ["ATP", "WTA"]}
+    "tour": {"type": "string", "enum": ["ATP", "WTA"]},
+    "home_team_raw": {
+      "type": ["string", "null"],
+      "default": ""
+    },
+    "away_team_raw": {
+      "type": ["string", "null"],
+      "default": ""
+    }
   },
   "additionalProperties": false
 }

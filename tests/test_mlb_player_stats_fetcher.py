@@ -15,16 +15,20 @@ from plugins.mlb_modeling.player_stats_fetcher import (
     _aggregate_pitch_features,
     _extract_pitch_events,
     _get_season_constants,
-    _parse_innings_pitched,
-    _safe_divide,
-    _to_float,
-    _to_int,
     compute_advanced_batting_metrics,
     compute_advanced_pitching_metrics,
     fetch_player_stats,
     upsert_batting_stats,
     upsert_pitching_stats,
     upsert_pitch_features,
+)
+from plugins.utils import (
+    parse_innings_pitched,
+    safe_divide,
+    to_int,
+    to_float,
+    to_optional_int,
+    to_optional_float,
 )
 
 
@@ -35,76 +39,76 @@ from plugins.mlb_modeling.player_stats_fetcher import (
 
 class TestToInt:
     def test_int_passthrough(self) -> None:
-        assert _to_int(42) == 42
+        assert to_int(42) == 42
 
     def test_float_truncation(self) -> None:
-        assert _to_int(3.9) == 3
+        assert to_int(3.9) == 3
 
     def test_string_parsing(self) -> None:
-        assert _to_int("15") == 15
+        assert to_int("15") == 15
 
     def test_none_default(self) -> None:
-        assert _to_int(None) == 0
+        assert to_int(None) == 0
 
     def test_custom_default(self) -> None:
-        assert _to_int(None, default=-1) == -1
+        assert to_int(None, default=-1) == -1
 
     def test_bad_value_returns_default(self) -> None:
-        assert _to_int("not_a_number") == 0
+        assert to_int("not_a_number") == 0
 
 
 class TestToFloat:
     def test_float_passthrough(self) -> None:
-        assert _to_float(3.14) == 3.14
+        assert to_float(3.14) == 3.14
 
     def test_int_conversion(self) -> None:
-        assert _to_float(5) == 5.0
+        assert to_float(5) == 5.0
 
     def test_string_parsing(self) -> None:
-        assert _to_float("2.5") == 2.5
+        assert to_float("2.5") == 2.5
 
     def test_none_default(self) -> None:
-        assert _to_float(None) == 0.0
+        assert to_float(None) == 0.0
 
     def test_custom_default(self) -> None:
-        assert _to_float(None, default=1.0) == 1.0
+        assert to_float(None, default=1.0) == 1.0
 
     def test_bad_value_returns_default(self) -> None:
-        assert _to_float("bad") == 0.0
+        assert to_float("bad") == 0.0
 
 
 class TestParseInningsPitched:
     def test_whole_innings(self) -> None:
-        assert _parse_innings_pitched("9.0") == 9.0
+        assert parse_innings_pitched("9.0") == 9.0
 
     def test_two_thirds(self) -> None:
-        assert _parse_innings_pitched("6.2") == pytest.approx(6.6667, rel=1e-3)
+        assert parse_innings_pitched("6.2") == pytest.approx(6.6667, rel=1e-3)
 
     def test_one_third(self) -> None:
-        assert _parse_innings_pitched("5.1") == pytest.approx(5.3333, rel=1e-3)
+        assert parse_innings_pitched("5.1") == pytest.approx(5.3333, rel=1e-3)
 
     def test_zero(self) -> None:
-        assert _parse_innings_pitched("0.0") == 0.0
+        assert parse_innings_pitched("0.0") == 0.0
 
     def test_none(self) -> None:
-        assert _parse_innings_pitched(None) == 0.0
+        assert parse_innings_pitched(None) == 0.0
 
     def test_float_input(self) -> None:
-        assert _parse_innings_pitched(6.1) == pytest.approx(6.3333, rel=1e-3)
+        assert parse_innings_pitched(6.1) == pytest.approx(6.3333, rel=1e-3)
 
 
 class TestSafeDivide:
     def test_normal(self) -> None:
-        assert _safe_divide(10, 2) == 5.0
+        assert safe_divide(10, 2) == 5.0
 
     def test_zero_denominator(self) -> None:
-        assert _safe_divide(10, 0) is None
+        assert safe_divide(10, 0) is None
 
     def test_negative(self) -> None:
-        assert _safe_divide(-10, 2) == -5.0
+        assert safe_divide(-10, 2) == -5.0
 
     def test_zero_numerator(self) -> None:
-        assert _safe_divide(0, 5) == 0.0
+        assert safe_divide(0, 5) == 0.0
 
 
 class TestGetSeasonConstants:
@@ -1463,3 +1467,54 @@ class TestSeasonConstantsIntegrity:
             assert (
                 1.00 <= const["lg_wOBA_scale"] <= 1.50
             ), f"Year {year} lg_wOBA_scale={const['lg_wOBA_scale']} out of range"
+
+
+# =========================================================================
+# Optional-type coercion tests
+# =========================================================================
+
+
+class TestToOptionalInt:
+    def test_int_passthrough(self) -> None:
+        assert to_optional_int(42) == 42
+
+    def test_float_truncation(self) -> None:
+        assert to_optional_int(3.0) == 3
+
+    def test_string_parsing(self) -> None:
+        assert to_optional_int("15") == 15
+
+    def test_float_string_parsing(self) -> None:
+        assert to_optional_int("3.0") == 3
+
+    def test_none_returns_none(self) -> None:
+        assert to_optional_int(None) is None
+
+    def test_nan_returns_none(self) -> None:
+        assert to_optional_int(float("nan")) is None
+
+    def test_bad_value_returns_none(self) -> None:
+        assert to_optional_int("not_a_number") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        assert to_optional_int("") is None
+
+
+class TestToOptionalFloat:
+    def test_float_passthrough(self) -> None:
+        assert to_optional_float(3.14) == 3.14
+
+    def test_int_conversion(self) -> None:
+        assert to_optional_float(5) == 5.0
+
+    def test_string_parsing(self) -> None:
+        assert to_optional_float("2.5") == 2.5
+
+    def test_none_returns_none(self) -> None:
+        assert to_optional_float(None) is None
+
+    def test_nan_returns_none(self) -> None:
+        assert to_optional_float(float("nan")) is None
+
+    def test_bad_value_returns_none(self) -> None:
+        assert to_optional_float("bad") is None

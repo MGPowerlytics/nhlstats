@@ -501,3 +501,74 @@ class DictStoreMixin:
         """
         dictionary = getattr(self, attr_name)
         store_value(dictionary, key, value)
+
+
+def to_int(val: Any, default: int = 0) -> int:
+    """Safely coerce *val* to int, returning *default* on failure."""
+    try:
+        return int(val) if val is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def to_float(val: Any, default: float = 0.0) -> float:
+    """Safely coerce *val* to float, returning *default* on failure."""
+    try:
+        return float(val) if val is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def safe_divide(num: float, denom: float) -> float | None:
+    """Return *num* / *denom* or None if *denom* is zero."""
+    if denom == 0:
+        return None
+    return num / denom
+
+
+def to_optional_int(val: Any) -> int | None:
+    """Safely coerce *val* to int, returning ``None`` on failure.
+
+    Unlike :func:`to_int`, this returns ``None`` for missing / unparseable
+    values, which is appropriate when the data source uses ``NULL`` to mean
+    "no observation" rather than zero.  Converts via ``int(float(val))`` so
+    that string representations of floats (e.g. ``"3.0"``) parse correctly.
+    """
+    if val is None:
+        return None
+    if isinstance(val, float) and val != val:  # NaN check
+        return None
+    try:
+        return int(float(val))
+    except (TypeError, ValueError):
+        return None
+
+
+def to_optional_float(val: Any) -> float | None:
+    """Safely coerce *val* to float, returning ``None`` on failure.
+
+    Unlike :func:`to_float`, this returns ``None`` for missing / unparseable
+    values, which is appropriate when the data source uses ``NULL`` to mean
+    "no observation" rather than zero.
+    """
+    if val is None:
+        return None
+    if isinstance(val, float) and val != val:  # NaN check
+        return None
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return None
+
+
+def parse_innings_pitched(ip_str: Any) -> float:
+    """Convert '6.1' -> 6.333, '9.0' -> 9.0.
+
+    The MLB API represents partial innings as decimal tenths where each
+    tenth equals one out (i.e. 6.1 = 6 + 1 out = 6 1/3 innings).
+    """
+    s = str(ip_str or "0.0").strip()
+    if "." in s:
+        whole_str, frac_str = s.split(".", 1)
+        return to_int(whole_str) + to_int(frac_str) / 3.0
+    return to_float(s)

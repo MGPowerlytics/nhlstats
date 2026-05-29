@@ -123,6 +123,45 @@
           "type": ["number", "null"],
           "minimum": 0,
           "maximum": 1
+        },
+        "recommendation_id": {
+          "type": ["string", "null"]
+        },
+        "probability_source": {
+          "type": ["string", "null"]
+        },
+        "evidence_state": {
+          "type": ["string", "null"]
+        },
+        "evidence_state_reason": {
+          "type": ["string", "null"]
+        },
+        "evidence_state_source_artifact": {
+          "type": ["string", "null"]
+        },
+        "governance_status": {
+          "type": ["string", "null"]
+        },
+        "clv_evidence_tier": {
+          "type": ["string", "null"]
+        },
+        "calibration_evidence_tier": {
+          "type": ["string", "null"]
+        },
+        "walk_forward_evidence_tier": {
+          "type": ["string", "null"]
+        },
+        "approval_grade_evidence": {
+          "type": "boolean"
+        },
+        "sizing_eligible": {
+          "type": "boolean"
+        },
+        "abstain": {
+          "type": "boolean"
+        },
+        "abstention_reason": {
+          "type": ["string", "null"]
         }
       },
       "additionalProperties": false

@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard import data_layer
+from dashboard.shared import render_state
 
 
 DISPLAY_COLUMNS = [
@@ -23,26 +24,6 @@ DISPLAY_COLUMNS = [
     "confidence",
     "recommendation_bet_id",
 ]
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    """Render a governed dashboard empty/error payload."""
-
-    title = payload.get("title") or "Dashboard state"
-    message = payload.get("message")
-    action = payload.get("action")
-    kind = payload.get("kind")
-    severity = payload.get("severity")
-
-    state_text = f"{title}: {message}" if message else title
-    if severity == "error":
-        st.error(state_text)
-    else:
-        st.info(state_text)
-    if action:
-        st.caption(action)
-    if kind:
-        st.caption(f"State: {kind}")
 
 
 def _display_frame(markets: pd.DataFrame) -> pd.DataFrame:
@@ -66,12 +47,12 @@ def render():
     try:
         markets = data_layer.get_live_markets()
     except data_layer.DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     st.subheader("Governed Live Markets")
     if markets.empty:
-        _render_state(
+        render_state(
             markets.attrs.get("empty_state")
             or {
                 "kind": "no_live_markets",

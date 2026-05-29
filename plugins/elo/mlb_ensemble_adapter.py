@@ -68,6 +68,11 @@ class MLBEnsembleAdapter:
     team_stats: Dict[str, _TeamSeasonStats] = field(default_factory=dict)
     reference_date: Optional[date] = None
 
+    # Signal to OddsComparator that MLB uses governed (sabermetrics) predictions
+    # instead of runtime Elo inference.  When True, calculate_probabilities()
+    # calls _apply_governed_mlb_probabilities() → get_governed_probabilities().
+    requires_governed_predictions: bool = True
+
     # ------------------------------------------------------------------
     # Drop-in Elo interface
     # ------------------------------------------------------------------
@@ -114,6 +119,71 @@ class MLBEnsembleAdapter:
             True if the team's rating was computed from at least one game.
         """
         return self.ensemble.team_elo.has_real_rating(team)
+
+    # ------------------------------------------------------------------
+    # Governed probability bridge (reads sabermetrics model predictions)
+    # ------------------------------------------------------------------
+
+    def get_governed_probabilities(self, game_id: str) -> dict[str, float] | None:
+        """Return ``{home: prob, away: prob}`` from the calibrated moneyline model.
+
+        Queries ``mlb_model_predictions`` for the most recent non-abstaining
+        home/away predictions for *game_id*.  Returns ``None`` when no enabled
+        predictions are available (the caller falls back to abstentions).
+        """
+        from plugins.db_manager import default_db
+
+        db = getattr(self, "_db", None) or default_db
+
+        rows = db.fetch_df(
+            """
+            SELECT outcome_name, model_prob
+            FROM mlb_model_predictions
+            WHERE game_id = :game_id
+              AND abstain = FALSE
+              AND model_prob IS NOT NULL
+            ORDER BY created_at DESC
+            """,
+            {"game_id": str(game_id)},
+        )
+        if rows is None or rows.empty:
+            return None
+
+        probs: dict[str, float] = {}
+        for _, row in rows.iterrows():
+            name = str(row["outcome_name"]).lower()
+            if name not in probs:  # first (most recent) wins
+                probs[name] = float(row["model_prob"])
+
+        if "home" not in probs or "away" not in probs:
+            return None
+        return probs
+
+    @property
+    def governed_prediction_metadata(self) -> dict[str, str]:
+        """Metadata stamped into governed bet recommendations."""
+        from plugins.db_manager import default_db
+
+        db = getattr(self, "_db", None) or default_db
+        row = db.fetch_df(
+            """
+            SELECT model_version, run_date::TEXT AS run_date
+            FROM mlb_model_predictions
+            WHERE abstain = FALSE
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
+        )
+        if row is not None and not row.empty:
+            return {
+                "model_version": str(row["model_version"].iloc[0]),
+                "run_date": str(row["run_date"].iloc[0]),
+            }
+        return {"model_version": "unknown", "run_date": "unknown"}
+
+    # ------------------------------------------------------------------
+    # Prediction
+    # ------------------------------------------------------------------
 
     def predict(self, home_team: str, away_team: str) -> float:
         """Return ensemble P(home wins).
@@ -207,6 +277,7 @@ class MLBEnsembleAdapter:
         """
         ref = reference_date or date.today()
         self.reference_date = ref
+        self._db = db  # cache for governed-probability queries
         year = season_year or ref.year
         self._load_team_stats_and_form(db, year, ref)
         self._load_bullpen_era(db, ref)

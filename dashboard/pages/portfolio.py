@@ -14,6 +14,7 @@ from dashboard.data_layer import (
     get_portfolio_snapshots,
     get_portfolio_summary,
 )
+from dashboard.shared import render_state
 
 
 def _money(value: Any) -> str:
@@ -38,40 +39,12 @@ def _latest_snapshot(snapshots: pd.DataFrame) -> dict[str, Any]:
     return snapshots.sort_values("snapshot_hour_utc").iloc[-1].to_dict()
 
 
-def _state_text(payload: dict[str, Any]) -> str:
-    """Build an explicit, sanitized dashboard state message."""
-
-    parts = [
-        str(payload.get("kind") or "dashboard_state"),
-        str(payload.get("title") or "Dashboard state"),
-    ]
-    message = payload.get("message")
-    action = payload.get("action")
-    if message:
-        parts.append(str(message))
-    if action:
-        parts.append(str(action))
-    return " — ".join(parts)
-
-
-def _render_state(payload: dict[str, Any] | None) -> None:
-    """Render a governed empty/error state payload."""
-
-    if not payload:
-        return
-    text = _state_text(payload)
-    if payload.get("severity") == "error":
-        st.error(text)
-    else:
-        st.info(text)
-
-
 def _render_error(error: DashboardDataError) -> None:
     """Render a sanitized data-layer error without exposing exception internals."""
 
     payload = getattr(error, "payload", None)
     if isinstance(payload, dict):
-        _render_state(payload)
+        render_state(payload)
         return
     st.error("dashboard_query_failed — Dashboard query failed")
 
@@ -267,7 +240,7 @@ def _render_value_chart(snapshots: pd.DataFrame) -> None:
 
     st.subheader("Portfolio Value")
     if snapshots.empty:
-        _render_state(snapshots.attrs.get("empty_state"))
+        render_state(snapshots.attrs.get("empty_state"))
         return
 
     fig = px.area(
@@ -289,7 +262,7 @@ def render() -> None:
     try:
         summary = get_portfolio_summary()
         if summary.get("empty_state"):
-            _render_state(summary["empty_state"])
+            render_state(summary["empty_state"])
             return
 
         snapshots = get_portfolio_snapshots(hours=168)
@@ -299,7 +272,7 @@ def render() -> None:
         return
 
     if snapshots.empty:
-        _render_state(snapshots.attrs.get("empty_state"))
+        render_state(snapshots.attrs.get("empty_state"))
         return
 
     latest = _latest_snapshot(snapshots)

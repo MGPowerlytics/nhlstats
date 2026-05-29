@@ -1003,6 +1003,11 @@ class OddsComparator:
             for _, row in df.iterrows()
         }
 
+    @staticmethod
+    def _normalize_tennis_name(name: str) -> str:
+        """Strip periods and collapse whitespace for fuzzy name matching."""
+        return " ".join(name.replace(".", "").split())
+
     def _infer_tennis_surface(
         self,
         *,
@@ -1012,10 +1017,13 @@ class OddsComparator:
     ) -> str:
         """Infer the likely surface for an upcoming tennis matchup.
 
-        Prefer the latest exact head-to-head surface when available. Otherwise,
-        fall back to the most recent surface both players have appeared on in
-        the recent window, then the single most recent observed player surface.
+        Prefer the most recent surface that both players have appeared on
+        (best indicator of the current tour surface).  Otherwise, fall back
+        to the surface from their most recent head-to-head meeting, then the
+        single most recent observed player surface.
         """
+        norm_a = self._normalize_tennis_name(player_a)
+        norm_b = self._normalize_tennis_name(player_b)
         try:
             df = self.db.fetch_df(
                 """
@@ -1029,17 +1037,31 @@ class OddsComparator:
                      OR loser = :player_a
                      OR winner = :player_b
                      OR loser = :player_b
+                     OR REPLACE(winner, '.', '') = :player_a_norm
+                     OR REPLACE(loser, '.', '') = :player_a_norm
+                     OR REPLACE(winner, '.', '') = :player_b_norm
+                     OR REPLACE(loser, '.', '') = :player_b_norm
                   )
                 ORDER BY game_date DESC
                 LIMIT 60
                 """,
-                {"player_a": player_a, "player_b": player_b, "as_of_date": as_of_date},
+                {
+                    "player_a": player_a,
+                    "player_b": player_b,
+                    "player_a_norm": norm_a,
+                    "player_b_norm": norm_b,
+                    "as_of_date": as_of_date,
+                },
             )
         except Exception as exc:
             print(f"⚠️ Tennis surface lookup unavailable; defaulting to Hard: {exc}")
             return "Hard"
 
         if df is None or df.empty:
+            print(
+                f"⚠️ No historical surface data found for {player_a} / {player_b} "
+                f"(norm: {norm_a} / {norm_b}) — defaulting to Hard"
+            )
             return "Hard"
 
         rows = [
@@ -1047,6 +1069,8 @@ class OddsComparator:
                 "surface": str(row["surface"]).strip().title(),
                 "winner": str(row["winner"]),
                 "loser": str(row["loser"]),
+                "winner_norm": self._normalize_tennis_name(str(row["winner"])),
+                "loser_norm": self._normalize_tennis_name(str(row["loser"])),
             }
             for _, row in df.iterrows()
             if str(row.get("surface") or "").strip()
@@ -1054,15 +1078,17 @@ class OddsComparator:
         if not rows:
             return "Hard"
 
+        # Priority: 1) shared surface (best indicator of current tour),
+        # 2) H2H surface (specific meeting), 3) most recent overall.
         player_a_surfaces = {
             row["surface"]
             for row in rows
-            if row["winner"] == player_a or row["loser"] == player_a
+            if row["winner_norm"] == norm_a or row["loser_norm"] == norm_a
         }
         player_b_surfaces = {
             row["surface"]
             for row in rows
-            if row["winner"] == player_b or row["loser"] == player_b
+            if row["winner_norm"] == norm_b or row["loser_norm"] == norm_b
         }
         shared_surfaces = player_a_surfaces & player_b_surfaces
         if shared_surfaces:
@@ -1073,16 +1099,16 @@ class OddsComparator:
             if shared_recent:
                 return shared_recent
 
-        exact = next(
+        h2h = next(
             (
                 row["surface"]
                 for row in rows
-                if {row["winner"], row["loser"]} == {player_a, player_b}
+                if {row["winner_norm"], row["loser_norm"]} == {norm_a, norm_b}
             ),
             None,
         )
-        if exact:
-            return exact
+        if h2h:
+            return h2h
 
         return rows[0]["surface"]
 

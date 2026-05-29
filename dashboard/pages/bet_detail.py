@@ -12,38 +12,7 @@ from dashboard.data_layer import (
     DashboardEmptyState,
     get_bet_detail,
 )
-
-
-def _state_text(payload: dict[str, str | None]) -> str:
-    """Build compact display text from a sanitized data-layer state payload."""
-
-    title = payload.get("title") or "Dashboard state"
-    message = payload.get("message")
-    return title if not message else f"{title}: {message}"
-
-
-def _render_state(
-    payload: dict[str, str | None], selected_bet_id: str | None = None
-) -> None:
-    """Render governed empty/error states without exposing raw exceptions."""
-
-    body = _state_text(payload)
-    if selected_bet_id and payload.get("kind") == "bet_not_found":
-        body = f"{body} Selected bet: {selected_bet_id}"
-
-    if payload.get("severity") == "error":
-        st.error(body)
-    elif payload.get("severity") == "warning":
-        st.warning(body)
-    else:
-        st.info(body)
-
-    action = payload.get("action")
-    kind = payload.get("kind")
-    if action:
-        st.caption(action)
-    if kind:
-        st.caption(f"State: {kind}")
+from dashboard.shared import render_state
 
 
 def _fallback_bet_not_found() -> dict[str, str | None]:
@@ -222,13 +191,13 @@ def render_bet_detail(bet_id: str) -> None:
     try:
         detail = get_bet_detail(bet_id)
     except DashboardDataError as exc:
-        _render_state(exc.payload, bet_id)
+        render_state(exc.payload)
         return
     except DashboardEmptyState as exc:
-        _render_state(exc.payload, bet_id)
+        render_state(exc.payload)
         return
     except ValueError:
-        _render_state(_fallback_bet_not_found(), bet_id)
+        render_state(_fallback_bet_not_found(), context=f"Selected bet: {bet_id}")
         return
 
     empty_state = detail.get("empty_state")
@@ -236,7 +205,7 @@ def render_bet_detail(bet_id: str) -> None:
     execution_link = detail.get("execution_link") or {}
     clv_evidence = detail.get("clv_evidence") or {}
     if empty_state or not bet:
-        _render_state(empty_state or _no_bet_details(), bet_id)
+        render_state(empty_state or _no_bet_details())
         return
 
     _render_back_button()

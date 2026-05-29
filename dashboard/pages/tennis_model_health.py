@@ -9,6 +9,7 @@ import streamlit as st
 
 from dashboard import data_layer
 from dashboard.data_layer import DashboardDataError
+from dashboard.shared import render_state
 
 
 DISPLAY_COLUMNS = [
@@ -40,11 +41,11 @@ def render() -> None:
     try:
         health = data_layer.get_tennis_model_health()
     except DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     if health.empty:
-        _render_state(
+        render_state(
             health.attrs.get("empty_state")
             or {
                 "kind": "no_tennis_model_health",
@@ -107,24 +108,6 @@ def render() -> None:
         use_container_width=True,
         hide_index=True,
     )
-
-
-def _state_text(payload: dict[str, str | None]) -> str:
-    parts = [
-        payload.get("kind"),
-        payload.get("title"),
-        payload.get("message"),
-        payload.get("action"),
-    ]
-    return " — ".join(str(part) for part in parts if part)
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    message = _state_text(payload)
-    if payload.get("severity") == "error":
-        st.error(message)
-    else:
-        st.info(message)
 
 
 def _format_pct(value: Any) -> str:

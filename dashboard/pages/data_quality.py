@@ -2,6 +2,7 @@ import pandas as pd
 import streamlit as st
 
 from dashboard.data_layer import DashboardDataError, get_data_quality_report
+from dashboard.shared import render_state
 
 
 DISPLAY_COLUMNS = {
@@ -16,28 +17,6 @@ DISPLAY_COLUMNS = {
     "message": "Message",
     "checked_at_utc": "Checked At",
 }
-
-
-def _state_text(payload: dict[str, str | None]) -> str:
-    """Build a compact, sanitized state message from a data-layer payload."""
-
-    parts = [
-        payload.get("kind"),
-        payload.get("title"),
-        payload.get("message"),
-        payload.get("action"),
-    ]
-    return " — ".join(str(part) for part in parts if part)
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    """Render an explicit governed error state."""
-
-    message = _state_text(payload)
-    if payload.get("severity") == "error":
-        st.error(message)
-    else:
-        st.info(message)
 
 
 def _fallback_zero_check_error() -> dict[str, str]:
@@ -93,7 +72,7 @@ def render():
     try:
         report = get_data_quality_report()
     except DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     overall = report.get("overall_health", 0)
@@ -102,7 +81,7 @@ def render():
     st.metric("Overall Health Score", f"{overall}/100")
 
     if not checks:
-        _render_state(_fallback_zero_check_error())
+        render_state(_fallback_zero_check_error())
         return
 
     st.subheader("Governed Data Quality Checks")

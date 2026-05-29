@@ -50,7 +50,7 @@ def _validate_definition(
 # ---------------------------------------------------------------------------
 
 
-class TestBoxScoreFetcher(BoxScoreFetcher):
+class StubBoxScoreFetcher(BoxScoreFetcher):
     """A minimal BoxScoreFetcher that returns deterministic canned data.
 
     This subclass exists solely for contract-testing the ABC boundary.
@@ -108,7 +108,7 @@ class TestBoxScoreFetcher(BoxScoreFetcher):
 
 
 def _assemble_fetch_game_stats_payload(
-    fetcher: TestBoxScoreFetcher, game_id: str
+    fetcher: StubBoxScoreFetcher, game_id: str
 ) -> dict[str, Any]:
     """Wrap real fetch_game_stats output into the contract shape."""
     rows = fetcher.fetch_game_stats(game_id)
@@ -123,7 +123,7 @@ def _assemble_fetch_game_stats_payload(
 
 
 def _assemble_fetch_date_range_payload(
-    fetcher: TestBoxScoreFetcher, start: date, end: date
+    fetcher: StubBoxScoreFetcher, start: date, end: date
 ) -> dict[str, Any]:
     """Wrap real fetch_date_range output into the contract shape."""
     rows = fetcher.fetch_date_range(start, end)
@@ -149,7 +149,7 @@ def _assemble_fetch_date_range_payload(
 
 
 def _assemble_upsert_rows_payload(
-    fetcher: TestBoxScoreFetcher, rows: list[dict[str, Any]]
+    fetcher: StubBoxScoreFetcher, rows: list[dict[str, Any]]
 ) -> dict[str, Any]:
     """Wrap real upsert_rows output into the contract shape."""
     count = fetcher.upsert_rows(rows)
@@ -173,9 +173,9 @@ def contract_schema() -> dict[str, Any]:
 
 
 @pytest.fixture(scope="module")
-def provider() -> TestBoxScoreFetcher:
-    """Create a TestBoxScoreFetcher instance (no DB, no network)."""
-    return TestBoxScoreFetcher(db=None)
+def provider() -> StubBoxScoreFetcher:
+    """Create a StubBoxScoreFetcher instance (no DB, no network)."""
+    return StubBoxScoreFetcher(db=None)
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +189,7 @@ class TestFetchGameStatsProviderContract:
     def test_fetch_game_stats_output_is_contract_valid(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_game_stats_payload(provider, "TEST_001")
         _validate_definition(payload, contract_schema, "fetch_game_stats_result")
@@ -197,7 +197,7 @@ class TestFetchGameStatsProviderContract:
     def test_fetch_game_stats_rows_are_box_score_rows(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_game_stats_payload(provider, "TEST_001")
         for row in payload["rows"]:
@@ -205,7 +205,7 @@ class TestFetchGameStatsProviderContract:
 
     def test_fetch_game_stats_returns_two_rows(
         self,
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_game_stats_payload(provider, "TEST_001")
         assert payload["row_count"] == 2
@@ -213,7 +213,7 @@ class TestFetchGameStatsProviderContract:
 
     def test_fetch_game_stats_row_has_required_fields(
         self,
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         rows = provider.fetch_game_stats("TEST_001")
         for row in rows:
@@ -224,7 +224,7 @@ class TestFetchGameStatsProviderContract:
 
     def test_fetch_game_stats_home_and_away_present(
         self,
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         rows = provider.fetch_game_stats("TEST_001")
         home_teams = [r for r in rows if r["home"]]
@@ -235,7 +235,7 @@ class TestFetchGameStatsProviderContract:
     def test_fetch_game_stats_empty_game_id_returns_empty(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_game_stats_payload(provider, "")
         assert payload["row_count"] == 0
@@ -256,7 +256,7 @@ class TestFetchDateRangeProviderContract:
     def test_fetch_date_range_output_is_contract_valid(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_date_range_payload(
             provider, date(2025, 1, 15), date(2025, 1, 15)
@@ -266,7 +266,7 @@ class TestFetchDateRangeProviderContract:
     def test_fetch_date_range_rows_are_box_score_rows(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_date_range_payload(
             provider, date(2025, 1, 15), date(2025, 1, 15)
@@ -278,7 +278,7 @@ class TestFetchDateRangeProviderContract:
     def test_fetch_date_range_empty_range_is_contract_valid(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_date_range_payload(
             provider, date(2025, 1, 16), date(2025, 1, 15)  # end before start
@@ -291,7 +291,7 @@ class TestFetchDateRangeProviderContract:
     def test_fetch_date_range_uses_date_format(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_fetch_date_range_payload(
             provider, date(2025, 1, 15), date(2025, 1, 15)
@@ -312,7 +312,7 @@ class TestUpsertRowsProviderContract:
     def test_upsert_rows_output_is_contract_valid(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         rows = provider.fetch_game_stats("TEST_001")
         payload = _assemble_upsert_rows_payload(provider, rows)
@@ -320,7 +320,7 @@ class TestUpsertRowsProviderContract:
 
     def test_upsert_rows_returns_insert_count(
         self,
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         rows = provider.fetch_game_stats("TEST_001")
         count = provider.upsert_rows(rows)
@@ -329,7 +329,7 @@ class TestUpsertRowsProviderContract:
     def test_upsert_rows_empty_input_is_contract_valid(
         self,
         contract_schema: dict[str, Any],
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_upsert_rows_payload(provider, [])
         assert payload["rows_inserted"] == 0
@@ -337,7 +337,7 @@ class TestUpsertRowsProviderContract:
 
     def test_upsert_rows_sport_constant(
         self,
-        provider: TestBoxScoreFetcher,
+        provider: StubBoxScoreFetcher,
     ) -> None:
         payload = _assemble_upsert_rows_payload(provider, [])
         assert payload["sport"] == "TEST"

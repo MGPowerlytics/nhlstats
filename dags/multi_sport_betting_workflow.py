@@ -1012,13 +1012,21 @@ def _mlb_train_model_periodic(**context: Any) -> Dict[str, Any]:
 
     date_str = context.get("ds", datetime.now().strftime("%Y-%m-%d"))
     result = train_mlb_model_periodic(run_date=date_str)
-    print(
-        "✓ MLB model training complete: "
-        f"version={result['model_version']}, "
-        f"rows={result['training_rows']}, "
-        f"accuracy={result['accuracy']:.4f}, "
-        f"enabled={result['enabled']}"
-    )
+
+    if result.get("skipped"):
+        print(
+            "✓ MLB model training skipped: "
+            f"version={result['model_version']}, "
+            f"reason={result['reason']}"
+        )
+    else:
+        print(
+            "✓ MLB model training complete: "
+            f"version={result['model_version']}, "
+            f"rows={result['training_rows']}, "
+            f"accuracy={result['accuracy']:.4f}, "
+            f"enabled={result['enabled']}"
+        )
     return result
 
 

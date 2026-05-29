@@ -7,19 +7,7 @@ from dashboard.data_layer import (
     DashboardDataError,
     get_upcoming_games,
 )
-
-
-SPORT_OPTIONS = [
-    "NBA",
-    "NHL",
-    "MLB",
-    "NFL",
-    "NCAAB",
-    "WNCAAB",
-    "TENNIS",
-    "EPL",
-    "LIGUE1",
-]
+from dashboard.shared import render_state, SPORT_OPTIONS
 
 DISPLAY_COLUMNS = [
     "away_team",
@@ -30,24 +18,6 @@ DISPLAY_COLUMNS = [
     "game_date",
     "game_time_et",
 ]
-
-
-def _state_text(payload: dict[str, str | None]) -> str:
-    parts = [
-        payload.get("kind"),
-        payload.get("title"),
-        payload.get("message"),
-        payload.get("action"),
-    ]
-    return " — ".join(str(part) for part in parts if part)
-
-
-def _render_state(payload: dict[str, str | None]) -> None:
-    message = _state_text(payload)
-    if payload.get("severity") == "error":
-        st.error(message)
-    else:
-        st.info(message)
 
 
 def _format_prob(value: float | None) -> str:
@@ -77,11 +47,11 @@ def render() -> None:
     try:
         games = get_upcoming_games(sport)
     except DashboardDataError as exc:
-        _render_state(exc.payload)
+        render_state(exc.payload)
         return
 
     if games.empty:
-        _render_state(
+        render_state(
             games.attrs.get("empty_state")
             or {
                 "kind": "no_upcoming_games",

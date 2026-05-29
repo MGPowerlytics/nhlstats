@@ -27,6 +27,7 @@ from typing import Any, Optional
 
 from plugins.db_manager import DBManager
 from plugins.mlb_modeling.features import recency_weighted_average
+from plugins.utils import to_int, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -96,27 +97,7 @@ def _get_season_constants(year: int) -> dict[str, float]:
     return _SEASON_CONSTANTS.get(year, _SEASON_CONSTANTS[_DEFAULT_SEASON])
 
 
-def _to_int(val: Any, default: int = 0) -> int:
-    """Safely coerce *val* to int."""
-    try:
-        return int(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
 
-
-def _to_float(val: Any, default: float = 0.0) -> float:
-    """Safely coerce *val* to float."""
-    try:
-        return float(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_divide(num: float, denom: float) -> Optional[float]:
-    """Return *num* / *denom* or None if *denom* is zero."""
-    if denom == 0:
-        return None
-    return num / denom
 
 
 def _recency_weight(game_age_days: int, half_life_days: float) -> float:
@@ -159,12 +140,12 @@ def _compute_woba_from_game(game: dict) -> Optional[float]:
         return float(woba)
 
     # Fallback: compute from counting stats (HBP and SF may be zero)
-    ab = _to_int(game.get("at_bats"))
-    walks = _to_int(game.get("walks"))
-    hits = _to_int(game.get("hits"))
-    doubles = _to_int(game.get("doubles"))
-    triples = _to_int(game.get("triples"))
-    hr = _to_int(game.get("home_runs"))
+    ab = to_int(game.get("at_bats"))
+    walks = to_int(game.get("walks"))
+    hits = to_int(game.get("hits"))
+    doubles = to_int(game.get("doubles"))
+    triples = to_int(game.get("triples"))
+    hr = to_int(game.get("home_runs"))
 
     pa = ab + walks
     if pa <= 0:
@@ -190,12 +171,12 @@ def _compute_wrc_plus(woba: Optional[float], lg_woba: float = 0.312) -> Optional
 
 def _compute_fip_from_game(game: dict, fip_constant: float = 3.06) -> Optional[float]:
     """Re-compute FIP for one pitching game from its counting stats."""
-    ip = _to_float(game.get("innings_pitched"))
+    ip = to_float(game.get("innings_pitched"))
     if ip <= 0:
         return None
-    hr = _to_int(game.get("home_runs_allowed"))
-    bb = _to_int(game.get("walks"))
-    k = _to_int(game.get("strikeouts"))
+    hr = to_int(game.get("home_runs_allowed"))
+    bb = to_int(game.get("walks"))
+    k = to_int(game.get("strikeouts"))
 
     fip_val = (13 * hr + 3 * bb - 2 * k) / ip + fip_constant
     return round(fip_val, 2)
@@ -203,11 +184,11 @@ def _compute_fip_from_game(game: dict, fip_constant: float = 3.06) -> Optional[f
 
 def _compute_siera_from_game(game: dict) -> Optional[float]:
     """Compute simplified SIERA for one pitching game."""
-    pa = _to_int(game.get("batters_faced"))
+    pa = to_int(game.get("batters_faced"))
     if pa < 4:
         return None
-    k = _to_int(game.get("strikeouts"))
-    bb = _to_int(game.get("walks"))
+    k = to_int(game.get("strikeouts"))
+    bb = to_int(game.get("walks"))
     k_rate = k / pa
     bb_rate = bb / pa
     siera_val = (
@@ -223,11 +204,11 @@ def _compute_siera_from_game(game: dict) -> Optional[float]:
 
 def _compute_k_bb_pct_from_game(game: dict) -> Optional[float]:
     """Compute K-BB% for one pitching game."""
-    pa = _to_int(game.get("batters_faced"))
+    pa = to_int(game.get("batters_faced"))
     if pa <= 0:
         return None
-    k = _to_int(game.get("strikeouts"))
-    bb = _to_int(game.get("walks"))
+    k = to_int(game.get("strikeouts"))
+    bb = to_int(game.get("walks"))
     return round((k - bb) / pa * 100, 2)
 
 
@@ -262,18 +243,18 @@ _BATTER_GAMES_SQL = """
         b.avg_launch_angle,
         b.whiff_rate,
         b.csw_pct,
-        ef.game_date,
+        g.game_date,
         starter.throws AS opposing_starter_throws
     FROM mlb_player_game_batting_stats b
-    INNER JOIN mlb_environment_features ef
-        ON b.game_id = ef.game_id
+    INNER JOIN mlb_games g
+        ON b.game_id = g.game_id::text
     LEFT JOIN mlb_player_game_pitching_stats starter
         ON b.game_id = starter.game_id
         AND starter.team = b.opponent
         AND starter.is_starter = TRUE
     WHERE b.player_id = :player_id
-      AND ef.game_date < :as_of_date
-    ORDER BY ef.game_date DESC
+      AND g.game_date < :as_of_date
+    ORDER BY g.game_date DESC
 """
 
 _PITCHER_GAMES_SQL = """
@@ -306,13 +287,13 @@ _PITCHER_GAMES_SQL = """
         p.primary_pitch_type,
         p.primary_pitch_pct,
         p.avg_velocity,
-        ef.game_date
+        g.game_date
     FROM mlb_player_game_pitching_stats p
-    INNER JOIN mlb_environment_features ef
-        ON p.game_id = ef.game_id
+    INNER JOIN mlb_games g
+        ON p.game_id = g.game_id::text
     WHERE p.pitcher_id = :pitcher_id
-      AND ef.game_date < :as_of_date
-    ORDER BY ef.game_date DESC
+      AND g.game_date < :as_of_date
+    ORDER BY g.game_date DESC
 """
 
 _PITCHER_GAMES_AS_STARTER_SQL = """
@@ -345,14 +326,14 @@ _PITCHER_GAMES_AS_STARTER_SQL = """
         p.primary_pitch_type,
         p.primary_pitch_pct,
         p.avg_velocity,
-        ef.game_date
+        g.game_date
     FROM mlb_player_game_pitching_stats p
-    INNER JOIN mlb_environment_features ef
-        ON p.game_id = ef.game_id
+    INNER JOIN mlb_games g
+        ON p.game_id = g.game_id::text
     WHERE p.pitcher_id = :pitcher_id
       AND p.is_starter = TRUE
-      AND ef.game_date < :as_of_date
-    ORDER BY ef.game_date DESC
+      AND g.game_date < :as_of_date
+    ORDER BY g.game_date DESC
 """
 
 _ALL_PLAYER_IDS_BATTING_SQL = """
@@ -526,13 +507,13 @@ def _compute_batter_rolling_features_for_window(
         return None
 
     # --- Sum counting stats ---
-    total_pa = sum(_to_int(g.get("plate_appearances")) for g in games)
-    total_ab = sum(_to_int(g.get("at_bats")) for g in games)
-    total_hits = sum(_to_int(g.get("hits")) for g in games)
-    total_doubles = sum(_to_int(g.get("doubles")) for g in games)
-    total_triples = sum(_to_int(g.get("triples")) for g in games)
-    total_hr = sum(_to_int(g.get("home_runs")) for g in games)
-    total_walks = sum(_to_int(g.get("walks")) for g in games)
+    total_pa = sum(to_int(g.get("plate_appearances")) for g in games)
+    total_ab = sum(to_int(g.get("at_bats")) for g in games)
+    total_hits = sum(to_int(g.get("hits")) for g in games)
+    total_doubles = sum(to_int(g.get("doubles")) for g in games)
+    total_triples = sum(to_int(g.get("triples")) for g in games)
+    total_hr = sum(to_int(g.get("home_runs")) for g in games)
+    total_walks = sum(to_int(g.get("walks")) for g in games)
 
     # --- Recency-weighted rates ---
     woba_obs: list[tuple[float, int]] = []
@@ -614,12 +595,12 @@ def _compute_pitcher_rolling_features_for_window(
         return None
 
     # --- Sum counting stats ---
-    total_ip = sum(_to_float(g.get("innings_pitched")) for g in games)
-    total_pa = sum(_to_int(g.get("batters_faced")) for g in games)
-    total_k = sum(_to_int(g.get("strikeouts")) for g in games)
-    total_bb = sum(_to_int(g.get("walks")) for g in games)
-    total_hr = sum(_to_int(g.get("home_runs_allowed")) for g in games)
-    total_pitch_count = sum(_to_int(g.get("pitch_count")) for g in games)
+    total_ip = sum(to_float(g.get("innings_pitched")) for g in games)
+    total_pa = sum(to_int(g.get("batters_faced")) for g in games)
+    total_k = sum(to_int(g.get("strikeouts")) for g in games)
+    total_bb = sum(to_int(g.get("walks")) for g in games)
+    total_hr = sum(to_int(g.get("home_runs_allowed")) for g in games)
+    total_pitch_count = sum(to_int(g.get("pitch_count")) for g in games)
 
     # --- Recency-weighted rates ---
     fip_obs: list[tuple[float, int]] = []

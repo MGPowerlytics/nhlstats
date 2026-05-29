@@ -38,7 +38,7 @@
         "ticker": {"$ref": "#/$defs/ticker_format"},
         "elo_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
         "market_prob": {"type": "number", "minimum": 0.0, "maximum": 1.0},
-        "edge": {"type": "number", "minimum": -0.40, "maximum": 0.40},
+        "edge": {"type": "number", "minimum": -0.40, "maximum": 0.15},
         "expected_value": {"type": ["number", "null"]},
         "kelly_fraction": {"type": ["number", "null"], "minimum": 0.0},
         "confidence": {"type": "string", "enum": ["HIGH", "MEDIUM", "LOW"]},

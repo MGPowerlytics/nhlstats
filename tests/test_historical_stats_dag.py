@@ -495,6 +495,9 @@ def test_fetch_stats_tennis_runs_both_tours(monkeypatch) -> None:
         def __init__(self, tour: str = "atp") -> None:
             self.tour = tour
 
+        def ensure_repos_cloned(self) -> None:
+            pass
+
     def _fake_run(fetcher, game_date):
         calls.append((fetcher.tour, game_date))
 

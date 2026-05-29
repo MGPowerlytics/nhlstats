@@ -41,6 +41,7 @@ Thumbs.db
 
 # Worktrees and superpowers
 .worktrees/
+.claude/worktrees/
 .superpowers/
 
 # Local secret artifacts

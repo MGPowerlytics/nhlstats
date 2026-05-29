@@ -118,16 +118,17 @@ def get_recent_bullpen_appearances(
     """
     sql = """
         SELECT
-            pitcher_id,
-            game_date,
-            pitch_count,
-            avg_velocity
-        FROM mlb_player_game_pitching_stats
-        WHERE team = :team
-          AND is_starter = FALSE
-          AND game_date >= :start_date
-          AND game_date <= :as_of_date
-        ORDER BY game_date DESC
+            ps.pitcher_id,
+            g.game_date,
+            ps.pitch_count,
+            ps.avg_velocity
+        FROM mlb_player_game_pitching_stats ps
+        JOIN mlb_games g ON g.game_id::text = ps.game_id
+        WHERE ps.team = :team
+          AND ps.is_starter = FALSE
+          AND g.game_date >= :start_date
+          AND g.game_date <= :as_of_date
+        ORDER BY g.game_date DESC
     """
     start_date = as_of_date - timedelta(days=days_back)
     result = db.execute(
@@ -211,6 +212,7 @@ def build_advanced_feature_payload(
     home_bullpen: BullpenFatigueSummary,
     away_bullpen: BullpenFatigueSummary,
     recency: Mapping[str, Any],
+    elo: Mapping[str, Any],
     feature_availability: Mapping[str, AvailabilityStatus | str],
     feature_version: str = "v1",
 ) -> Dict[str, Any]:
@@ -230,6 +232,7 @@ def build_advanced_feature_payload(
         "feature_version": feature_version,
         "feature_hash": "pending",
         "feature_availability": availability,
+        "elo": dict(elo),
         "sabermetrics": dict(sabermetrics),
         "plate_discipline": dict(plate_discipline),
         "matchup_dynamics": dict(matchup_dynamics),

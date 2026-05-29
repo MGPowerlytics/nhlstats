@@ -15,8 +15,10 @@ from plugins.mlb_modeling.rolling_features import (
     FEATURE_VERSION,
     WINDOWS,
     RollingWindowConfig,
+    _compute_batter_rolling_features_for_window,
     _compute_fip_from_game,
     _compute_k_bb_pct_from_game,
+    _compute_pitcher_rolling_features_for_window,
     _compute_recency_weight,
     _compute_siera_from_game,
     _compute_woba_from_game,
@@ -662,3 +664,67 @@ class TestEdgeCases:
     def test_compute_k_bb_pct_zero_denominator(self) -> None:
         game = _make_pitching_game(batters_faced=0)
         assert _compute_k_bb_pct_from_game(game) is None
+
+    def test_pitcher_features_fip_fallback_from_totals(self) -> None:
+        """When per-game FIP is null, compute from aggregate counting stats."""
+        games = [
+            _make_pitching_game(
+                game_id="g1", pitcher_id="p1", pitcher_name="Test",
+                game_date=D3, fip=None, ip=6.0, batters_faced=25,
+                strikeouts=7, walks=2, hr=1,
+            ),
+            _make_pitching_game(
+                game_id="g2", pitcher_id="p1", pitcher_name="Test",
+                game_date=D6, fip=None, ip=5.0, batters_faced=22,
+                strikeouts=5, walks=3, hr=0,
+            ),
+        ]
+        row = _compute_pitcher_rolling_features_for_window(
+            games, "p1", "Test Pitcher", "NYY",
+            DAY0, WINDOWS[0], role="pitcher",
+        )
+        assert row is not None
+        # FIP from totals: (13*1 + 3*5 - 2*12) / 11.0 + 3.06 = 4/11 + 3.06 ≈ 3.42
+        assert row["fip"] is not None
+        assert row["fip"] == pytest.approx(3.42, abs=0.1)
+        assert row["role"] == "pitcher"
+        assert row["innings_pitched"] == 11.0
+
+    def test_pitcher_features_empty_games_returns_none(self) -> None:
+        row = _compute_pitcher_rolling_features_for_window(
+            [], "p1", "Test", "NYY", DAY0, WINDOWS[0], role="pitcher",
+        )
+        assert row is None
+
+    def test_batter_features_vs_rhp_split(self) -> None:
+        """VS_RHP split excludes games with left-handed starters."""
+        games = [
+            _make_batting_game(
+                game_id="g1", game_date=D3, opposing_starter_throws="R",
+            ),
+            _make_batting_game(
+                game_id="g2", game_date=D6, opposing_starter_throws="L",
+            ),
+        ]
+        row = _compute_batter_rolling_features_for_window(
+            games, "p1", "Test Batter", "NYY",
+            DAY0, WINDOWS[2], split="VS_RHP",
+        )
+        assert row is not None
+        assert row["handedness_split"] == "VS_RHP"
+        assert row["plate_appearances"] > 0
+        # Only the RHP game should be counted
+        assert row["plate_appearances"] == 4  # default pa from _make_batting_game
+
+    def test_batter_features_vs_lhp_empty_returns_none(self) -> None:
+        """VS_LHP split with no LHP starters returns None."""
+        games = [
+            _make_batting_game(
+                game_id="g1", game_date=D3, opposing_starter_throws="R",
+            ),
+        ]
+        row = _compute_batter_rolling_features_for_window(
+            games, "p1", "Test Batter", "NYY",
+            DAY0, WINDOWS[2], split="VS_LHP",
+        )
+        assert row is None

@@ -32,6 +32,7 @@ import requests
 from plugins.db_manager import DBManager
 from plugins.stats.advanced_stats import compute_baseball_woba
 from plugins.stats.base import BoxScoreFetcher
+from plugins.utils import parse_innings_pitched, to_int, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -59,39 +60,6 @@ _SCHEDULE_URL: str = (
 )
 
 
-def _to_int(val: Any, default: int = 0) -> int:
-    """Safely coerce *val* to int, returning *default* on failure."""
-    try:
-        return int(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_float(val: Any, default: float = 0.0) -> float:
-    """Safely coerce *val* to float, returning *default* on failure."""
-    try:
-        return float(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _parse_innings_pitched(ip_str: Any) -> float:
-    """Convert ``'6.1'`` → ``6.333``, ``'9.0'`` → ``9.0``.
-
-    The MLB API represents partial innings as decimal tenths where each tenth
-    equals one out (i.e. 6.1 = 6 and 1 out = 6⅓ innings).
-
-    Args:
-        ip_str: Innings-pitched string from the API (e.g. ``"6.2"``).
-
-    Returns:
-        Innings pitched as a true decimal float.
-    """
-    s = str(ip_str or "0.0").strip()
-    if "." in s:
-        whole_str, frac_str = s.split(".", 1)
-        return _to_int(whole_str) + _to_int(frac_str) / 3.0
-    return _to_float(s)
 
 
 class MLBBoxScoreFetcher(BoxScoreFetcher):
@@ -179,21 +147,21 @@ class MLBBoxScoreFetcher(BoxScoreFetcher):
         Returns:
             Normalised row dict with an ``"ext"`` sub-dict.
         """
-        hits = _to_int(batting.get("hits"))
-        doubles = _to_int(batting.get("doubles"))
-        triples = _to_int(batting.get("triples"))
-        home_runs = _to_int(batting.get("homeRuns"))
-        walks = _to_int(batting.get("baseOnBalls"))
-        hbp = _to_int(batting.get("hitByPitch"))
-        sac_flies = _to_int(batting.get("sacFlies"))
-        at_bats = _to_int(batting.get("atBats"))
-        strikeouts = _to_int(batting.get("strikeOuts"))
-        lob = _to_int(batting.get("leftOnBase"))
-        rbi = _to_int(batting.get("rbi"))
-        stolen_bases = _to_int(batting.get("stolenBases"))
-        obp = _to_float(batting.get("obp"))
-        slg = _to_float(batting.get("slg"))
-        errors = _to_int(fielding.get("errors"))
+        hits = to_int(batting.get("hits"))
+        doubles = to_int(batting.get("doubles"))
+        triples = to_int(batting.get("triples"))
+        home_runs = to_int(batting.get("homeRuns"))
+        walks = to_int(batting.get("baseOnBalls"))
+        hbp = to_int(batting.get("hitByPitch"))
+        sac_flies = to_int(batting.get("sacFlies"))
+        at_bats = to_int(batting.get("atBats"))
+        strikeouts = to_int(batting.get("strikeOuts"))
+        lob = to_int(batting.get("leftOnBase"))
+        rbi = to_int(batting.get("rbi"))
+        stolen_bases = to_int(batting.get("stolenBases"))
+        obp = to_float(batting.get("obp"))
+        slg = to_float(batting.get("slg"))
+        errors = to_int(fielding.get("errors"))
 
         singles = max(0, hits - doubles - triples - home_runs)
         woba = compute_baseball_woba(
@@ -210,8 +178,8 @@ class MLBBoxScoreFetcher(BoxScoreFetcher):
             },
         )
 
-        ip = _parse_innings_pitched(pitching.get("inningsPitched", "0.0"))
-        earned_runs = _to_int(pitching.get("earnedRuns"))
+        ip = parse_innings_pitched(pitching.get("inningsPitched", "0.0"))
+        earned_runs = to_int(pitching.get("earnedRuns"))
         era = round(earned_runs / ip * 9, 2) if ip > 0 else 0.0
 
         return {
@@ -284,8 +252,8 @@ class MLBBoxScoreFetcher(BoxScoreFetcher):
         season = str(game_date.year)
 
         linescore_teams = live.get("liveData", {}).get("linescore", {}).get("teams", {})
-        home_runs = _to_int(linescore_teams.get("home", {}).get("runs"))
-        away_runs = _to_int(linescore_teams.get("away", {}).get("runs"))
+        home_runs = to_int(linescore_teams.get("home", {}).get("runs"))
+        away_runs = to_int(linescore_teams.get("away", {}).get("runs"))
 
         gd_teams = game_data.get("teams", {})
         home_abbr: str = gd_teams.get("home", {}).get("abbreviation", "HOME")

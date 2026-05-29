@@ -29,6 +29,7 @@ from typing import Any
 from plugins.db_manager import DBManager
 from plugins.stats.advanced_stats import compute_nfl_epa_aggregate
 from plugins.stats.base import BoxScoreFetcher
+from plugins.utils import to_int, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -70,20 +71,6 @@ def _season_from_game_id(game_id: str) -> int:
     return int(game_id.split("_")[0])
 
 
-def _safe_int(val: Any, default: int = 0) -> int:
-    """Coerce *val* to int, returning *default* on failure."""
-    try:
-        return int(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _safe_float(val: Any, default: float = 0.0) -> float:
-    """Coerce *val* to float, returning *default* on failure."""
-    try:
-        return float(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
 
 
 class NFLBoxScoreFetcher(BoxScoreFetcher):
@@ -192,40 +179,40 @@ class NFLBoxScoreFetcher(BoxScoreFetcher):
             else off.iloc[0:0]
         )
 
-        passing_yards = _safe_int(
+        passing_yards = to_int(
             passing["passing_yards"].sum() if "passing_yards" in passing.columns else 0
         )
-        passing_tds = _safe_int(
+        passing_tds = to_int(
             passing["touchdown"].sum() if "touchdown" in passing.columns else 0
         )
-        passing_ints = _safe_int(
+        passing_ints = to_int(
             passing["interception"].sum() if "interception" in passing.columns else 0
         )
-        rushing_yards = _safe_int(
+        rushing_yards = to_int(
             rushing["rushing_yards"].sum() if "rushing_yards" in rushing.columns else 0
         )
-        rushing_tds = _safe_int(
+        rushing_tds = to_int(
             rushing["touchdown"].sum() if "touchdown" in rushing.columns else 0
         )
         rushing_attempts = len(rushing)
         total_yards = passing_yards + rushing_yards
 
-        turnovers = _safe_int(
+        turnovers = to_int(
             off["interception"].sum() if "interception" in off.columns else 0
-        ) + _safe_int(off["fumble_lost"].sum() if "fumble_lost" in off.columns else 0)
+        ) + to_int(off["fumble_lost"].sum() if "fumble_lost" in off.columns else 0)
 
-        third_conv = _safe_int(
+        third_conv = to_int(
             off["third_down_converted"].sum()
             if "third_down_converted" in off.columns
             else 0
         )
-        third_fail = _safe_int(
+        third_fail = to_int(
             off["third_down_failed"].sum() if "third_down_failed" in off.columns else 0
         )
         third_att = third_conv + third_fail
         third_pct = round(third_conv / third_att, 4) if third_att > 0 else 0.0
 
-        first_downs = _safe_int(
+        first_downs = to_int(
             (
                 off.get("first_down_rush", pd.Series(dtype=float)).fillna(0)
                 + off.get("first_down_pass", pd.Series(dtype=float)).fillna(0)
@@ -248,14 +235,14 @@ class NFLBoxScoreFetcher(BoxScoreFetcher):
             else game_pbp.iloc[0:0]
         )
         penalties = len(pen_plays)
-        penalty_yards = _safe_int(
+        penalty_yards = to_int(
             pen_plays["penalty_yards"].sum()
             if "penalty_yards" in pen_plays.columns
             else 0
         )
 
         # Sacks allowed = times this team's offence was sacked
-        sacks_allowed = _safe_int(off["sack"].sum() if "sack" in off.columns else 0)
+        sacks_allowed = to_int(off["sack"].sum() if "sack" in off.columns else 0)
 
         # EPA (offensive plays)
         epa_dict = compute_nfl_epa_aggregate(off)
@@ -277,9 +264,9 @@ class NFLBoxScoreFetcher(BoxScoreFetcher):
             "penalty_yards": penalty_yards,
             "sacks_allowed": sacks_allowed,
             "first_downs": first_downs,
-            "epa_offense_mean": round(_safe_float(epa_dict.get("epa_offense_mean")), 4),
-            "epa_defense_mean": round(_safe_float(epa_dict.get("epa_defense_mean")), 4),
-            "success_rate": round(_safe_float(epa_dict.get("success_rate")), 4),
+            "epa_offense_mean": round(to_float(epa_dict.get("epa_offense_mean")), 4),
+            "epa_defense_mean": round(to_float(epa_dict.get("epa_defense_mean")), 4),
+            "success_rate": round(to_float(epa_dict.get("success_rate")), 4),
         }
 
     def _build_rows_for_game(
@@ -307,8 +294,8 @@ class NFLBoxScoreFetcher(BoxScoreFetcher):
 
         home_team: str = str(game_row.get("home_team", "HOME"))
         away_team: str = str(game_row.get("away_team", "AWAY"))
-        home_score = _safe_int(game_row.get("home_score"))
-        away_score = _safe_int(game_row.get("away_score"))
+        home_score = to_int(game_row.get("home_score"))
+        away_score = to_int(game_row.get("away_score"))
 
         rows: list[dict[str, Any]] = []
         for team, opp, is_home, pts_for, pts_against in [

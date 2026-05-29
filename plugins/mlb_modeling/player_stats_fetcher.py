@@ -53,6 +53,7 @@ from sqlalchemy import text
 
 from plugins.db_manager import DBManager
 from plugins.stats.advanced_stats import compute_baseball_fip, compute_baseball_woba
+from plugins.utils import parse_innings_pitched, safe_divide, to_int, to_float
 
 logger = logging.getLogger(__name__)
 
@@ -204,40 +205,6 @@ class PlayerStatsFetchResult:
 # ---------------------------------------------------------------------------
 
 
-def _to_int(val: Any, default: int = 0) -> int:
-    """Safely coerce *val* to int, returning *default* on failure."""
-    try:
-        return int(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _to_float(val: Any, default: float = 0.0) -> float:
-    """Safely coerce *val* to float, returning *default* on failure."""
-    try:
-        return float(val) if val is not None else default
-    except (TypeError, ValueError):
-        return default
-
-
-def _parse_innings_pitched(ip_str: Any) -> float:
-    """Convert '6.1' --> 6.333, '9.0' --> 9.0.
-
-    The MLB API represents partial innings as decimal tenths where each
-    tenth equals one out (i.e. 6.1 = 6 and 1 out = 6 1/3 innings).
-    """
-    s = str(ip_str or "0.0").strip()
-    if "." in s:
-        whole_str, frac_str = s.split(".", 1)
-        return _to_int(whole_str) + _to_int(frac_str) / 3.0
-    return _to_float(s)
-
-
-def _safe_divide(num: float, denom: float) -> Optional[float]:
-    """Return *num* / *denom* or None if *denom* is 0."""
-    if denom == 0:
-        return None
-    return num / denom
 
 
 def _get_season_constants(year: int) -> dict[str, float]:
@@ -274,14 +241,14 @@ def compute_advanced_batting_metrics(
     sc = _get_season_constants(season)
     lg_wOBA = sc.get("lg_wOBA", 0.315)
 
-    hits = _to_int(raw_stats.get("hits"))
-    doubles = _to_int(raw_stats.get("doubles"))
-    triples = _to_int(raw_stats.get("triples"))
-    home_runs = _to_int(raw_stats.get("homeRuns"))
-    walks = _to_int(raw_stats.get("baseOnBalls"))
-    hbp = _to_int(raw_stats.get("hitByPitch"))
-    sac_flies = _to_int(raw_stats.get("sacFlies"))
-    at_bats = _to_int(raw_stats.get("atBats"))
+    hits = to_int(raw_stats.get("hits"))
+    doubles = to_int(raw_stats.get("doubles"))
+    triples = to_int(raw_stats.get("triples"))
+    home_runs = to_int(raw_stats.get("homeRuns"))
+    walks = to_int(raw_stats.get("baseOnBalls"))
+    hbp = to_int(raw_stats.get("hitByPitch"))
+    sac_flies = to_int(raw_stats.get("sacFlies"))
+    at_bats = to_int(raw_stats.get("atBats"))
 
     singles = max(0, hits - doubles - triples - home_runs)
 
@@ -362,12 +329,12 @@ def compute_advanced_pitching_metrics(
     sc = _get_season_constants(season)
     fip_constant = sc.get("fip_constant", 3.10)
 
-    ip = _parse_innings_pitched(raw_stats.get("inningsPitched", "0.0"))
-    strikeouts = _to_int(raw_stats.get("strikeOuts"))
-    walks = _to_int(raw_stats.get("baseOnBalls"))
-    home_runs = _to_int(raw_stats.get("homeRuns"))
-    batters_faced = _to_int(raw_stats.get("battersFaced"))
-    hbp = _to_int(raw_stats.get("hitByPitch"))
+    ip = parse_innings_pitched(raw_stats.get("inningsPitched", "0.0"))
+    strikeouts = to_int(raw_stats.get("strikeOuts"))
+    walks = to_int(raw_stats.get("baseOnBalls"))
+    home_runs = to_int(raw_stats.get("homeRuns"))
+    batters_faced = to_int(raw_stats.get("battersFaced"))
+    hbp = to_int(raw_stats.get("hitByPitch"))
 
     # FIP
     fip = compute_baseball_fip(
@@ -469,12 +436,12 @@ def _extract_pitch_events(
             is_whiff = call_code in _SWINGING_STRIKE_CODES
             is_called_strike = call_code in _CALLED_STRIKE_CODES
 
-            velocity = _to_float(pitch_data.get("startSpeed"), default=0.0)
+            velocity = to_float(pitch_data.get("startSpeed"), default=0.0)
             if velocity == 0.0:
                 velocity = None
 
             coordinates = pitch_data.get("coordinates", {})
-            vert_location = _to_float(coordinates.get("z"), default=0.0)
+            vert_location = to_float(coordinates.get("z"), default=0.0)
             if vert_location == 0.0:
                 vert_location = None
 
@@ -547,8 +514,8 @@ def _aggregate_pitch_features(
     features: list[dict[str, Any]] = []
     for (pitcher_id, batter_id, pitch_type), g in groups.items():
         pitch_count = g["pitch_count"]
-        whiff_rate = _safe_divide(float(g["whiffs"]), float(pitch_count))
-        csw_pct = _safe_divide(float(g["csw"]), float(pitch_count))
+        whiff_rate = safe_divide(float(g["whiffs"]), float(pitch_count))
+        csw_pct = safe_divide(float(g["csw"]), float(pitch_count))
 
         avg_vel: Optional[float] = None
         if g["velocities"]:
@@ -685,17 +652,17 @@ def fetch_player_stats(
                     "team": team_abbr,
                     "opponent": opp_abbr,
                     "is_home": side == "home",
-                    "batting_order": _to_int(player_data.get("battingOrder"), default=0)
+                    "batting_order": to_int(player_data.get("battingOrder"), default=0)
                     or None,
                     "bats": (player_data.get("batSide", {}).get("code") or None),
-                    "plate_appearances": _to_int(batting_stats.get("plateAppearances")),
-                    "at_bats": _to_int(batting_stats.get("atBats")),
-                    "hits": _to_int(batting_stats.get("hits")),
-                    "doubles": _to_int(batting_stats.get("doubles")),
-                    "triples": _to_int(batting_stats.get("triples")),
-                    "home_runs": _to_int(batting_stats.get("homeRuns")),
-                    "walks": _to_int(batting_stats.get("baseOnBalls")),
-                    "strikeouts": _to_int(batting_stats.get("strikeOuts")),
+                    "plate_appearances": to_int(batting_stats.get("plateAppearances")),
+                    "at_bats": to_int(batting_stats.get("atBats")),
+                    "hits": to_int(batting_stats.get("hits")),
+                    "doubles": to_int(batting_stats.get("doubles")),
+                    "triples": to_int(batting_stats.get("triples")),
+                    "home_runs": to_int(batting_stats.get("homeRuns")),
+                    "walks": to_int(batting_stats.get("baseOnBalls")),
+                    "strikeouts": to_int(batting_stats.get("strikeOuts")),
                     **advanced,
                     "source": "mlb_statsapi_boxscore",
                     "feature_version": "v1",
@@ -729,15 +696,15 @@ def fetch_player_stats(
                     "is_home": side == "home",
                     "is_starter": pid in starters,
                     "throws": (player_data.get("throws", {}).get("code") or None),
-                    "innings_pitched": _parse_innings_pitched(
+                    "innings_pitched": parse_innings_pitched(
                         pitching_stats.get("inningsPitched", "0.0")
                     ),
-                    "pitch_count": _to_int(pitching_stats.get("pitchesThrown")),
-                    "batters_faced": _to_int(pitching_stats.get("battersFaced")),
-                    "strikeouts": _to_int(pitching_stats.get("strikeOuts")),
-                    "walks": _to_int(pitching_stats.get("baseOnBalls")),
-                    "home_runs_allowed": _to_int(pitching_stats.get("homeRuns")),
-                    "earned_runs": _to_int(pitching_stats.get("earnedRuns")),
+                    "pitch_count": to_int(pitching_stats.get("pitchesThrown")),
+                    "batters_faced": to_int(pitching_stats.get("battersFaced")),
+                    "strikeouts": to_int(pitching_stats.get("strikeOuts")),
+                    "walks": to_int(pitching_stats.get("baseOnBalls")),
+                    "home_runs_allowed": to_int(pitching_stats.get("homeRuns")),
+                    "earned_runs": to_int(pitching_stats.get("earnedRuns")),
                     **advanced,
                     # Fatigue / rolling fields computed downstream
                     "days_rest": None,

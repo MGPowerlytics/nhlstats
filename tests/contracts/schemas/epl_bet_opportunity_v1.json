@@ -103,6 +103,14 @@
     "agreement_diff": {
       "type": "number",
       "minimum": 0.0
+    },
+    "home_team_raw": {
+      "type": "string",
+      "default": ""
+    },
+    "away_team_raw": {
+      "type": "string",
+      "default": ""
     }
   },
   "additionalProperties": false

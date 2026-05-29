@@ -16,7 +16,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from plugins.db_manager import DBManager
-from plugins.elo.elo_update_helpers import save_ratings_to_db
+from plugins.elo.elo_update_helpers import persist_elo_ratings
 from tests.contracts.helpers import validate_contract_payload
 
 
@@ -49,6 +49,7 @@ def contract_db() -> DBManager:
                 "CREATE TABLE elo_ratings ("
                 "  rating_id INTEGER PRIMARY KEY AUTOINCREMENT,"
                 "  sport TEXT NOT NULL,"
+                "  entity_type TEXT NOT NULL DEFAULT 'team',"
                 "  entity_id TEXT NOT NULL,"
                 "  entity_name TEXT NOT NULL,"
                 "  rating DECIMAL(10,2) NOT NULL,"
@@ -72,7 +73,7 @@ class TestEloRatingsProviderContract:
         monkeypatch.setattr("plugins.db_manager.default_db", contract_db)
 
         ratings = {"ALCARAZ": 2100.5, "ZVEREV": 2050.2}
-        save_ratings_to_db("TENNIS", ratings, reference_date=date(2026, 4, 26))
+        persist_elo_ratings("TENNIS", ratings, valid_from=date(2026, 4, 26))
 
         df = contract_db.fetch_df("SELECT * FROM elo_ratings")
         assert len(df) == 2
@@ -93,10 +94,10 @@ class TestEloRatingsProviderContract:
         monkeypatch.setattr("plugins.db_manager.default_db", contract_db)
 
         # Initial rating
-        save_ratings_to_db("MLB", {"NYY": 1500.0}, reference_date=date(2026, 4, 1))
+        persist_elo_ratings("MLB", {"NYY": 1500.0}, valid_from=date(2026, 4, 1))
 
         # Update rating
-        save_ratings_to_db("MLB", {"NYY": 1510.0}, reference_date=date(2026, 4, 2))
+        persist_elo_ratings("MLB", {"NYY": 1510.0}, valid_from=date(2026, 4, 2))
 
         df = contract_db.fetch_df("SELECT * FROM elo_ratings ORDER BY valid_from")
         assert len(df) == 2

@@ -26,30 +26,27 @@ def _extract_sports_config_keys(dag_path: Path) -> Set[str]:
 
 
 def _extract_dashboard_leagues(data_layer_path: Path) -> List[str]:
-    """Extract sports from the data layer's _get_home_advantage dict.
+    """Extract sports from the dashboard rankings page SPORT_OPTIONS list.
 
     We intentionally parse the file AST (not import it) to avoid
     executing Streamlit at import time.
     """
 
-    tree = ast.parse(data_layer_path.read_text(encoding="utf-8"))
+    shared_path = data_layer_path.parent / "shared.py"
+    tree = ast.parse(shared_path.read_text(encoding="utf-8"))
 
     for node in ast.walk(tree):
-        if not isinstance(node, ast.FunctionDef):
-            continue
-        if node.name != "_get_home_advantage":
-            continue
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id == "SPORT_OPTIONS":
+                    if isinstance(node.value, ast.List):
+                        leagues: List[str] = []
+                        for elt in node.value.elts:
+                            if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                                leagues.append(elt.value)
+                        return leagues
 
-        # Find the dict literal inside the function
-        for child in ast.walk(node):
-            if isinstance(child, ast.Dict):
-                leagues: List[str] = []
-                for k in child.keys:
-                    if isinstance(k, ast.Constant) and isinstance(k.value, str):
-                        leagues.append(k.value)
-                return leagues
-
-    raise AssertionError("Could not find _get_home_advantage dict")
+    raise AssertionError("Could not find SPORT_OPTIONS list in dashboard/shared.py")
 
 
 def test_dag_and_dashboard_sports_aligned() -> None:

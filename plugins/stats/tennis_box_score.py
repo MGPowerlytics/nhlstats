@@ -43,6 +43,7 @@ import pandas as pd
 
 from plugins.db_manager import DBManager
 from plugins.stats.base import BoxScoreFetcher
+from plugins.utils import to_optional_int
 
 logger = logging.getLogger(__name__)
 
@@ -54,23 +55,6 @@ _REPO_URLS: dict[str, str] = {
     "atp": _ATP_REPO,
     "wta": _WTA_REPO,
 }
-
-
-def _safe_int(value: Any) -> int | None:
-    """Convert a value to int, returning None on failure.
-
-    Args:
-        value: Raw value (may be NaN, str, or numeric).
-
-    Returns:
-        Integer or ``None``.
-    """
-    try:
-        if pd.isna(value):
-            return None
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
 
 
 def _safe_ratio(numerator: Any, denominator: Any) -> float | None:
@@ -297,10 +281,10 @@ class TennisBoxScoreFetcher(BoxScoreFetcher):
         loser_sets, loser_games = _parse_score(score_str, winner=False)
 
         # Serve stats for winner
-        w_svpt = _safe_int(row.get("w_svpt"))
-        w_1stin = _safe_int(row.get("w_1stIn"))
-        w_1stwon = _safe_int(row.get("w_1stWon"))
-        w_2ndwon = _safe_int(row.get("w_2ndWon"))
+        w_svpt = to_optional_int(row.get("w_svpt"))
+        w_1stin = to_optional_int(row.get("w_1stIn"))
+        w_1stwon = to_optional_int(row.get("w_1stWon"))
+        w_2ndwon = to_optional_int(row.get("w_2ndWon"))
 
         w_first_serve_pct = _safe_ratio(w_1stin, w_svpt)
         w_first_won_pct = _safe_ratio(w_1stwon, w_1stin)
@@ -308,10 +292,10 @@ class TennisBoxScoreFetcher(BoxScoreFetcher):
         w_second_won_pct = _safe_ratio(w_2ndwon, w_second_denom)
 
         # Serve stats for loser
-        l_svpt = _safe_int(row.get("l_svpt"))
-        l_1stin = _safe_int(row.get("l_1stIn"))
-        l_1stwon = _safe_int(row.get("l_1stWon"))
-        l_2ndwon = _safe_int(row.get("l_2ndWon"))
+        l_svpt = to_optional_int(row.get("l_svpt"))
+        l_1stin = to_optional_int(row.get("l_1stIn"))
+        l_1stwon = to_optional_int(row.get("l_1stWon"))
+        l_2ndwon = to_optional_int(row.get("l_2ndWon"))
 
         l_first_serve_pct = _safe_ratio(l_1stin, l_svpt)
         l_first_won_pct = _safe_ratio(l_1stwon, l_1stin)
@@ -321,13 +305,13 @@ class TennisBoxScoreFetcher(BoxScoreFetcher):
         winner_dict: dict[str, Any] = {
             "game_id": game_id,
             "player_name": str(row.get("winner_name", "")),
-            "aces": _safe_int(row.get("w_ace")),
-            "double_faults": _safe_int(row.get("w_df")),
+            "aces": to_optional_int(row.get("w_ace")),
+            "double_faults": to_optional_int(row.get("w_df")),
             "first_serve_pct": w_first_serve_pct,
             "first_serve_won_pct": w_first_won_pct,
             "second_serve_won_pct": w_second_won_pct,
-            "break_points_saved": _safe_int(row.get("w_bpSaved")),
-            "break_points_faced": _safe_int(row.get("w_bpFaced")),
+            "break_points_saved": to_optional_int(row.get("w_bpSaved")),
+            "break_points_faced": to_optional_int(row.get("w_bpFaced")),
             "winners": None,  # Not in Sackmann ATP/WTA base CSVs
             "unforced_errors": None,
             "sets_won": winner_sets,
@@ -337,13 +321,13 @@ class TennisBoxScoreFetcher(BoxScoreFetcher):
         loser_dict: dict[str, Any] = {
             "game_id": game_id,
             "player_name": str(row.get("loser_name", "")),
-            "aces": _safe_int(row.get("l_ace")),
-            "double_faults": _safe_int(row.get("l_df")),
+            "aces": to_optional_int(row.get("l_ace")),
+            "double_faults": to_optional_int(row.get("l_df")),
             "first_serve_pct": l_first_serve_pct,
             "first_serve_won_pct": l_first_won_pct,
             "second_serve_won_pct": l_second_won_pct,
-            "break_points_saved": _safe_int(row.get("l_bpSaved")),
-            "break_points_faced": _safe_int(row.get("l_bpFaced")),
+            "break_points_saved": to_optional_int(row.get("l_bpSaved")),
+            "break_points_faced": to_optional_int(row.get("l_bpFaced")),
             "winners": None,
             "unforced_errors": None,
             "sets_won": loser_sets,
